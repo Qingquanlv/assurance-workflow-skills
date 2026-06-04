@@ -3,3 +3,5 @@ dist/
 coverage/
 *.js.map
 .awe/cache/
+.DS_Store
+**/.DS_Store

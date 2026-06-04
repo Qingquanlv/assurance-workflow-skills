@@ -17,10 +17,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/xml2js": "^0.4.14",
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "inquirer": "^8.2.6",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.10",

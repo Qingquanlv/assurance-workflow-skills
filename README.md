@@ -97,10 +97,103 @@ npm test
 
 M1 implements project bootstrap and environment diagnostics only.
 
-Not yet implemented (planned for later milestones):
+---
+
+## M5 CLI Commands
+
+AWE M5 introduces two deterministic CLI commands for test execution and failure analysis.
+
+### `awe run`
+
+```bash
+awe run --change <change-id>
+```
+
+Example:
+
+```bash
+awe run --change REQ-002-user-logout
+```
+
+Runs generated API / E2E tests, preserves raw framework reports, and writes normalised execution results.
+
+**Generated files:**
+
+```
+qa/changes/<change-id>/execution/
+├── api-result.json        ← normalised pytest results
+├── e2e-result.json        ← normalised Playwright results
+├── summary.md             ← human-readable overview
+├── raw/
+│   ├── api.log
+│   ├── e2e.log
+│   ├── pytest-report.xml
+│   ├── pytest-report.json
+│   ├── playwright-results.json
+│   └── playwright-report/
+├── traces/
+├── screenshots/
+└── videos/
+```
+
+**Rules:**
+
+- If pytest is not found or no API test files exist: `api-result.json.status = skipped`
+- If Playwright is not found or no E2E files exist: `e2e-result.json.status = skipped`
+- Status is **never fabricated** — it is always parsed from real test runner output.
+
+### `awe report inspect`
+
+```bash
+awe report inspect --change <change-id>
+```
+
+Example:
+
+```bash
+awe report inspect --change REQ-002-user-logout
+```
+
+Inspects execution results and artifacts, classifies failures, and writes failure analysis.
+
+**Generated files:**
+
+```
+qa/changes/<change-id>/execution/
+├── failure-analysis.json
+└── failure-summary.md
+```
+
+**Failure categories:**
+
+| Category | Fix Proposal Allowed |
+|----------|:--------------------:|
+| `locator_failure` | ✓ |
+| `wait_strategy_failure` | ✓ |
+| `test_code_error` | ✓ |
+| `test_data_failure` | review |
+| `environment_failure` | ✗ |
+| `assertion_failure` | ✗ |
+| `business_logic_failure` | ✗ |
+| `case_semantic_failure` | ✗ |
+
+## Skills
+
+AWE generates Skill files into `.claude/skills/awe/` and provides reusable skills at `skills/`:
+
+| Skill | File | Purpose |
+|-------|------|---------|
+| `execution-for-qa` | `skills/execution-for-qa/SKILL.md` | Calls `awe run --change` via terminal and reports summary |
+| `failure-analysis-for-qa` | `skills/failure-analysis-for-qa/SKILL.md` | Calls `awe report inspect --change` via terminal and reports failure analysis |
+
+Skills call these CLI commands directly through the terminal. **MCP is optional and must not replace the CLI execution chain.**
+
+---
+
+## Planned (future milestones)
+
 - `awe index`
 - `awe case validate`
 - `awe codegen`
-- `awe run`
 - `awe heal propose`
 - `awe archive`
