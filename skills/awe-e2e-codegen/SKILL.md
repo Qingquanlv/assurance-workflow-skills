@@ -1,5 +1,5 @@
 ---
-name: e2e-codegen-for-qa
+name: awe-e2e-codegen
 description: Use only after E2E plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate E2E test code from plan", "continue E2E codegen", "implement e2e-codegen-plan", "generate /tests/e2e". Reads Stage 1 plan files and generates Playwright tests, fixtures, script-based data setup, and execution results. Never runs before planning is complete.
 ---
 
@@ -49,7 +49,7 @@ description: Use only after E2E plan files have been reviewed and the user expli
 - `qa/changes/<change-id>/cases/**/case.yaml`
 - `.awe/data-knowledge.yaml`
 
-如果缺少任何 plan 文件，必须停止，并提示先运行 `e2e-planning-for-qa`。
+如果缺少任何 plan 文件，必须停止，并提示先运行 `awe-e2e-plan`。
 
 ## Outputs
 

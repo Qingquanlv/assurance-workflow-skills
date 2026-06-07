@@ -30,23 +30,23 @@ use skill tool to list skills
 ### Load a skill
 
 ```
-use skill tool to load awe/execution-for-qa
-use skill tool to load awe/brainstorming-for-qa
+use skill tool to load awe/awe-run
+use skill tool to load awe/awe-case-design
 ```
 
 ### Available Skills
 
 | Skill | Trigger |
 |-------|---------|
-| `brainstorming-for-qa` | Before generating any QA case delta |
-| `api-planning-for-qa` | API test planning |
-| `api-codegen-for-qa` | Generate pytest test code from plan |
-| `e2e-planning-for-qa` | E2E test planning |
-| `e2e-codegen-for-qa` | Generate Playwright test code from plan |
-| `execution-for-qa` | Run tests: `awe run --change <id>` |
-| `failure-analysis-for-qa` | Classify failures: `awe report inspect --change <id>` |
-| `qa-archive` | Archive reviewed QA assets |
-| `qa-dashboard` | View QA dashboard |
+| `awe-case-design` | Analyze requirement and generate QA case delta |
+| `awe-api-plan` | API test planning |
+| `awe-api-codegen` | Generate pytest test code from API plan |
+| `awe-e2e-plan` | E2E test planning |
+| `awe-e2e-codegen` | Generate Playwright test code from E2E plan |
+| `awe-run` | Run tests: `awe run --change <id>` |
+| `awe-inspect` | Inspect test results: `awe report inspect --change <id>` |
+| `awe-archive` | Archive reviewed QA assets |
+| `awe-dashboard` | View QA dashboard |
 
 ## Installing the `awe` CLI
 

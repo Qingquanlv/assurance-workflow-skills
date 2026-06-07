@@ -1,5 +1,5 @@
 ---
-name: e2e-planning-for-qa
+name: awe-e2e-plan
 description: Use when a QA Case Delta contains E2E automation cases and you need to generate reviewable E2E plan files before writing any Playwright code. Triggers on: "generate E2E plan", "M4 Stage 1", "e2e-plan.md", "review before E2E codegen", "E2E planning". Only processes E2E cases with automation.required = true. Never generates test code.
 ---
 
@@ -11,7 +11,7 @@ description: Use when a QA Case Delta contains E2E automation cases and you need
 
 将 QA Case Delta 转化为可审查的 E2E 测试实现计划。
 
-此 Skill 是 AWE M4 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 E2E 自动化 Case，生成 E2E 测试计划、前置数据计划和代码生成计划。用户 Review 通过后，才能进入 `e2e-codegen-for-qa`。
+此 Skill 是 AWE M4 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 E2E 自动化 Case，生成 E2E 测试计划、前置数据计划和代码生成计划。用户 Review 通过后，才能进入 `awe-e2e-codegen`。
 
 ## When to Use
 
@@ -92,7 +92,7 @@ description: Use when a QA Case Delta contains E2E automation cases and you need
 14. 生成 `plans/e2e-codegen-plan.md`。
 15. 生成 `plans/m4-review-summary.md`。
 16. 停止，不生成测试代码。
-17. 提醒用户 Review 后再继续 `e2e-codegen-for-qa`。
+17. 提醒用户 Review 后再继续 `awe-e2e-codegen`。
 
 ## Checklist
 
@@ -334,6 +334,6 @@ M4 Stage 1 completed. Please review the generated E2E plan files before continui
 
 完成后，下一个工作流是：
 
-**e2e-codegen-for-qa**
+**awe-e2e-codegen**
 
 只有用户 Review plan 并明确要求继续 codegen 后，才能进入下一步。

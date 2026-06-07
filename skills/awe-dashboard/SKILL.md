@@ -1,5 +1,5 @@
 ---
-name: qa-dashboard
+name: awe-dashboard
 description: >
   Launch the Case Center browser dashboard to visualize qa/cases/ and qa/changes/ YAML files.
   Use when the user wants to view, browse, or inspect test cases visually.
@@ -20,7 +20,7 @@ from the project and displays them in a filterable three-panel layout.
 ## How to Start
 
 ```bash
-skills/qa-dashboard/scripts/start-server.sh --project-dir <project-root>
+skills/awe-dashboard/scripts/start-server.sh --project-dir <project-root>
 ```
 
 `<project-root>` must be the directory containing the `qa/` folder.
@@ -42,10 +42,10 @@ The script outputs JSON with the URL. Tell the user to open it:
 The `server-started` JSON output includes a `session_dir` field. Pass it to `stop-server.sh`:
 
 ```bash
-skills/qa-dashboard/scripts/stop-server.sh <session_dir>
+skills/awe-dashboard/scripts/stop-server.sh <session_dir>
 ```
 
-Example: if the server started with `"session_dir":"/path/to/project/.superpowers/qa-dashboard/12345-1234567890"`, run:
+Example: if the server started with `"session_dir":"/path/to/project/.superpowers/awe-dashboard/12345-1234567890"`, run:
 ```bash
-skills/qa-dashboard/scripts/stop-server.sh /path/to/project/.superpowers/qa-dashboard/12345-1234567890
+skills/awe-dashboard/scripts/stop-server.sh /path/to/project/.superpowers/awe-dashboard/12345-1234567890
 ```

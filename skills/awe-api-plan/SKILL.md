@@ -1,5 +1,5 @@
 ---
-name: api-planning-for-qa
+name: awe-api-plan
 description: Use when a QA Case Delta contains API automation cases and you need to generate reviewable plan files before writing any test code. Triggers on: "generate API plan", "M3 Stage 1", "api-plan.md", "review before codegen", "api planning". Only processes API cases with automation.required = true. Never generates test code.
 ---
 
@@ -11,7 +11,7 @@ description: Use when a QA Case Delta contains API automation cases and you need
 
 将 QA Case Delta 转化为可审查的 API 测试实现计划。
 
-此 Skill 是 AWE M3 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 API 自动化 Case，生成 API 测试计划、测试数据计划和代码生成计划。用户 Review 通过后，才能进入 `api-codegen-for-qa`。
+此 Skill 是 AWE M3 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 API 自动化 Case，生成 API 测试计划、测试数据计划和代码生成计划。用户 Review 通过后，才能进入 `awe-api-codegen`。
 
 ## When to Use
 
@@ -80,7 +80,7 @@ description: Use when a QA Case Delta contains API automation cases and you need
 10. 生成 `plans/api-codegen-plan.md`。
 11. 生成 `plans/m3-review-summary.md`。
 12. 停止，不生成测试代码。
-13. 提醒用户 Review 后再继续 `api-codegen-for-qa`。
+13. 提醒用户 Review 后再继续 `awe-api-codegen`。
 
 ## Checklist
 
@@ -273,6 +273,6 @@ M3 Stage 1 completed. Please review the generated plan files before continuing t
 
 完成后，下一个工作流是：
 
-**api-codegen-for-qa**
+**awe-api-codegen**
 
 只有用户 Review plan 并明确要求继续 codegen 后，才能进入下一步。

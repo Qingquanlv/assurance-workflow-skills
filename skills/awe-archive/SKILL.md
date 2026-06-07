@@ -1,5 +1,5 @@
 ---
-name: qa-archive
+name: awe-archive
 description: Use after qa-review passes. Merges case-delta into qa/cases/, confirms test code exists in tests/, archives process artifacts to qa/archive/<change-id>/. Requires no BLOCKs in any review file.
 ---
 

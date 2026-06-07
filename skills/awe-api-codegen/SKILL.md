@@ -1,5 +1,5 @@
 ---
-name: api-codegen-for-qa
+name: awe-api-codegen
 description: Use only after API plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". Reads Stage 1 plan files and generates pytest code, fixtures, helpers, and execution results. Never runs before planning is complete.
 ---
 
@@ -48,7 +48,7 @@ description: Use only after API plan files have been reviewed and the user expli
 - `qa/changes/<change-id>/cases/**/case.yaml`
 - `.awe/data-knowledge.yaml`
 
-如果缺少任何 plan 文件，必须停止，并提示先运行 `api-planning-for-qa`。
+如果缺少任何 plan 文件，必须停止，并提示先运行 `awe-api-plan`。
 
 ## Outputs
 

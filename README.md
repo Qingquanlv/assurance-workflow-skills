@@ -179,14 +179,21 @@ qa/changes/<change-id>/execution/
 
 ## Skills
 
-AWE generates Skill files into `.claude/skills/awe/` and provides reusable skills at `skills/`:
+AWE provides reusable skills at `skills/` for Cursor, Claude Code, and OpenCode:
 
 | Skill | File | Purpose |
 |-------|------|---------|
-| `execution-for-qa` | `skills/execution-for-qa/SKILL.md` | Calls `awe run --change` via terminal and reports summary |
-| `failure-analysis-for-qa` | `skills/failure-analysis-for-qa/SKILL.md` | Calls `awe report inspect --change` via terminal and reports failure analysis |
+| `awe-case-design` | `skills/awe-case-design/SKILL.md` | Analyze requirement and generate QA case delta |
+| `awe-api-plan` | `skills/awe-api-plan/SKILL.md` | API test planning |
+| `awe-api-codegen` | `skills/awe-api-codegen/SKILL.md` | Generate pytest test code from API plan |
+| `awe-e2e-plan` | `skills/awe-e2e-plan/SKILL.md` | E2E test planning |
+| `awe-e2e-codegen` | `skills/awe-e2e-codegen/SKILL.md` | Generate Playwright test code from E2E plan |
+| `awe-run` | `skills/awe-run/SKILL.md` | Calls `awe run --change` via terminal and reports summary |
+| `awe-inspect` | `skills/awe-inspect/SKILL.md` | Calls `awe report inspect --change` via terminal and reports failure analysis |
+| `awe-archive` | `skills/awe-archive/SKILL.md` | Archive reviewed QA assets |
+| `awe-dashboard` | `skills/awe-dashboard/SKILL.md` | View QA case center dashboard |
 
-Skills call these CLI commands directly through the terminal. **MCP is optional and must not replace the CLI execution chain.**
+Skills call CLI commands directly through the terminal. **MCP is optional and must not replace the CLI execution chain.**
 
 ---
 

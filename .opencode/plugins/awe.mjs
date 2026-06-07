@@ -5,16 +5,16 @@
  * skills without symlinks or manual config.
  *
  * Skills included:
- *   - brainstorming-for-qa      QA requirements clarification
- *   - api-planning-for-qa       API test planning
- *   - api-codegen-for-qa        API test code generation
- *   - e2e-planning-for-qa       E2E test planning
- *   - e2e-codegen-for-qa        E2E test code generation
- *   - execution-for-qa          Run tests via `awe run --change`
- *   - failure-analysis-for-qa   Classify failures via `awe report inspect --change`
- *   - qa-archive                Archive reviewed QA assets
- *   - qa-dashboard              View QA dashboard
- *   - writing-skills            Writing and documentation helpers
+ *   - awe-case-design   QA requirements clarification and case delta generation
+ *   - awe-api-plan      API test planning
+ *   - awe-api-codegen   API test code generation (pytest)
+ *   - awe-e2e-plan      E2E test planning
+ *   - awe-e2e-codegen   E2E test code generation (Playwright)
+ *   - awe-run           Run tests via `awe run --change`
+ *   - awe-inspect       Classify failures via `awe report inspect --change`
+ *   - awe-archive       Archive reviewed QA assets
+ *   - awe-dashboard     View QA case center dashboard
+ *   - writing-skills    Writing and documentation helpers
  */
 
 import path from 'path';
@@ -96,8 +96,8 @@ ${skills.join('\n')}
 - \`Task\` with subagents → OpenCode's subagent system
 
 **Key CLI commands (must be run in terminal, never fabricated):**
-- \`awe run --change <change-id>\` — execute tests
-- \`awe report inspect --change <change-id>\` — classify failures
+- \`awe run --change <change-id>\` — execute tests (skill: awe-run)
+- \`awe report inspect --change <change-id>\` — classify failures (skill: awe-inspect)
 `;
 
   return _bootstrapCache;
