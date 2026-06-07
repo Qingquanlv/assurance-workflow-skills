@@ -1,3 +1,8 @@
+---
+name: execution-for-qa
+description: "AWE M5: Execute API and E2E tests for a change via `awe run --change <change-id>`. Use when the user asks to run tests, execute test suite, or verify a change. Calls pytest + Playwright through CLI and writes api-result.json, e2e-result.json, summary.md. Never fabricates test results."
+---
+
 # Skill: execution-for-qa
 
 ## Purpose

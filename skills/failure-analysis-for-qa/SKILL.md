@@ -1,3 +1,8 @@
+---
+name: failure-analysis-for-qa
+description: "AWE M5: Inspect execution results and classify test failures via `awe report inspect --change <change-id>`. Use when tests have failed and the user wants to understand why. Classifies failures into categories (locator, assertion, environment, etc.) and writes failure-analysis.json and failure-summary.md."
+---
+
 # Skill: failure-analysis-for-qa
 
 ## Purpose

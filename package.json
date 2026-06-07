@@ -2,7 +2,7 @@
   "name": "assurance-workflow-engine",
   "version": "0.1.0",
   "description": "AWE — Assurance Workflow Engine CLI",
-  "main": "dist/cli.js",
+  "main": ".opencode/plugins/awe.mjs",
   "bin": {
     "awe": "./dist/cli.js"
   },
