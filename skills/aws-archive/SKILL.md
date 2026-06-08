@@ -100,6 +100,22 @@ Verify that test files referenced in `api-codegen-plan.md` and `e2e-codegen-plan
 
 If required test files are missing: **STOP**. Test code must exist before archiving.
 
+### Step 3a: Check Known Product Issues
+
+Before writing the archive summary, check for known product issue files:
+
+```text
+qa/changes/<change-id>/execution/known-product-issues.md
+qa/changes/<change-id>/inspect/known-product-issues.md
+qa/changes/<change-id>/inspect/failure-analysis.json
+```
+
+If any of these files exist:
+
+- Archive is still allowed, provided all review gates pass and tests pass or pass_with_known_issues.
+- Archive summary **must** use `archive_status: archived_with_known_issues`.
+- Do **not** write `clean`, `no risk`, or `fully passed without issues` anywhere in the archive summary.
+
 ### Step 3b: Record Execution Status
 
 Check whether execution summaries exist:
@@ -144,9 +160,23 @@ Must include:
 - API plan review decision and risk level (if applicable, from `api-plan-review.json`)
 - E2E plan review decision and risk level (if applicable, from `plan-review.json`)
 - Execution status section:
-  - API execution: `passed | failed | skipped | not_run` + counts
-  - E2E execution: `passed | failed | skipped | not_run` + counts
+  - API execution: `passed | passed_with_known_issues | failed | skipped | not_run` + counts
+  - E2E execution: `passed | passed_with_known_issues | failed | skipped | not_run` + counts
   - Note: execution failures do not block archive but must be recorded here
+- Archive status: `archived` | `archived_with_known_issues`
+- Known product issues section (if applicable):
+
+```yaml
+archive_status: archived_with_known_issues
+known_product_issues:
+  - id: KPI-001
+    endpoint: GET /api/v1/menu/get
+    severity: major
+    status: open
+    workaround: validated through GET /api/v1/menu/list
+    coverage_gap: direct GET /api/v1/menu/get remains open
+    follow_up: fix backend serialization in get_menu
+```
 
 ## What NEVER Gets Merged Into qa/cases/
 
@@ -176,6 +206,7 @@ Must include:
 | "API plan review is not pass but I'll archive anyway" | API/E2E plan reviews must also pass if the corresponding plan files exist. |
 | "The test code is already there, skip step 3" | Confirm explicitly — step 3 is a safety check. |
 | "I'll skip the archive summary" | Archive summary is the audit trail. |
+| "Tests passed so archive is clean" | If `known-product-issues.md` exists, archive must use `archived_with_known_issues`. Clean archive with unresolved known product issues is forbidden. |
 | "I'll write to qa/cases/<module>.md" | Cases are YAML, not Markdown: `qa/cases/<module>/case.yaml`. |
 
 ## Post-Archive State

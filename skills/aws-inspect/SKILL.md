@@ -59,7 +59,59 @@ MCP is optional and must not replace the CLI execution chain.
 | assertion_failure | ✗ |
 | business_logic_failure | ✗ |
 | case_semantic_failure | ✗ |
+| known_product_issue | ✗ |
+| coverage_gap | ✗ |
 | unknown | review |
+
+## Known Product Issue Classification
+
+When test execution reveals a real product behavior problem but tests use a workaround to continue, classify it as a known product issue — not as a test failure.
+
+Supported categories:
+
+```text
+product_bug
+known_product_issue
+coverage_gap
+test_bug
+test_data_issue
+environment_issue
+unknown
+```
+
+Examples:
+
+- Endpoint returns 500 due to backend serialization error.
+- Test validates behavior through an alternate endpoint because the direct endpoint is broken.
+- Product behavior is incorrect but not blocking the remaining test suite.
+
+### Output Files for Known Issues
+
+Write known product issues to:
+
+```text
+qa/changes/<change-id>/inspect/known-product-issues.md
+qa/changes/<change-id>/inspect/failure-analysis.json
+```
+
+Each known issue entry in `failure-analysis.json` must include:
+
+```json
+{
+  "id": "KPI-001",
+  "category": "known_product_issue",
+  "severity": "major",
+  "endpoint": "GET /api/v1/menu/get",
+  "symptom": "returns 500",
+  "root_cause": "raw ORM object returned through Success(data=result) without serialization",
+  "workaround": "tests verify detail/update result through GET /api/v1/menu/list",
+  "coverage_gap": "direct GET /api/v1/menu/get endpoint remains unverified",
+  "status": "open",
+  "next_action": "fix backend serialization in get_menu"
+}
+```
+
+If known product issues exist, the workflow final summary must **not** say `no risk`, `fully clean`, or `clean pass`.
 
 ## Output Files (read after CLI completes)
 
@@ -67,6 +119,10 @@ MCP is optional and must not replace the CLI execution chain.
 qa/changes/<change-id>/execution/
 ├── failure-analysis.json
 └── failure-summary.md
+
+qa/changes/<change-id>/inspect/   ← written when known product issues are detected
+├── known-product-issues.md
+└── failure-analysis.json
 ```
 
 `execution/` holds both raw execution results and the CLI-generated failure analysis files.
@@ -89,3 +145,5 @@ qa/changes/<change-id>/execution/
 - Do **not** invoke MCP as a substitute for the CLI.
 - Environment failures must **not** enter a Fix Proposal pipeline.
 - Assertion failures must **not** have their expected values auto-changed.
+- `known_product_issue` and `coverage_gap` categories must **not** enter a Fix Proposal pipeline — they require a product fix, not a test fix.
+- If known product issues exist, **never** report the overall result as `no risk`, `clean`, or `fully passed`.

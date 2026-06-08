@@ -333,6 +333,57 @@ qa/changes/<change-id>/review/api-plan-review-summary.md
 
 ---
 
+## Endpoint Coverage Integrity
+
+If a case targets a specific endpoint, the implementation plan should exercise that endpoint directly.
+
+If the plan uses a different endpoint because the target endpoint is broken or unavailable, the reviewer must:
+
+1. Mark the finding as a `coverage_gap`.
+2. Require `known-product-issues.md` documentation before codegen proceeds.
+3. Set `risk_level` at least `medium`.
+4. Set `decision` to `needs_fix` (or `needs_human_review` if the scope cannot be safely adjusted).
+5. Ensure final `decision` is **not** `pass` without explicit acknowledgment of the gap.
+6. Never claim the direct endpoint is fully covered if it is not directly exercised.
+
+### Example
+
+Target endpoint from case:
+
+```text
+GET /api/v1/menu/get
+```
+
+Planned implementation uses alternate endpoint:
+
+```text
+GET /api/v1/menu/list
+```
+
+This is **not** equivalent direct endpoint coverage.
+
+The review finding must include:
+
+```json
+{
+  "id": "API-PLAN-FINDING-COV-001",
+  "severity": "high",
+  "category": "coverage",
+  "file": "qa/changes/<change-id>/plans/api-codegen-plan.md",
+  "message": "Target endpoint GET /api/v1/menu/get is replaced by GET /api/v1/menu/list due to a product bug. Direct endpoint coverage remains open.",
+  "suggestion": "Document the coverage gap in known-product-issues.md. Do not claim GET /api/v1/menu/get is covered.",
+  "auto_fix_allowed": false,
+  "human_review_required": true
+}
+```
+
+If this finding is accepted and documented, set:
+- `codegen_readiness: ready_with_warnings` (not `ready`)
+- `risk_level: medium` (minimum)
+- Confirm `known-product-issues.md` will be written by codegen
+
+---
+
 ## Final Response
 
 After writing the files, respond with:

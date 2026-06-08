@@ -74,6 +74,45 @@ qa/changes/<change-id>/execution/
 6. Present a brief summary to the user (status, counts, any failures).
 7. Do **not** generate `failure-analysis.json` — that is the job of `aws-inspect`.
 
+## Known Product Issues During Execution
+
+A passing test suite does not always mean the product has no issues.
+
+If execution or test diagnostics reveal a real product bug that was worked around during codegen, record it in execution outputs.
+
+Examples:
+
+- A direct endpoint returns 500, but the test uses a list/search endpoint as workaround.
+- A UI flow is skipped due to a known product issue.
+- A backend bug is observed but not fixed in this workflow.
+
+If `aws-api-codegen` or `aws-e2e-codegen` created a `known-product-issues.md` in the codegen stage, copy it to:
+
+```text
+qa/changes/<change-id>/execution/known-product-issues.md
+```
+
+Also include in `qa/changes/<change-id>/execution/summary.md` the following status block:
+
+```yaml
+status: passed_with_known_issues
+known_product_issues:
+  count: <N>
+  files:
+    - qa/changes/<change-id>/execution/known-product-issues.md
+```
+
+### Valid Execution Status Values
+
+```text
+passed
+passed_with_known_issues
+failed
+skipped
+```
+
+If known product issues exist, **do not** report the execution as `clean_pass`, `fully_passed`, or `no_risk`.
+
 ## Hard Rules
 
 - **Never fabricate** passed / failed / skipped status.
@@ -81,3 +120,4 @@ qa/changes/<change-id>/execution/
 - If the CLI returns skipped, report the skip reason from the result file.
 - If the CLI returns failed, advise the user to run `aws report inspect --change <change-id>`.
 - Do **not** invoke MCP as a substitute for the CLI.
+- If `known-product-issues.md` exists, always set execution `status` to `passed_with_known_issues`, never `passed`.

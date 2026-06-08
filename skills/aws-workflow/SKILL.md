@@ -633,8 +633,17 @@ Generated test files:
 
 Execution result:
   command: aws run --change <change-id> | fallback
-  api: <passed | failed | skipped | —>
-  e2e: <passed | failed | skipped | —>
+  api: <passed | passed_with_known_issues | failed | skipped | —>
+  e2e: <passed | passed_with_known_issues | failed | skipped | —>
+
+Known product issues:
+  count: <N>
+  status: none | present
+  files:
+    - qa/changes/<change-id>/execution/known-product-issues.md
+    - qa/changes/<change-id>/inspect/known-product-issues.md
+
+Risk status: clean | passed_with_known_issues | failed
 
 Subagent isolation used:
   <list phases that used subagent> or none
@@ -651,3 +660,51 @@ Do not report any phase as complete unless its expected output files exist and w
 Do not claim the workflow succeeded if it stopped before Phase 9.
 
 Do not report the workflow as completed unless every applicable review gate (`case-review.json`, and `api-plan-review.json` / `plan-review.json` per `test_types`) is present, valid, and has `decision == "pass"`.
+
+---
+
+## Known Product Issue Reporting
+
+The workflow must distinguish between:
+
+```text
+tests passed cleanly
+tests passed with known product issues
+tests failed
+```
+
+If any of the following exist, the final workflow `Status` must be `completed_with_known_issues`, not `completed`:
+
+- `qa/changes/<change-id>/execution/known-product-issues.md`
+- `qa/changes/<change-id>/inspect/known-product-issues.md`
+- `execution/api-result.json` or `execution/e2e-result.json` contains `known_product_issues.count > 0`
+
+The final summary must explicitly mention:
+
+- Affected endpoint or feature
+- Severity
+- Workaround used
+- Coverage gap
+- Status
+- Next action
+
+### Forbidden Final Summary Language (when known product issues exist)
+
+Never use:
+
+```text
+no risk
+fully clean
+clean pass
+all good
+no issues
+completed
+```
+
+Use instead:
+
+```text
+completed_with_known_issues
+passed_with_known_issues
+archived_with_known_issues
+```

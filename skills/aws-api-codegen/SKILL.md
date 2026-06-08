@@ -178,6 +178,61 @@ codegen 完成后输出以下内容（不执行测试）：
 - Do not fake pytest success.
 - If pytest cannot run, mark execution as skipped with reason.
 
+## Workaround Policy
+
+Do not silently change tests to avoid product bugs.
+
+If a direct API endpoint fails due to a product bug and tests use an alternate endpoint for verification, the codegen skill must:
+
+1. Add an explicit test docstring note explaining the workaround.
+2. Add a local comment in the test function body explaining why the alternate endpoint is used.
+3. Write or append a known product issue record to:
+
+```text
+qa/changes/<change-id>/execution/known-product-issues.md
+```
+
+4. Mark the direct endpoint as a coverage gap.
+5. Ensure execution status is `passed_with_known_issues`, not `passed`.
+6. Never claim the original endpoint is directly covered if it is not exercised successfully.
+
+### known-product-issues.md Template
+
+```markdown
+# Known Product Issues
+
+## KPI-001 — <short description>
+
+- Category: known_product_issue
+- Severity: major | minor | critical
+- Module: <module-name>
+- Endpoint: `<METHOD /api/v1/path>`
+- Affected cases:
+  - `<case-id>`
+- Symptom:
+  - <What happens when the endpoint is called>
+- Root cause:
+  - <Why it happens, if known>
+- Workaround:
+  - Tests verify <what> through `<alternate endpoint>`.
+- Coverage gap:
+  - Direct `<endpoint>` coverage remains open.
+- Status: open
+- Required fix:
+  - <What must be done to resolve>
+```
+
+### Example
+
+```
+GET /api/v1/menu/get returns 500 because it returns a raw ORM object through
+Success(data=result) without serialization. Tests verify detail/update through
+GET /api/v1/menu/list as a temporary workaround. Direct GET /api/v1/menu/get
+endpoint coverage remains open.
+```
+
+If the product bug should block release, do not workaround silently. Stop and report a blocker instead.
+
 ## Stop Conditions
 
 必须停止并询问用户：
@@ -192,6 +247,7 @@ codegen 完成后输出以下内容（不执行测试）：
 - Data capability 缺失
 - Endpoint path 仍处于 needs_review
 - 用户未确认继续 codegen
+- A workaround would hide a product bug without writing `known-product-issues.md`
 
 ## Anti-patterns
 
