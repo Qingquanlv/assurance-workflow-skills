@@ -23,7 +23,7 @@ describe('aws config print (integration)', () => {
   });
 
   it('prints config content when file exists', () => {
-    const awsDir = path.join(tmpDir, '.awe');
+    const awsDir = path.join(tmpDir, '.aws');
     fs.mkdirSync(awsDir);
     const configContent = 'version: 1\nproject:\n  name: "test"\n';
     fs.writeFileSync(path.join(awsDir, 'config.yaml'), configContent);

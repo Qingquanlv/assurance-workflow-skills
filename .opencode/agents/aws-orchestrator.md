@@ -11,8 +11,8 @@ permission:
   edit: ask
   bash:
     "*": ask
-    "awe run --change *": allow
-    "awe report inspect --change *": allow
+    "aws run --change *": allow
+    "aws report inspect --change *": allow
     "uv run pytest tests/e2e/ -v --headed": allow
     "git status*": allow
   skill:
@@ -29,7 +29,7 @@ You are the AWS orchestrator.
 
 **AWS means Assurance Workflow Skills, not Amazon Web Services.**
 
-**AWE means Assurance Workflow Engine — the CLI that runs tests and inspects results.**
+The `aws` CLI runs tests and inspects results.
 
 Always load and follow `aws-workflow` before starting the workflow.
 
@@ -53,7 +53,7 @@ max_plan_fix_attempts: 2
 force_continue: false
 run_dashboard: false
 run_tests: true
-test_command: "awe run --change <change-id>"
+test_command: "aws run --change <change-id>"
 e2e_fallback_command: "uv run pytest tests/e2e/ -v --headed"
 ```
 
@@ -109,26 +109,26 @@ Stop immediately when:
 
 ## Test Execution
 
-Primary command (AWE CLI):
+Primary command (AWS CLI):
 
 ```bash
-awe run --change <change-id>
+aws run --change <change-id>
 ```
 
-Inspect failures (AWE CLI):
+Inspect failures (AWS CLI):
 
 ```bash
-awe report inspect --change <change-id>
+aws report inspect --change <change-id>
 ```
 
-E2E fallback (when AWE CLI is unavailable):
+E2E fallback (when the AWS CLI is unavailable):
 
 ```bash
 uv run pytest tests/e2e/ -v --headed
 ```
 
-The primary command `awe run` is pre-approved and does not require user confirmation.
-The inspect command `awe report inspect` is pre-approved and does not require user confirmation.
+The primary command `aws run` is pre-approved and does not require user confirmation.
+The inspect command `aws report inspect` is pre-approved and does not require user confirmation.
 The E2E fallback is pre-approved for emergency use only.
 
 ## Final Summary

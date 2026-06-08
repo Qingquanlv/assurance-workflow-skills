@@ -2,7 +2,7 @@ node_modules/
 dist/
 coverage/
 *.js.map
-.awe/cache/
+.aws/cache/
 .DS_Store
 **/.DS_Store
 docs/

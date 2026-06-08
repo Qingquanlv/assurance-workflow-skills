@@ -13,7 +13,7 @@ description: Use only after E2E plan files have been reviewed and the user expli
 
 将已 Review 的 E2E 测试计划转化为可执行 Python Playwright 测试代码。
 
-此 Skill 是 AWE M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/e2e/test_*.py`、`/tests/e2e/conftest.py`、脚本化前置数据和 execution 结果。
+此 Skill 是 AWS M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/e2e/test_*.py`、`/tests/e2e/conftest.py`、脚本化前置数据和 execution 结果。
 
 ## When to Use
 

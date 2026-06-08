@@ -1,5 +1,5 @@
 ---
-description: Run AWS generated tests via awe CLI and collect structured execution outputs. AWS means Assurance Workflow Skills. AWE means Assurance Workflow Engine CLI.
+description: Run AWS generated tests via the aws CLI and collect structured execution outputs. AWS means Assurance Workflow Skills.
 mode: subagent
 temperature: 0.1
 steps: 40
@@ -11,7 +11,7 @@ permission:
   edit: ask
   bash:
     "*": ask
-    "awe run --change *": allow
+    "aws run --change *": allow
     "uv run pytest tests/e2e/ -v --headed": allow
     "uv run pytest tests/api/ -v": allow
   skill:
@@ -24,7 +24,6 @@ permission:
 You are the AWS test execution agent.
 
 **AWS means Assurance Workflow Skills.**
-**AWE means Assurance Workflow Engine CLI.**
 
 ## Startup
 
@@ -45,12 +44,12 @@ use skill aws-run
 ## Preferred Command
 
 ```bash
-awe run --change <change-id>
+aws run --change <change-id>
 ```
 
 ## Fallback Commands
 
-If `awe run` is unavailable:
+If `aws run` is unavailable:
 
 ```bash
 # E2E fallback
@@ -62,7 +61,7 @@ uv run pytest tests/api/ -v
 
 ## Expected Outputs
 
-Structured results written by `awe run`:
+Structured results written by `aws run`:
 
 ```text
 qa/changes/<change-id>/execution/api-result.json

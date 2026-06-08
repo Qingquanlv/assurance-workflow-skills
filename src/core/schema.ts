@@ -1,4 +1,4 @@
-import { AweConfig } from './types';
+import { AwsConfig } from './types';
 
 export function validateConfig(config: unknown): string[] {
   const errors: string[] = [];
@@ -43,6 +43,6 @@ export function validateConfig(config: unknown): string[] {
   return errors;
 }
 
-export function isValidConfig(config: unknown): config is AweConfig {
+export function isValidConfig(config: unknown): config is AwsConfig {
   return validateConfig(config).length === 0;
 }

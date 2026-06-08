@@ -1,4 +1,4 @@
-export function buildAweRunSkillMd(): string {
+export function buildAwsRunSkillMd(): string {
   return `# Skill: aws-run
 
 ## Purpose

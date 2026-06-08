@@ -9,7 +9,7 @@ function makeTmpProject(): string {
   return dir;
 }
 
-describe('awe run integration', () => {
+describe('aws run integration', () => {
   let projectRoot: string;
   beforeEach(() => { projectRoot = makeTmpProject(); });
   afterEach(() => { fs.rmSync(projectRoot, { recursive: true, force: true }); });

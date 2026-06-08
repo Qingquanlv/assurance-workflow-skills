@@ -14,7 +14,7 @@ function makeExecDir(projectRoot: string, changeId: string): string {
   return execDir;
 }
 
-describe('awe report inspect integration', () => {
+describe('aws report inspect integration', () => {
   let projectRoot: string;
   const changeId = 'REQ-INSPECT-001';
   beforeEach(() => { projectRoot = makeTmpProject(); });

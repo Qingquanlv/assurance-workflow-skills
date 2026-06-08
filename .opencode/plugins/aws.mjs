@@ -1,7 +1,7 @@
 /**
- * AWE (Assurance Workflow Engine) plugin for OpenCode.ai
+ * AWS (Assurance Workflow Skills) plugin for OpenCode.ai
  *
- * Registers the AWE skills directory so OpenCode discovers all QA workflow
+ * Registers the AWS skills directory so OpenCode discovers all QA workflow
  * skills without symlinks or manual config.
  *
  * Skills included:
@@ -24,7 +24,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Skills live two levels up from .opencode/plugins/
-const AWE_SKILLS_DIR = path.resolve(__dirname, '../../skills');
+const AWS_SKILLS_DIR = path.resolve(__dirname, '../../skills');
 
 // Simple frontmatter parser (no external dependencies)
 const extractAndStripFrontmatter = (content) => {
@@ -53,8 +53,8 @@ let _bootstrapCache = undefined;
 const getBootstrapContent = () => {
   if (_bootstrapCache !== undefined) return _bootstrapCache;
 
-  // Build a brief bootstrap listing available AWE skills
-  const skillsDir = AWE_SKILLS_DIR;
+  // Build a brief bootstrap listing available AWS skills
+  const skillsDir = AWS_SKILLS_DIR;
   if (!fs.existsSync(skillsDir)) {
     _bootstrapCache = null;
     return null;
@@ -81,12 +81,12 @@ const getBootstrapContent = () => {
   }
 
   _bootstrapCache = `
-You have AWE (Assurance Workflow Engine) QA workflow skills available.
+You have AWS (Assurance Workflow Skills) QA workflow skills available.
 
-Use OpenCode's native \`skill\` tool to load any AWE skill:
+Use OpenCode's native \`skill\` tool to load any AWS skill:
   skill load aws/<skill-name>
 
-**Available AWE Skills:**
+**Available AWS Skills:**
 ${skills.join('\n')}
 
 **Tool Mapping for OpenCode:**
@@ -103,14 +103,14 @@ ${skills.join('\n')}
   return _bootstrapCache;
 };
 
-export const AwePlugin = async ({ client, directory }) => {
+export const AwsPlugin = async ({ client, directory }) => {
   return {
-    // Register AWE skills directory so OpenCode discovers all skills
+    // Register AWS skills directory so OpenCode discovers all skills
     config: async (config) => {
       config.skills = config.skills || {};
       config.skills.paths = config.skills.paths || [];
-      if (!config.skills.paths.includes(AWE_SKILLS_DIR)) {
-        config.skills.paths.push(AWE_SKILLS_DIR);
+      if (!config.skills.paths.includes(AWS_SKILLS_DIR)) {
+        config.skills.paths.push(AWS_SKILLS_DIR);
       }
     },
 
@@ -123,7 +123,7 @@ export const AwePlugin = async ({ client, directory }) => {
       if (!firstUser || !firstUser.parts.length) return;
 
       // Guard: skip if already injected
-      if (firstUser.parts.some(p => p.type === 'text' && p.text.includes('AWE (Assurance Workflow Engine)'))) return;
+      if (firstUser.parts.some(p => p.type === 'text' && p.text.includes('AWS (Assurance Workflow Skills)'))) return;
 
       const ref = firstUser.parts[0];
       firstUser.parts.unshift({ ...ref, type: 'text', text: bootstrap });

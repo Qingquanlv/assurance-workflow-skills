@@ -117,7 +117,7 @@ export interface FailureAnalysis {
 
 // ─── Existing types ───────────────────────────────────────────────────────────
 
-export interface AweConfig {
+export interface AwsConfig {
   version: number;
   project: {
     name: string;

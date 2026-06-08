@@ -32,7 +32,7 @@ describe('aws doctor --json (integration)', () => {
   });
 
   it('returns warning or ok status when config valid but dirs missing', () => {
-    const awsDir = path.join(tmpDir, '.awe');
+    const awsDir = path.join(tmpDir, '.aws');
     fs.mkdirSync(awsDir);
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const yaml = require('js-yaml');

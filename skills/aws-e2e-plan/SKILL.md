@@ -11,7 +11,7 @@ description: Use when a QA Case Delta contains E2E automation cases and you need
 
 将 QA Case Delta 转化为可审查的 E2E 测试实现计划。
 
-此 Skill 是 AWE M4 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 E2E 自动化 Case，生成 E2E 测试计划、前置数据计划和代码生成计划。用户 Review 通过后，才能进入 `aws-e2e-codegen`。
+此 Skill 是 AWS M4 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 E2E 自动化 Case，生成 E2E 测试计划、前置数据计划和代码生成计划。用户 Review 通过后，才能进入 `aws-e2e-codegen`。
 
 ## When to Use
 

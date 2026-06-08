@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import * as yaml from 'js-yaml';
-import { AweConfig, CheckResult, CheckStatus, DoctorResult } from './types';
+import { AwsConfig, CheckResult, CheckStatus, DoctorResult } from './types';
 import { validateConfig } from './schema';
 
 export function runDoctorChecks(root: string): DoctorResult {
@@ -38,7 +38,7 @@ export function runDoctorChecks(root: string): DoctorResult {
   }
   checks.push({ id: 'config.schema', group: 'config', status: 'ok', message: 'config schema valid' });
 
-  const cfg = config as AweConfig;
+  const cfg = config as AwsConfig;
 
   checks.push(checkConfigValue(
     'config.prd_input_mode', 'config',

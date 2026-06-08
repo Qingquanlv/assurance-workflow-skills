@@ -11,7 +11,7 @@ description: Use when a QA Case Delta contains API automation cases and you need
 
 将 QA Case Delta 转化为可审查的 API 测试实现计划。
 
-此 Skill 是 AWE M3 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 API 自动化 Case，生成 API 测试计划、测试数据计划和代码生成计划。用户 Review 通过后，才能进入 `aws-api-codegen`。
+此 Skill 是 AWS M3 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 API 自动化 Case，生成 API 测试计划、测试数据计划和代码生成计划。用户 Review 通过后，才能进入 `aws-api-codegen`。
 
 ## When to Use
 

@@ -1,4 +1,4 @@
-export function buildAweInspectSkillMd(): string {
+export function buildAwsInspectSkillMd(): string {
   return `# Skill: aws-inspect
 
 ## Purpose

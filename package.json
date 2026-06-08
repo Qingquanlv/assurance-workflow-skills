@@ -1,7 +1,7 @@
 {
   "name": "assurance-workflow-skills",
   "version": "0.1.0",
-  "description": "AWE — Assurance Workflow Engine CLI",
+  "description": "AWS — Assurance Workflow Skills CLI",
   "main": ".opencode/plugins/aws.mjs",
   "bin": {
     "aws": "./dist/cli.js"
