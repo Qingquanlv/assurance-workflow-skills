@@ -314,6 +314,191 @@ Before advancing to the next phase, verify the required output files for the cur
 
 ---
 
+## Mandatory Review JSON Gate
+
+A phase may **never** advance based on natural language approval, a fixer's claim that it fixed something, or an agent's own judgment. Every critical transition is gated by a structured review JSON file written by the corresponding reviewer.
+
+The mandatory gate files are:
+
+| Gate | File | Required before |
+|---|---|---|
+| Case gate | `qa/changes/<change-id>/review/case-review.json` | API/E2E planning |
+| API plan gate | `qa/changes/<change-id>/review/api-plan-review.json` | `aws-api-codegen` |
+| E2E plan gate | `qa/changes/<change-id>/review/plan-review.json` | `aws-e2e-codegen` |
+
+**Universal gate rules — applied to every gate file above:**
+
+1. If the required review JSON file does **not exist** → **STOP**.
+2. If the file is **not valid JSON** → **STOP**.
+3. If the file is missing any **required field** (see field lists below) → **STOP**.
+4. If `decision != "pass"` and the state is not an auto-fixable state → **STOP**.
+
+The workflow may only read JSON fields to decide `continue` / `fix` / `stop`. It must not substitute any other signal for these fields.
+
+### Case gate required fields
+
+`qa/changes/<change-id>/review/case-review.json` must contain:
+
+```json
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "<change-id>",
+  "decision": "pass|needs_fix|needs_human_review|reject",
+  "risk_level": "low|medium|high|critical",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "",
+  "reviewed_files": [],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue|run_case_fixer|human_review|stop",
+  "created_at": "YYYY-MM-DDTHH:mm:ssZ"
+}
+```
+
+Gate decision:
+
+- `decision == "pass"` → continue to API/E2E planning
+- `decision == "reject"` → STOP
+- `human_review_required == true` and `force_continue == false` → STOP
+- `risk_level in ["high","critical"]` and `force_continue == false` → STOP
+- `decision == "needs_fix"` and `auto_fix_allowed == true` → run `aws-case-fixer`
+- otherwise → STOP
+
+### API plan gate required fields
+
+`qa/changes/<change-id>/review/api-plan-review.json` must contain:
+
+```json
+{
+  "schema_version": "1.0",
+  "review_type": "api-plan",
+  "change_id": "<change-id>",
+  "decision": "pass|needs_fix|needs_human_review|reject",
+  "risk_level": "low|medium|high|critical",
+  "codegen_readiness": "ready|ready_with_warnings|not_ready",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "",
+  "reviewed_files": [],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue|run_api_plan_fixer|human_review|stop",
+  "created_at": "YYYY-MM-DDTHH:mm:ssZ"
+}
+```
+
+Gate decision:
+
+- `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]` → continue to `aws-api-codegen`
+- `decision == "reject"` → STOP
+- `human_review_required == true` and `force_continue == false` → STOP
+- `risk_level in ["high","critical"]` and `force_continue == false` → STOP
+- `codegen_readiness == "not_ready"` and `force_continue == false` → STOP
+- `decision == "needs_fix"` and `auto_fix_allowed == true` → run `aws-api-plan-fixer`
+- otherwise → STOP
+
+### E2E plan gate required fields
+
+`qa/changes/<change-id>/review/plan-review.json` must contain:
+
+```json
+{
+  "schema_version": "1.0",
+  "review_type": "e2e-plan",
+  "change_id": "<change-id>",
+  "decision": "pass|needs_fix|needs_human_review|reject",
+  "risk_level": "low|medium|high|critical",
+  "codegen_readiness": "ready|ready_with_warnings|not_ready",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "",
+  "reviewed_files": [],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue|run_plan_fixer|human_review|stop",
+  "created_at": "YYYY-MM-DDTHH:mm:ssZ"
+}
+```
+
+Gate decision:
+
+- `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]` → continue to `aws-e2e-codegen`
+- `decision == "reject"` → STOP
+- `human_review_required == true` and `force_continue == false` → STOP
+- `risk_level in ["high","critical"]` and `force_continue == false` → STOP
+- `codegen_readiness == "not_ready"` and `force_continue == false` → STOP
+- `decision == "needs_fix"` and `auto_fix_allowed == true` → run `aws-plan-fixer`
+- otherwise → STOP
+
+---
+
+## User Approval Is Not a Gate Artifact
+
+Natural language approval from the user is **not** sufficient to advance to codegen or archive.
+
+If the user manually approves a plan, the corresponding reviewer must still write the review JSON file recording that approval:
+
+- User approves case artifacts → `aws-case-reviewer` must write `case-review.json`
+- User approves API plan → `aws-api-plan-reviewer` must write `api-plan-review.json`
+- User approves E2E plan → `aws-plan-reviewer` must write `plan-review.json`
+
+The workflow must never proceed based only on messages such as:
+
+```text
+approved
+looks good
+proceed to codegen
+```
+
+These messages may be used as **input** to the reviewer, but the reviewer must still produce the machine-readable JSON gate. Only a freshly written review JSON with `decision == "pass"` releases the gate.
+
+---
+
+## Retry Must Be Based on JSON
+
+The fix/review loop is driven entirely by review JSON, never by claims:
+
+```text
+reviewer writes JSON
+workflow reads JSON
+if decision == needs_fix and auto_fix_allowed == true → run fixer
+fixer applies changes and writes apply-summary (NOT review JSON)
+reviewer runs again and writes a NEW review JSON
+workflow reads the new JSON
+only decision == pass can continue
+```
+
+Forbidden transitions:
+
+- ❌ fixer says "fixed" → continue
+- ❌ reviewer says "looks good" in chat → continue
+- ❌ user says "approved" → continue
+
+Required transition:
+
+- ✅ new review JSON `decision == "pass"` → continue
+
+---
+
+## Subagent Failure Does Not Bypass the Gate
+
+If a subagent fails or is unavailable, the workflow may run the corresponding skill **inline** in the current agent context. Inline fallback is allowed **only** to generate the same required artifacts — including the same review JSON files.
+
+- Subagent fails → inline reviewer may generate the review JSON.
+- Subagent fails → you may **not** skip review and proceed directly to codegen or archive.
+
+Every gate listed in **Mandatory Review JSON Gate** applies identically whether the phase ran in a subagent or inline.
+
+---
+
 ## Case Review Gate
 
 Read `qa/changes/<change-id>/review/case-review.json` and apply this gate:
@@ -414,6 +599,11 @@ Change ID: <change-id>
 Current phase: <phase that completed or stopped>
 Stop reason: <if stopped>
 
+Review gates:
+  case-review.json: present | missing | invalid | pass | needs_fix | reject
+  api-plan-review.json: present | missing | invalid | pass | needs_fix | reject | not_applicable
+  plan-review.json: present | missing | invalid | pass | needs_fix | reject | not_applicable
+
 Case files:
   .qa.yaml: present | missing
   proposal.md: present | missing
@@ -459,3 +649,5 @@ Next action:
 Do not report any phase as complete unless its expected output files exist and were verified.
 
 Do not claim the workflow succeeded if it stopped before Phase 9.
+
+Do not report the workflow as completed unless every applicable review gate (`case-review.json`, and `api-plan-review.json` / `plan-review.json` per `test_types`) is present, valid, and has `decision == "pass"`.

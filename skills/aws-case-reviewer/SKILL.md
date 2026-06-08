@@ -63,6 +63,18 @@ Create the review directory if it does not exist.
 
 ---
 
+## Mandatory Output Contract
+
+This skill is a **gate producer**. The workflow cannot advance past case review without the JSON file this skill writes.
+
+- You **must** write `qa/changes/<change-id>/review/case-review.json` as valid JSON with all required fields.
+- You **must** write `qa/changes/<change-id>/review/case-review-summary.md`.
+- A natural language conclusion in chat is **not** a substitute for the JSON file. Never end with only a textual verdict.
+- If the user said "approved" / "looks good", you must still encode that as a JSON review with `decision == "pass"` (and appropriate fields). Approval in chat does not release the gate; the JSON does.
+- If you cannot write the JSON file for any reason, treat the review as **failed** and report it — the workflow must treat a missing or invalid `case-review.json` as a STOP condition.
+
+---
+
 ## Review Scope
 
 Review the generated case artifacts for:

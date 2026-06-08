@@ -53,6 +53,19 @@ description: Use only after E2E plan files have been reviewed and the user expli
 
 如果缺少任何 plan 文件，必须停止，并提示先运行 `aws-e2e-plan`。
 
+## Mandatory Review JSON Gate
+
+在生成任何 E2E 测试代码之前，必须验证 E2E plan review gate：
+
+- `qa/changes/<change-id>/review/plan-review.json` 必须存在
+- 必须是合法 JSON
+- `decision == "pass"`
+- `codegen_readiness in ["ready", "ready_with_warnings"]`
+
+如果以上任一条件不满足（文件缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == "not_ready"`），必须 **STOP**，不得生成代码。
+
+用户在对话中说 "approved" / "looks good" 不能替代此 JSON gate。如果用户口头批准，必须由 `aws-plan-reviewer` 写出 `plan-review.json` 后才能继续。
+
 ## Outputs
 
 可以生成：
@@ -91,10 +104,10 @@ description: Use only after E2E plan files have been reviewed and the user expli
 5. 读取 `case.yaml`。
 6. 读取 `.aws/data-knowledge.yaml`。
 7. 检查 Codegen Preconditions（见 Output Contract 中的 Codegen Preconditions）。
-8. 检查 Codegen Readiness：
-   - 优先读取 `qa/changes/<change-id>/review/plan-review.json`：如果 `decision == "pass"` 且 `codegen_readiness` 在 `["ready", "ready_with_warnings"]`，直接继续。
-   - 如果 `plan-review.json` 不存在，则读取 `m4-review-summary.md`：如果 Codegen Readiness 不是 `ready` 或 `approved`，必须请求用户明确确认后才能继续。
-   - 如果 `plan-review.json` 存在但 `codegen_readiness == "not_ready"`，必须停止，不得继续。
+8. 检查 Mandatory Review JSON Gate（见上文章节）：
+   - 读取 `qa/changes/<change-id>/review/plan-review.json`。
+   - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
+   - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
 9. 校验 route、natural steps、selector strategy、assertion、fixture、auth、cleanup、data setup script 映射完整性。
 10. 根据 `e2e-test-data-plan.md` 生成 `qa/changes/<change-id>/scripts/e2e-data-setup.py`。
 11. 根据 `e2e-codegen-plan.md` 按需生成 `/tests/fixtures/**/*.py`（pytest fixtures）。
@@ -115,6 +128,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - [ ] 读取 `case.yaml`
 - [ ] 读取 `.aws/data-knowledge.yaml`
 - [ ] 检查 Codegen Preconditions
+- [ ] 检查 Mandatory Review JSON Gate（`plan-review.json` 存在、合法、`decision == pass`、`codegen_readiness in [ready, ready_with_warnings]`）
 - [ ] 校验 route 和 natural steps
 - [ ] 校验数据 setup script capability
 - [ ] 校验 selector strategy
@@ -190,7 +204,7 @@ codegen 完成后输出以下内容（不执行测试）：
 - `e2e-plan.md` 已存在且 Blockers 为空
 - `e2e-test-data-plan.md` 已存在
 - `e2e-codegen-plan.md` 已存在
-- `plan-review.json` 存在且 `decision == "pass"` 且 `codegen_readiness` 为 `ready` 或 `ready_with_warnings`（如无 review JSON，则 `m4-review-summary.md` Codegen Readiness = `ready` 或 `approved`）
+- `plan-review.json` 必须存在、是合法 JSON、`decision == "pass"` 且 `codegen_readiness` 为 `ready` 或 `ready_with_warnings`。缺失/非法/未通过即 STOP，**不接受**用 `m4-review-summary.md` 或对话批准替代
 - `.aws/data-knowledge.yaml` 已存在，且所有 required capability 状态为 found
 - Route Mapping 无 needs_review 项
 - Selector Strategy 无 needs_review 项
@@ -254,6 +268,7 @@ E2E 前置数据必须优先通过脚本构造。
 - 缺少 `e2e-codegen-plan.md`
 - 缺少 `m4-review-summary.md`
 - 缺少 `.aws/data-knowledge.yaml`
+- `plan-review.json` 缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == not_ready`
 - Codegen Preconditions 未满足
 - Data setup capability 缺失
 - Route path 仍处于 needs_review

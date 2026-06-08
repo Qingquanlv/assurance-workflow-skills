@@ -64,6 +64,18 @@ Create the review directory if it does not exist.
 
 ---
 
+## Mandatory Output Contract
+
+This skill is a **gate producer**. The workflow cannot advance to `aws-e2e-codegen` without the JSON file this skill writes.
+
+- You **must** write `qa/changes/<change-id>/review/plan-review.json` as valid JSON with all required fields, including `codegen_readiness`.
+- You **must** write `qa/changes/<change-id>/review/plan-review-summary.md`.
+- A natural language conclusion in chat is **not** a substitute for the JSON file. Never end with only a textual verdict.
+- If the user said "approved" / "looks good", you must still encode that as a JSON review with `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]`. Approval in chat does not release the gate; the JSON does.
+- If you cannot write the JSON file for any reason, treat the review as **failed** — the workflow must treat a missing or invalid `plan-review.json` as a STOP condition.
+
+---
+
 ## Review Scope
 
 Review the plan for:
@@ -273,7 +285,7 @@ Use this exact top-level structure:
 ```json
 {
   "schema_version": "1.0",
-  "review_type": "plan",
+  "review_type": "e2e-plan",
   "change_id": "<change-id>",
   "decision": "pass",
   "risk_level": "low",

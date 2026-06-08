@@ -78,6 +78,18 @@ The orchestrator may delete or regenerate `case-review.json` after this skill co
 
 ---
 
+## Gate Boundaries
+
+This fixer must never bypass the reviewer. It is **not** a gate producer.
+
+- Only apply findings where `auto_fix_allowed == true` and `human_review_required == false`.
+- **Never** write or modify `case-review.json` or any review JSON file.
+- **Never** set or change `decision` to `pass` — the fixer has no authority to pass the gate.
+- After applying fixes, you **must** request a fresh run of `aws-case-reviewer`. The workflow only continues when a **new** `case-review.json` has `decision == "pass"`.
+- A fixer's claim that it "fixed everything" does not release the gate. Only the reviewer's new JSON does.
+
+---
+
 ## Allowed Fixes
 
 You may apply fixes for findings where:

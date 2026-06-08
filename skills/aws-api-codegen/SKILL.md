@@ -50,6 +50,19 @@ description: Use only after API plan files have been reviewed and the user expli
 
 如果缺少任何 plan 文件，必须停止，并提示先运行 `aws-api-plan`。
 
+## Mandatory Review JSON Gate
+
+在生成任何 API 测试代码之前，必须验证 API plan review gate：
+
+- `qa/changes/<change-id>/review/api-plan-review.json` 必须存在
+- 必须是合法 JSON
+- `decision == "pass"`
+- `codegen_readiness in ["ready", "ready_with_warnings"]`
+
+如果以上任一条件不满足（文件缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == "not_ready"`），必须 **STOP**，不得生成代码。
+
+用户在对话中说 "approved" / "looks good" 不能替代此 JSON gate。如果用户口头批准，必须由 `aws-api-plan-reviewer` 写出 `api-plan-review.json` 后才能继续。
+
 ## Outputs
 
 可以生成：
@@ -79,10 +92,10 @@ description: Use only after API plan files have been reviewed and the user expli
 5. 读取 `case.yaml`。
 6. 读取 `.aws/data-knowledge.yaml`。
 7. 检查 Codegen Preconditions：所有 plan 文件存在且无缺失。
-8. 检查 Codegen Readiness：
-   - 优先读取 `qa/changes/<change-id>/review/api-plan-review.json`：如果 `decision == "pass"` 且 `codegen_readiness` 在 `["ready", "ready_with_warnings"]`，直接继续。
-   - 如果 `api-plan-review.json` 不存在，则读取 `m3-review-summary.md`：如果 Codegen Readiness 不是 `ready`、`approved` 或 `reviewed`，必须请求用户确认是否继续。
-   - 如果 `api-plan-review.json` 存在但 `codegen_readiness == "not_ready"`，必须停止，不得继续。
+8. 检查 Mandatory Review JSON Gate（见上文章节）：
+   - 读取 `qa/changes/<change-id>/review/api-plan-review.json`。
+   - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
+   - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
 9. 校验 endpoint、assertion、fixture、auth、cleanup 映射完整性。
 10. 根据 `api-codegen-plan.md` 生成 `/tests/api/*.py`。
 11. 根据 `api-test-data-plan.md` 生成 `/tests/fixtures/*.py`。
@@ -102,6 +115,7 @@ description: Use only after API plan files have been reviewed and the user expli
 - [ ] 读取 `case.yaml`
 - [ ] 读取 `.aws/data-knowledge.yaml`
 - [ ] 检查 Codegen Preconditions
+- [ ] 检查 Mandatory Review JSON Gate（`api-plan-review.json` 存在、合法、`decision == pass`、`codegen_readiness in [ready, ready_with_warnings]`）
 - [ ] 校验测试数据 capability
 - [ ] 生成 `/tests/api/*.py`
 - [ ] 生成 `/tests/fixtures/*.py`
@@ -173,6 +187,7 @@ codegen 完成后输出以下内容（不执行测试）：
 - 缺少 `api-codegen-plan.md`
 - 缺少 `m3-review-summary.md`
 - 缺少 `.aws/data-knowledge.yaml`
+- `api-plan-review.json` 缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == not_ready`
 - Codegen Preconditions 未满足
 - Data capability 缺失
 - Endpoint path 仍处于 needs_review

@@ -107,6 +107,28 @@ Stop immediately when:
 - Maximum fix attempts are exceeded.
 - Codegen would require guessing product behavior.
 
+## Mandatory Review JSON Gate
+
+Do not advance to planning, codegen, run, or archive based only on natural language approval, a fixer's claim, or your own judgment.
+
+You must verify the required review JSON file exists, is valid JSON, and passes the gate before each transition:
+
+- `qa/changes/<change-id>/review/case-review.json` before planning
+- `qa/changes/<change-id>/review/api-plan-review.json` before API codegen
+- `qa/changes/<change-id>/review/plan-review.json` before E2E codegen
+
+Gate rules (per `aws-workflow` "Mandatory Review JSON Gate"):
+
+- Missing file, invalid JSON, or missing required field → **STOP**.
+- `decision != "pass"` and not an auto-fixable state → **STOP**.
+- Plan gates additionally require `codegen_readiness in ["ready","ready_with_warnings"]`.
+
+If the user manually approves a plan, invoke the corresponding reviewer (`aws-case-reviewer` / `aws-api-plan-reviewer` / `aws-plan-reviewer`) to write the JSON gate that records the approval. **Never skip the review JSON gate.**
+
+A fixer never releases a gate. After any fixer runs, re-run the matching reviewer and only continue when a **new** review JSON has `decision == "pass"`.
+
+**Subagent failure does not bypass the gate.** If a subagent fails or is unavailable, you may run the corresponding skill inline, but you must still produce the same review JSON files and pass the same gates. Never proceed to codegen or archive without them.
+
 ## Test Execution
 
 Primary command (AWS CLI):

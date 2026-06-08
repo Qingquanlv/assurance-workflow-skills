@@ -86,6 +86,18 @@ Do not directly update `.aws/data-knowledge.yaml`. Only propose updates in `data
 
 ---
 
+## Gate Boundaries
+
+This fixer must never bypass the reviewer. It is **not** a gate producer.
+
+- Only apply findings where `auto_fix_allowed == true` and `human_review_required == false`.
+- **Never** write or modify `api-plan-review.json` or any review JSON file.
+- **Never** set or change `decision` to `pass` or `codegen_readiness` to `ready` — the fixer has no authority to pass the gate.
+- After applying fixes, you **must** request a fresh run of `aws-api-plan-reviewer`. The workflow only continues to `aws-api-codegen` when a **new** `api-plan-review.json` has `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]`.
+- A fixer's claim that it "fixed everything" does not release the gate. Only the reviewer's new JSON does.
+
+---
+
 ## Allowed Fixes
 
 You may apply fixes for findings where:

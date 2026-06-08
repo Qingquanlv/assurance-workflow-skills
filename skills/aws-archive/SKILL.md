@@ -23,7 +23,9 @@ ALL of these must be true before archiving:
 - `qa/changes/<change-id>/cases/<module>/case.yaml` exists (the case delta)
 - `qa/cases/<module>/case.yaml` is writable (the stable main asset)
 
-If any required review is missing or `decision` is not `pass`: **STOP**. Do not archive.
+If any required review JSON is missing, is invalid JSON, or `decision` is not `pass`: **STOP**. Do not archive.
+
+**Pragmatic archive without review JSON is forbidden.** Never archive based on natural language approval, an agent's judgment, or "the tests look done". The only authority to archive is a present, valid review JSON with `decision == "pass"` for every applicable gate (case, and API/E2E plan when the corresponding plan file exists).
 
 ## Output
 
@@ -169,6 +171,7 @@ Must include:
 |---------|---------|
 | "I'll merge plan files into qa/cases/" | Plans are NEVER merged into cases. |
 | "I'll archive without checking case-review.json" | Case review gate is mandatory — must be `decision: pass`. |
+| "User approved in chat, I'll archive without the JSON" | Pragmatic archive without review JSON is forbidden. Only a valid `decision: pass` JSON releases the gate. |
 | "Tests failed so I'll skip archiving" | Execution failures do not block archive. Record status in archive-summary.md and proceed. |
 | "API plan review is not pass but I'll archive anyway" | API/E2E plan reviews must also pass if the corresponding plan files exist. |
 | "The test code is already there, skip step 3" | Confirm explicitly — step 3 is a safety check. |
