@@ -16,7 +16,7 @@ export function registerReportCommand(program: Command): void {
       const changeId: string = options.change;
       const projectRoot = process.cwd();
 
-      logHeader(`awe report inspect — change: ${changeId}`);
+      logHeader(`aws report inspect — change: ${changeId}`);
       logBlank();
       logInfo(`Project root: ${projectRoot}`);
       logInfo(`Change: ${changeId}`);
@@ -71,7 +71,7 @@ export function registerReportCommand(program: Command): void {
         }
       } catch (err) {
         logError(`Inspect failed: ${(err as Error).message}`);
-        if (process.env.AWE_DEBUG) console.error((err as Error).stack);
+        if (process.env.AWS_DEBUG) console.error((err as Error).stack);
         process.exit(1);
       }
     });

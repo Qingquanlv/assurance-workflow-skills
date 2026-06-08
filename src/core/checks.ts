@@ -9,16 +9,16 @@ export function runDoctorChecks(root: string): DoctorResult {
   const checks: CheckResult[] = [];
 
   // --- Config checks ---
-  const configPath = path.join(root, '.awe/config.yaml');
+  const configPath = path.join(root, '.aws/config.yaml');
   if (!fs.existsSync(configPath)) {
     checks.push({
       id: 'config.exists', group: 'config', status: 'error',
-      message: '.awe/config.yaml not found',
-      suggested_fix: 'Run `awe init`',
+      message: '.aws/config.yaml not found',
+      suggested_fix: 'Run `aws init`',
     });
     return buildResult(checks);
   }
-  checks.push({ id: 'config.exists', group: 'config', status: 'ok', message: '.awe/config.yaml found' });
+  checks.push({ id: 'config.exists', group: 'config', status: 'ok', message: '.aws/config.yaml found' });
 
   let config: unknown;
   try {
@@ -104,12 +104,12 @@ export function runDoctorChecks(root: string): DoctorResult {
 
   // --- Workflow ---
   if (cfg.workflow.agents.claude_code) {
-    const skillPath = path.join(root, '.claude/skills/awe/SKILL.md');
+    const skillPath = path.join(root, '.claude/skills/aws/SKILL.md');
     checks.push({
       id: 'workflow.claude_skill', group: 'workflow',
       status: fs.existsSync(skillPath) ? 'ok' : 'warning',
       message: fs.existsSync(skillPath) ? 'Claude Code skill found' : 'Claude Code skill not found',
-      suggested_fix: fs.existsSync(skillPath) ? undefined : 'Run `awe init --repair --claude`',
+      suggested_fix: fs.existsSync(skillPath) ? undefined : 'Run `aws init --repair --claude`',
     });
   } else {
     checks.push({
@@ -125,7 +125,7 @@ export function runDoctorChecks(root: string): DoctorResult {
       id: 'workflow.codex_agents', group: 'workflow',
       status: fs.existsSync(agentsPath) ? 'ok' : 'warning',
       message: fs.existsSync(agentsPath) ? 'Codex AGENTS.md found' : 'Codex AGENTS.md not found',
-      suggested_fix: fs.existsSync(agentsPath) ? undefined : 'Run `awe init --repair --codex`',
+      suggested_fix: fs.existsSync(agentsPath) ? undefined : 'Run `aws init --repair --codex`',
     });
   } else {
     checks.push({
@@ -152,7 +152,7 @@ export function runDoctorChecks(root: string): DoctorResult {
     id: 'execution.policy', group: 'execution',
     status: fs.existsSync(policyPath) ? 'ok' : 'warning',
     message: fs.existsSync(policyPath) ? `policy file found: ${cfg.execution.policy_file}` : `policy file not found: ${cfg.execution.policy_file}`,
-    suggested_fix: fs.existsSync(policyPath) ? undefined : 'Run `awe init --repair`',
+    suggested_fix: fs.existsSync(policyPath) ? undefined : 'Run `aws init --repair`',
   });
 
   return buildResult(checks);

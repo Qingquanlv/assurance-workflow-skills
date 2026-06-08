@@ -190,8 +190,7 @@ export interface DoctorResult {
 }
 
 export interface InitAnswers {
-  agent: 'claude_code' | 'codex' | 'both' | 'none';
-  apiFramework: 'pytest' | 'go test' | 'jest' | 'none';
+  apiFramework: 'pytest' | 'none';
   e2eFramework: 'playwright' | 'none';
   enableMcp: boolean;
   confirm: boolean;

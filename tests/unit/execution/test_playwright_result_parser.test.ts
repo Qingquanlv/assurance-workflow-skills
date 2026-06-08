@@ -4,7 +4,7 @@ import * as path from 'path';
 import { parsePlaywrightJson } from '../../../src/execution/result_parser';
 
 function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'awe-pw-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'aws-pw-'));
 }
 
 describe('parsePlaywrightJson', () => {

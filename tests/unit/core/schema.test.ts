@@ -67,7 +67,7 @@ function buildMinimalConfig(overrides: {
     },
     execution: {
       entry: overrides.entry ?? 'cli',
-      policy_file: './.awe/execution-policy.json',
+      policy_file: './.aws/execution-policy.json',
       ci_must_use_cli: true,
       self_healing: {
         mode: overrides.healingMode ?? 'proposal-only',

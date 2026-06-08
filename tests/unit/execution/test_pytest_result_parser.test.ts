@@ -4,7 +4,7 @@ import * as path from 'path';
 import { parsePytestXml } from '../../../src/execution/result_parser';
 
 function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'awe-pytest-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'aws-pytest-'));
 }
 
 describe('parsePytestXml', () => {

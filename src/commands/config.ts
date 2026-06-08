@@ -7,18 +7,18 @@ import { logError } from '../utils/logger';
 export function registerConfigCommand(program: Command): void {
   const configCmd = program
     .command('config')
-    .description('Manage AWE configuration');
+    .description('Manage AWS configuration');
 
   configCmd
     .command('print')
-    .description('Print current .awe/config.yaml')
+    .description('Print current .aws/config.yaml')
     .action(() => {
       const root = process.cwd();
-      const configPath = path.join(root, '.awe/config.yaml');
+      const configPath = path.join(root, '.aws/config.yaml');
 
       if (!fs.existsSync(configPath)) {
-        logError('.awe/config.yaml not found.');
-        console.log('Run ' + chalk.cyan('`awe init`') + ' first.');
+        logError('.aws/config.yaml not found.');
+        console.log('Run ' + chalk.cyan('`aws init`') + ' first.');
         process.exit(1);
       }
 

@@ -9,8 +9,8 @@ import { registerReportCommand } from './commands/report';
 const program = new Command();
 
 program
-  .name('awe')
-  .description('AWE — Assurance Workflow Engine CLI')
+  .name('aws')
+  .description('AWS — Assurance Workflow Engine CLI')
   .version('0.1.0');
 
 registerInitCommand(program);

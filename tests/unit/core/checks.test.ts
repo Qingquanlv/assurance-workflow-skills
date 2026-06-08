@@ -7,7 +7,7 @@ describe('runDoctorChecks', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-doctor-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-doctor-'));
   });
 
   afterEach(() => {
@@ -16,7 +16,7 @@ describe('runDoctorChecks', () => {
 
   function writeConfig() {
     const config = buildValidConfig();
-    const configDir = path.join(tmpDir, '.awe');
+    const configDir = path.join(tmpDir, '.aws');
     fs.mkdirSync(configDir, { recursive: true });
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const yaml = require('js-yaml');
@@ -25,7 +25,7 @@ describe('runDoctorChecks', () => {
   }
 
   function writePolicy() {
-    const policyPath = path.join(tmpDir, '.awe/execution-policy.json');
+    const policyPath = path.join(tmpDir, '.aws/execution-policy.json');
     fs.writeFileSync(policyPath, JSON.stringify({ tier: 'local' }));
   }
 
@@ -47,7 +47,7 @@ describe('runDoctorChecks', () => {
   });
 
   it('returns error when config schema is invalid', () => {
-    const configDir = path.join(tmpDir, '.awe');
+    const configDir = path.join(tmpDir, '.aws');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, 'config.yaml'), 'not_a_valid_config: true\n');
 
@@ -158,7 +158,7 @@ function buildValidConfig() {
     },
     execution: {
       entry: 'cli',
-      policy_file: './.awe/execution-policy.json',
+      policy_file: './.aws/execution-policy.json',
       ci_must_use_cli: true,
       self_healing: {
         mode: 'proposal-only',

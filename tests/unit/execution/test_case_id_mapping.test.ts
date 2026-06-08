@@ -5,7 +5,7 @@ import { parsePytestXml } from '../../../src/execution/result_parser';
 
 describe('Case ID mapping', () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-caseid-')); });
+  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-caseid-')); });
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
   function runParser(testName: string) {

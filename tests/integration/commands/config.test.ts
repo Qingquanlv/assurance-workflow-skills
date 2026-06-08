@@ -5,11 +5,11 @@ import { execSync } from 'child_process';
 
 const CLI = path.resolve(__dirname, '../../../dist/cli.js');
 
-describe('awe config print (integration)', () => {
+describe('aws config print (integration)', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-config-int-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-config-int-'));
   });
 
   afterEach(() => {
@@ -23,10 +23,10 @@ describe('awe config print (integration)', () => {
   });
 
   it('prints config content when file exists', () => {
-    const aweDir = path.join(tmpDir, '.awe');
-    fs.mkdirSync(aweDir);
+    const awsDir = path.join(tmpDir, '.awe');
+    fs.mkdirSync(awsDir);
     const configContent = 'version: 1\nproject:\n  name: "test"\n';
-    fs.writeFileSync(path.join(aweDir, 'config.yaml'), configContent);
+    fs.writeFileSync(path.join(awsDir, 'config.yaml'), configContent);
 
     const output = execSync(`node ${CLI} config print`, {
       cwd: tmpDir,

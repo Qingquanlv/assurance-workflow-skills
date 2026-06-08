@@ -7,7 +7,7 @@ describe('safeWriteFile', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-test-'));
   });
 
   afterEach(() => {
@@ -49,7 +49,7 @@ describe('ensureDir', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-test-'));
   });
 
   afterEach(() => {
@@ -71,7 +71,7 @@ describe('fileExists', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awe-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-test-'));
   });
 
   afterEach(() => {

@@ -1,7 +1,7 @@
 export function buildSkillMd(): string {
-  return `# AWE Skill
+  return `# AWS Skill
 
-AWE means Assurance Workflow Engine.
+AWS means Assurance Workflow Engine.
 
 ## Purpose
 
@@ -20,29 +20,29 @@ Generate structured QA assets and executable automated tests from user-provided 
 ## M1 Available Commands
 
 \`\`\`bash
-awe doctor
-awe doctor --json
-awe init --repair
-awe config print
+aws doctor
+aws doctor --json
+aws init --repair
+aws config print
 \`\`\`
 
 ## Planned Workflow
 
 The following workflow belongs to later milestones:
 
-1. Read \`.awe/config.yaml\`.
+1. Read \`.aws/config.yaml\`.
 2. Use the current user prompt as the PRD / requirement source.
 3. Generate \`proposal.md\`.
 4. Generate \`case-delta.yaml\`.
 5. Generate \`api-subplan.md\` and \`e2e-subplan.md\`.
 6. Generate test code under \`/tests\`.
-7. Execute through AWE CLI.
+7. Execute through AWS CLI.
 8. Generate Fix Proposal.
 9. Archive reviewed assets.
 
 ## Hard Rules
 
-- Always read \`.awe/config.yaml\` first.
+- Always read \`.aws/config.yaml\` first.
 - Do not require a PRD directory.
 - Treat PRD and requirements as prompt input.
 - Do not generate test code before proposal and case-delta.

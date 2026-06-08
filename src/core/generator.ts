@@ -1,13 +1,76 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import { InitAnswers } from './types';
 import { buildConfigYaml } from '../templates/config-yaml';
 import { buildExecutionPolicy } from '../templates/execution-policy';
-import { buildSkillMd } from '../templates/skill-md';
-import { buildAgentsMd } from '../templates/agents-md';
-import { safeWriteFile, fileExists } from '../utils/fs';
+import { safeWriteFile, fileExists, ensureDir } from '../utils/fs';
+
+
+// ─── OpenCode registration ────────────────────────────────────────────────────
+
+const OPENCODE_PLUGIN_ENTRY =
+  'assurance-workflow-skills@git+https://github.com/Qingquanlv/assurance-workflow-skills.git';
+
+export interface OpenCodeResult {
+  opencodejsonCreated: boolean;
+  agentsCopied: string[];
+  agentsSkipped: string[];
+}
+
+export function registerOpenCode(projectRoot: string, packageRoot: string): OpenCodeResult {
+  const result: OpenCodeResult = {
+    opencodejsonCreated: false,
+    agentsCopied: [],
+    agentsSkipped: [],
+  };
+
+  // 1. Write / merge opencode.json
+  const opencodejsonPath = path.join(projectRoot, 'opencode.json');
+  let config: Record<string, unknown> = {};
+
+  if (fs.existsSync(opencodejsonPath)) {
+    try {
+      config = JSON.parse(fs.readFileSync(opencodejsonPath, 'utf8'));
+    } catch {
+      config = {};
+    }
+  } else {
+    result.opencodejsonCreated = true;
+  }
+
+  const plugins: string[] = Array.isArray(config['plugin'])
+    ? (config['plugin'] as string[])
+    : [];
+
+  if (!plugins.includes(OPENCODE_PLUGIN_ENTRY)) {
+    plugins.push(OPENCODE_PLUGIN_ENTRY);
+    config['plugin'] = plugins;
+    fs.writeFileSync(opencodejsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  }
+
+  // 2. Copy .opencode/agents/ from package into project
+  const agentsSrc = path.join(packageRoot, '.opencode', 'agents');
+  const agentsDest = path.join(projectRoot, '.opencode', 'agents');
+
+  if (fs.existsSync(agentsSrc)) {
+    ensureDir(agentsDest);
+    const files = fs.readdirSync(agentsSrc).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(agentsSrc, file), 'utf8');
+      const r = safeWriteFile(path.join(agentsDest, file), content, { overwrite: false });
+      if (r === 'created') {
+        result.agentsCopied.push(`.opencode/agents/${file}`);
+      } else {
+        result.agentsSkipped.push(`.opencode/agents/${file}`);
+      }
+    }
+  }
+
+  return result;
+}
 
 const GITKEEP_DIRS = [
-  '.awe/cache',
+  '.aws/cache',
   'qa/cases',
   'qa/changes',
   'tests/api',
@@ -33,34 +96,24 @@ export function generateProject(root: string, answers: InitAnswers): GenerateRes
   }
 
   // Core config files
-  write('.awe/config.yaml', buildConfigYaml(answers));
-  write('.awe/execution-policy.json', JSON.stringify(buildExecutionPolicy(answers), null, 2) + '\n');
+  write('.aws/config.yaml', buildConfigYaml(answers));
+  write('.aws/execution-policy.json', JSON.stringify(buildExecutionPolicy(answers), null, 2) + '\n');
 
   // .gitkeep files
   for (const dir of GITKEEP_DIRS) {
     write(`${dir}/.gitkeep`, '');
   }
 
-  // Agent workflow files
-  if (answers.agent === 'claude_code' || answers.agent === 'both') {
-    write('.claude/skills/awe/SKILL.md', buildSkillMd());
-  }
-  if (answers.agent === 'codex' || answers.agent === 'both') {
-    write('AGENTS.md', buildAgentsMd());
-  }
-
   return result;
 }
 
-export interface RepairOptions {
-  claude?: boolean;
-  codex?: boolean;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface RepairOptions {}
 
 export function repairProject(root: string, options: RepairOptions): GenerateResult {
-  const configPath = path.join(root, '.awe/config.yaml');
+  const configPath = path.join(root, '.aws/config.yaml');
   if (!fileExists(configPath)) {
-    throw new Error('.awe/config.yaml not found. Run `awe init` first.');
+    throw new Error('.aws/config.yaml not found. Run `aws init` first.');
   }
 
   const result: GenerateResult = { created: [], skipped: [] };
@@ -77,12 +130,7 @@ export function repairProject(root: string, options: RepairOptions): GenerateRes
     write(`${dir}/.gitkeep`, '');
   }
 
-  if (options.claude) {
-    write('.claude/skills/awe/SKILL.md', buildSkillMd());
-  }
-  if (options.codex) {
-    write('AGENTS.md', buildAgentsMd());
-  }
+  // Note: repair does not re-run OpenCode registration to avoid overwriting user edits.
 
   return result;
 }

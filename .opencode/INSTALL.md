@@ -1,90 +1,248 @@
-# Installing AWE for OpenCode
+# Installing AWS for OpenCode
+
+> **Naming note:**
+> - **AWS** = **Assurance Workflow Skills**. This is the project name and CLI prefix.
+> - `aws-*` is used for all skills and OpenCode agents in this project.
+> - `aws` is the project CLI — for example `aws run` and `aws report inspect`.
+> - This project is **not** Amazon Web Services.
+
+---
 
 ## Prerequisites
 
 - [OpenCode.ai](https://opencode.ai) installed
 - Node.js ≥ 18
+- Git available in your terminal
+- Optional: AWS project CLI installed if you want to use `aws-run` and `aws-inspect` (see [Installing the `aws` CLI](#installing-the-aws-cli))
+
+---
 
 ## Installation
 
-Add AWE to the `plugin` array in your `opencode.json` (global or project-level):
+### Option 1: via `aws init` (recommended)
+
+If you have the `aws` CLI installed, run in your project directory:
+
+```bash
+aws init
+```
+
+When asked **"Agent workflow"**, select **OpenCode** (or **All**). `aws init` will:
+
+- Write `opencode.json` with the plugin entry
+- Copy `.opencode/agents/` into your project automatically
+
+Then restart OpenCode and type `@aws-orchestrator` to verify.
+
+### Option 2: manual
+
+Add AWS to the `plugin` array in your `opencode.json` (global or project-level):
 
 ```json
 {
-  "plugin": ["assurance-workflow-engine@git+https://github.com/Qingquanlv/assurance-workflow-engine.git"]
+  "plugin": ["assurance-workflow-skills@git+https://github.com/Qingquanlv/assurance-workflow-skills.git"]
 }
 ```
 
-Restart OpenCode. The plugin registers all AWE QA workflow skills automatically.
+Copy `.opencode/agents/` from this plugin into your project root.
 
-Verify by asking OpenCode: "What AWE skills do you have?"
+Restart OpenCode after editing `opencode.json`. The plugin registers all AWS QA workflow skills automatically.
+
+Verify by asking OpenCode: "What AWS skills do you have?"
+
+---
+
+## OpenCode Agents
+
+This plugin includes OpenCode agent definitions under `.opencode/agents/`.
+
+The main entry agent is `@aws-orchestrator`. It delegates work to specialized subagents:
+
+```
+@aws-case-design       — QA case design from requirement
+@aws-case-reviewer     — Review case artifacts
+@aws-case-fixer        — Apply safe auto-fixes to cases
+
+@aws-api-plan          — API test planning
+@aws-api-plan-reviewer — Review API plan artifacts
+@aws-api-plan-fixer    — Apply safe auto-fixes to API plan
+@aws-api-codegen       — Generate pytest API test code
+
+@aws-e2e-plan          — E2E test planning
+@aws-plan-reviewer     — Review E2E plan artifacts (E2E only)
+@aws-plan-fixer        — Apply safe auto-fixes to E2E plan
+@aws-e2e-codegen       — Generate Python Playwright E2E test code
+
+@aws-run               — Run tests via aws CLI
+@aws-inspect           — Inspect test failures via aws CLI
+@aws-archive           — Archive reviewed QA assets
+@aws-dashboard         — View QA Case Center dashboard
+```
+
+### Verify agents
+
+After restarting OpenCode, type:
+
+```
+@aws-orchestrator
+```
+
+If OpenCode recognizes the agent, start the workflow with:
+
+```
+@aws-orchestrator
+
+use skill aws-workflow
+
+Requirement:
+测试用户管理页面
+
+Run mode:
+full
+
+Test types:
+api,e2e
+
+Max case fix attempts:
+2
+
+Max plan fix attempts:
+2
+
+Force continue:
+false
+```
+
+If OpenCode does not recognize `@aws-orchestrator`, copy the `.opencode/agents/` directory from this plugin into your project root and restart OpenCode.
+
+---
 
 ## Usage
 
 ### List skills
 
+First, list all discovered skills to see the exact names OpenCode resolved:
+
 ```
 use skill tool to list skills
 ```
 
-### Load a skill
+### Load a skill directly
+
+Use the exact name shown by the list above. Common names:
 
 ```
-use skill tool to load awe/awe-run
-use skill tool to load awe/awe-case-design
+use skill aws-workflow
+use skill aws-run
+use skill aws-case-design
+```
+
+If OpenCode displays plugin-scoped names, use the scoped form:
+
+```
+use skill aws/aws-workflow
+use skill aws/aws-run
+use skill aws/aws-case-design
 ```
 
 ### Available Skills
 
-| Skill | Trigger |
-|-------|---------|
-| `awe-case-design` | Analyze requirement and generate QA case delta |
-| `awe-api-plan` | API test planning |
-| `awe-api-codegen` | Generate pytest test code from API plan |
-| `awe-e2e-plan` | E2E test planning |
-| `awe-e2e-codegen` | Generate Playwright test code from E2E plan |
-| `awe-run` | Run tests: `awe run --change <id>` |
-| `awe-inspect` | Inspect test results: `awe report inspect --change <id>` |
-| `awe-archive` | Archive reviewed QA assets |
-| `awe-dashboard` | View QA dashboard |
+| Skill | Description |
+|-------|-------------|
+| `aws-workflow` | Full orchestration skill, loaded by `@aws-orchestrator` |
+| `aws-case-design` | Analyze requirement and generate QA case delta |
+| `aws-case-reviewer` | Review case artifacts, write `case-review.json` |
+| `aws-case-fixer` | Apply safe auto-fixes from `case-review.json` |
+| `aws-api-plan` | API test planning |
+| `aws-api-plan-reviewer` | Review API plan, write `api-plan-review.json` |
+| `aws-api-plan-fixer` | Apply safe auto-fixes to API plan |
+| `aws-api-codegen` | Generate pytest test code from API plan |
+| `aws-e2e-plan` | E2E test planning |
+| `aws-plan-reviewer` | Review E2E plan, write `plan-review.json` (E2E only) |
+| `aws-plan-fixer` | Apply safe auto-fixes to E2E plan |
+| `aws-e2e-codegen` | Generate Python Playwright test code from E2E plan |
+| `aws-run` | Run tests: `aws run --change <id>` |
+| `aws-inspect` | Inspect test results: `aws report inspect --change <id>` |
+| `aws-archive` | Archive reviewed QA assets |
+| `aws-dashboard` | View QA dashboard |
 
-## Installing the `awe` CLI
+---
 
-The execution skills require the `awe` CLI to be installed:
+## Installing the `aws` CLI
+
+The execution skills (`aws-run`, `aws-inspect`) require the **AWS project CLI** (`aws`). This is the Assurance Workflow Skills CLI — it is **not** the Amazon Web Services CLI.
+
+> **Warning: command name conflict**
+>
+> This project uses the command name `aws`.
+> If you already have the Amazon Web Services CLI installed, this may conflict with the existing `aws` command.
+>
+> Check before installing:
+>
+> ```bash
+> which aws
+> aws --version
+> ```
+>
+> If the result points to the Amazon AWS CLI (e.g. `aws-cli/2.x.x`), consider using a local npm link, a project script, or a shell alias instead of installing globally.
+
+Install the AWS project CLI:
 
 ```bash
-npm install -g assurance-workflow-engine
+npm install -g assurance-workflow-skills
 # or, if working from the cloned repo:
 npm run build && npm link
 ```
 
-Verify: `awe --version`
+Verify:
+
+```bash
+aws --version
+```
+
+Key CLI commands:
+
+```bash
+aws run --change <change-id>
+aws report inspect --change <change-id>
+```
+
+---
 
 ## Updating
 
-OpenCode installs AWE through a git-backed package spec. If updates do not appear after restart, clear OpenCode's package cache:
+OpenCode installs AWS through a git-backed package spec. If updates do not appear after restart, clear OpenCode's package cache:
 
 ```bash
-# OpenCode cache location varies by platform
 # macOS / Linux
-rm -rf ~/.config/opencode/packages/assurance-workflow-engine
+rm -rf ~/.config/opencode/packages/assurance-workflow-skills
 ```
 
 Then restart OpenCode.
+
+---
 
 ## Troubleshooting
 
 ### Plugin not loading
 
 ```bash
-opencode run --print-logs "hello" 2>&1 | grep -i awe
+opencode run --print-logs "hello" 2>&1 | grep -i aws
 ```
 
 ### Skills not found
 
-1. Use the `skill` tool to list what's discovered
-2. Confirm the plugin line is in your `opencode.json`
-3. Check that each `SKILL.md` has valid YAML frontmatter
+1. Use the `skill` tool to list what's discovered.
+2. Confirm the plugin line is in your `opencode.json`.
+3. Check that each `SKILL.md` has valid YAML frontmatter (`name:` field present).
+
+### Agents not found
+
+1. Restart OpenCode after installing the plugin.
+2. Try typing `@aws-orchestrator` in the OpenCode chat.
+3. Confirm the plugin contains `.opencode/agents/*.md` files.
+4. If OpenCode does not load plugin-provided agents automatically, copy `.opencode/agents/` from this plugin into your project root.
+5. Restart OpenCode.
 
 ### Tool mapping
 
@@ -96,6 +254,8 @@ opencode run --print-logs "hello" 2>&1 | grep -i awe
 | `Read` / `Write` | Native file tools |
 | `Shell` / `Bash` | Native bash tool |
 
+---
+
 ## Getting Help
 
-- Issues: https://github.com/Qingquanlv/assurance-workflow-engine/issues
+- Issues: https://github.com/Qingquanlv/assurance-workflow-skills/issues

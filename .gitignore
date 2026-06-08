@@ -5,3 +5,5 @@ coverage/
 .awe/cache/
 .DS_Store
 **/.DS_Store
+docs/
+.history

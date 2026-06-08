@@ -6,7 +6,7 @@ import { CheckResult, DoctorResult } from '../core/types';
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .description('Check AWE environment and configuration')
+    .description('Check AWS environment and configuration')
     .option('--json', 'Output machine-readable JSON')
     .action((options) => {
       const root = process.cwd();
@@ -24,7 +24,7 @@ export function registerDoctorCommand(program: Command): void {
 }
 
 function printDoctorResult(result: DoctorResult): void {
-  console.log(chalk.bold('\nAWE Doctor\n'));
+  console.log(chalk.bold('\nAWS Doctor\n'));
 
   const groups = ['config', 'sources', 'directories', 'frameworks', 'workflow', 'execution', 'mcp'];
   const groupLabels: Record<string, string> = {

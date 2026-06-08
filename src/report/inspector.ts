@@ -219,9 +219,9 @@ function buildDiagnosis(message: string, category: string): string {
 function buildRecommendedAction(category: string, changeId: string): string {
   switch (category) {
     case 'locator_failure':
-      return `Generate a Fix Proposal to update the locator strategy after review. Run \`awe fix propose --change ${changeId}\`.`;
+      return `Generate a Fix Proposal to update the locator strategy after review. Run \`aws fix propose --change ${changeId}\`.`;
     case 'wait_strategy_failure':
-      return `Generate a Fix Proposal to adjust wait conditions. Run \`awe fix propose --change ${changeId}\`.`;
+      return `Generate a Fix Proposal to adjust wait conditions. Run \`aws fix propose --change ${changeId}\`.`;
     case 'assertion_failure':
       return 'Investigate whether the product behaviour changed or the expected value in the test is incorrect. Do not auto-fix.';
     case 'environment_failure':
@@ -231,7 +231,7 @@ function buildRecommendedAction(category: string, changeId: string): string {
     case 'business_logic_failure':
       return 'File a bug against the product team. This is not a test issue.';
     case 'test_code_error':
-      return `Fix the syntax/import error in the test file and rerun. Run \`awe fix propose --change ${changeId}\`.`;
+      return `Fix the syntax/import error in the test file and rerun. Run \`aws fix propose --change ${changeId}\`.`;
     case 'case_semantic_failure':
       return 'Review the test case against the original requirements. Update the case YAML if necessary.';
     default:

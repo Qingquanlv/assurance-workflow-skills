@@ -12,7 +12,7 @@ export function registerRunCommand(program: Command): void {
       const changeId: string = options.change;
       const projectRoot = process.cwd();
 
-      logHeader(`awe run — change: ${changeId}`);
+      logHeader(`aws run — change: ${changeId}`);
       logBlank();
       logInfo(`Project root: ${projectRoot}`);
       logInfo(`Change: ${changeId}`);
@@ -44,7 +44,7 @@ export function registerRunCommand(program: Command): void {
         const allPassed = apiStatus === 'passed' && e2eStatus === 'passed';
 
         if (anyFailed) {
-          console.log(chalk.yellow(`→ Some tests failed. Run: awe report inspect --change ${changeId}`));
+          console.log(chalk.yellow(`→ Some tests failed. Run: aws report inspect --change ${changeId}`));
           process.exit(1);
         } else if (allSkipped) {
           console.log(chalk.yellow('→ All targets were skipped. Fix environment and rerun.'));
@@ -53,12 +53,12 @@ export function registerRunCommand(program: Command): void {
           console.log(chalk.green('→ All tests passed. Proceed to archive-for-qa.'));
           process.exit(0);
         } else {
-          console.log(chalk.cyan(`→ Run: awe report inspect --change ${changeId}`));
+          console.log(chalk.cyan(`→ Run: aws report inspect --change ${changeId}`));
           process.exit(0);
         }
       } catch (err) {
         logError(`Run failed: ${(err as Error).message}`);
-        if (process.env.AWE_DEBUG) console.error((err as Error).stack);
+        if (process.env.AWS_DEBUG) console.error((err as Error).stack);
         process.exit(1);
       }
     });

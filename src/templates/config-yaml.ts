@@ -1,8 +1,6 @@
 import { InitAnswers } from '../core/types';
 
 export function buildConfigYaml(answers: InitAnswers): string {
-  const claudeCode = answers.agent === 'claude_code' || answers.agent === 'both';
-  const codex = answers.agent === 'codex' || answers.agent === 'both';
   const apiEnabled = answers.apiFramework !== 'none';
   const e2eEnabled = answers.e2eFramework !== 'none';
   const frontendPath = answers.frontendPath ?? './frontend';
@@ -41,9 +39,7 @@ frameworks:
 
 workflow:
   primary_runner: skill
-  agents:
-    claude_code: ${claudeCode}
-    codex: ${codex}
+  agent: opencode
 
 mcp:
   enabled: ${answers.enableMcp}
@@ -62,7 +58,7 @@ generation:
 
 execution:
   entry: cli
-  policy_file: ./.awe/execution-policy.json
+  policy_file: ./.aws/execution-policy.json
   ci_must_use_cli: true
   self_healing:
     mode: proposal-only

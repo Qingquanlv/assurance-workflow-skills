@@ -4,21 +4,19 @@ import { Command } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { InitAnswers } from '../core/types';
-import { generateProject, repairProject } from '../core/generator';
+import { generateProject, repairProject, registerOpenCode } from '../core/generator';
 import { logOk, logWarn, logError, logInfo, logBlank } from '../utils/logger';
 
 export function registerInitCommand(program: Command): void {
   program
     .command('init')
-    .description('Initialize AWE project in current directory')
+    .description('Initialize AWS project in current directory')
     .option('--repair', 'Repair mode: only create missing files, never overwrite')
-    .option('--claude', 'Generate Claude Code skill (repair mode only)')
-    .option('--codex', 'Generate Codex AGENTS.md (repair mode only)')
     .action(async (options) => {
       const root = process.cwd();
 
       if (options.repair) {
-        await runRepair(root, options);
+        await runRepair(root);
       } else {
         await runInit(root);
       }
@@ -29,8 +27,8 @@ async function runInit(root: string): Promise<void> {
   const defaultFrontend = './frontend';
   const defaultBackend = './backend';
 
-  console.log(chalk.bold('\nWelcome to AWE.\n'));
-  console.log('AWE will initialize this project with:');
+  console.log(chalk.bold('\nWelcome to AWS.\n'));
+  console.log('AWS will initialize this project with:');
   console.log(`  - project root: .`);
   console.log(`  - frontend source: ${defaultFrontend}`);
   console.log(`  - backend source: ${defaultBackend}`);
@@ -44,24 +42,10 @@ async function runInit(root: string): Promise<void> {
   const questions: inquirer.QuestionCollection = [
     {
       type: 'list',
-      name: 'agent',
-      message: 'Agent workflow:',
-      choices: [
-        { name: 'Claude Code', value: 'claude_code' },
-        { name: 'Codex', value: 'codex' },
-        { name: 'Both', value: 'both' },
-        { name: 'None', value: 'none' },
-      ],
-      default: 'claude_code',
-    },
-    {
-      type: 'list',
       name: 'apiFramework',
       message: 'API test framework:',
       choices: [
         { name: 'pytest', value: 'pytest' },
-        { name: 'go test', value: 'go test' },
-        { name: 'jest', value: 'jest' },
         { name: 'none', value: 'none' },
       ],
       default: 'pytest',
@@ -139,16 +123,39 @@ async function runInit(root: string): Promise<void> {
     logWarn(`skipped (exists): ${f}`);
   }
 
+  // OpenCode registration
   logBlank();
-  console.log(chalk.green.bold('AWE initialized successfully.'));
-  console.log('Run ' + chalk.cyan('awe doctor') + ' to verify your environment.');
+  const packageRoot = path.resolve(__dirname, '../../');
+  const ocResult = registerOpenCode(root, packageRoot);
+
+  if (ocResult.opencodejsonCreated) {
+    logOk('created: opencode.json');
+  } else {
+    logOk('updated: opencode.json (plugin entry added)');
+  }
+  for (const f of ocResult.agentsCopied) {
+    logOk(`created: ${f}`);
+  }
+  for (const f of ocResult.agentsSkipped) {
+    logInfo(`exists:  ${f}`);
+  }
+
+  logBlank();
+  console.log(chalk.green.bold('AWS initialized successfully.'));
+  console.log('Run ' + chalk.cyan('aws doctor') + ' to verify your environment.');
+
+  logBlank();
+  console.log(chalk.bold('OpenCode setup complete. Next steps:'));
+  console.log('  1. Restart OpenCode');
+  console.log('  2. Type:  ' + chalk.cyan('@aws-orchestrator'));
+  console.log('  3. Start: ' + chalk.cyan('use skill aws-workflow'));
 }
 
-async function runRepair(root: string, options: { claude?: boolean; codex?: boolean }): Promise<void> {
-  const configPath = path.join(root, '.awe/config.yaml');
+async function runRepair(root: string): Promise<void> {
+  const configPath = path.join(root, '.aws/config.yaml');
   if (!fs.existsSync(configPath)) {
-    logError('.awe/config.yaml not found.');
-    console.log('Run ' + chalk.cyan('`awe init`') + ' first.');
+    logError('.aws/config.yaml not found.');
+    console.log('Run ' + chalk.cyan('`aws init`') + ' first.');
     process.exit(1);
   }
 
@@ -156,10 +163,7 @@ async function runRepair(root: string, options: { claude?: boolean; codex?: bool
   logBlank();
 
   try {
-    const result = repairProject(root, {
-      claude: options.claude,
-      codex: options.codex,
-    });
+    const result = repairProject(root, {});
 
     for (const f of result.created) {
       logOk(`created: ${f}`);

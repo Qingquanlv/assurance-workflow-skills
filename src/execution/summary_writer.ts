@@ -113,13 +113,13 @@ export function buildSummaryMd(
   const allSkipped = api.status === 'skipped' && e2e.status === 'skipped';
 
   if (anyFailed) {
-    lines.push(`Run \`awe report inspect --change ${changeId}\` to analyse failures.`);
+    lines.push(`Run \`aws report inspect --change ${changeId}\` to analyse failures.`);
   } else if (allSkipped) {
-    lines.push(`Fix environment issues and rerun \`awe run --change ${changeId}\`.`);
+    lines.push(`Fix environment issues and rerun \`aws run --change ${changeId}\`.`);
   } else if (allPassed) {
     lines.push('All tests passed. Proceed to `archive-for-qa`.');
   } else {
-    lines.push(`Run \`awe report inspect --change ${changeId}\` to review results.`);
+    lines.push(`Run \`aws report inspect --change ${changeId}\` to review results.`);
   }
 
   return lines.join('\n') + '\n';
