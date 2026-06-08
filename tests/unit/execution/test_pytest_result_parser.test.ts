@@ -24,7 +24,7 @@ describe('parsePytestXml', () => {
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, 'ok', 'utf-8');
 
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
 
     expect(result.status).toBe('passed');
     expect(result.total).toBe(1);
@@ -47,7 +47,7 @@ describe('parsePytestXml', () => {
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, 'FAILED', 'utf-8');
 
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
 
     expect(result.status).toBe('failed');
     expect(result.failed).toBe(1);
@@ -69,14 +69,14 @@ describe('parsePytestXml', () => {
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, '', 'utf-8');
 
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
 
     expect(result.skipped).toBe(1);
     expect(result.cases[0].status).toBe('skipped');
   });
 
   it('returns status=skipped when XML does not exist', () => {
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: path.join(tmpDir, 'nonexistent.xml'), rawLogPath: path.join(tmpDir, 'a.log'), jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: path.join(tmpDir, 'nonexistent.xml'), rawLogPath: path.join(tmpDir, 'a.log'), jsonReportPath: '', command: 'pytest' });
     expect(result.status).toBe('skipped');
     expect(result.total).toBe(0);
   });
@@ -94,7 +94,7 @@ describe('parsePytestXml', () => {
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, '', 'utf-8');
 
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
 
     expect(result.cases.length).toBe(1);
     expect(result.unmapped_tests.length).toBe(1);

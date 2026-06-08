@@ -20,6 +20,7 @@ function extractCaseId(text: string): string {
 
 export interface ParsePytestXmlOptions {
   changeId: string;
+  batchId: string;
   junitXmlPath: string;
   rawLogPath: string;
   jsonReportPath: string;
@@ -27,7 +28,7 @@ export interface ParsePytestXmlOptions {
 }
 
 export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
-  const { changeId, junitXmlPath, rawLogPath, jsonReportPath, command } = opts;
+  const { changeId, batchId, junitXmlPath, rawLogPath, jsonReportPath, command } = opts;
 
   const source = {
     framework: 'pytest' as const,
@@ -37,21 +38,21 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
   };
 
   if (!fs.existsSync(junitXmlPath)) {
-    return skippedApiResult(changeId, command, source, 'JUnit XML report not found — pytest may not have run.');
+    return skippedApiResult(changeId, batchId, command, source, 'JUnit XML report not found — pytest may not have run.');
   }
 
   let xmlContent: string;
   try {
     xmlContent = fs.readFileSync(junitXmlPath, 'utf-8');
   } catch {
-    return skippedApiResult(changeId, command, source, 'Failed to read JUnit XML report.');
+    return skippedApiResult(changeId, batchId, command, source, 'Failed to read JUnit XML report.');
   }
 
   let parsed: ReturnType<typeof parseXml>;
   try {
     parsed = parseXml(xmlContent);
   } catch (e) {
-    return skippedApiResult(changeId, command, source, `Failed to parse JUnit XML: ${(e as Error).message}`);
+    return skippedApiResult(changeId, batchId, command, source, `Failed to parse JUnit XML: ${(e as Error).message}`);
   }
 
   const suites = parsed?.testsuites?.testsuite ?? parsed?.testsuite;
@@ -128,6 +129,7 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
   return {
     schema_version: '1.0',
     change_id: changeId,
+    batch_id: batchId,
     target: 'api',
     status: overallStatus,
     command,
@@ -143,6 +145,7 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
 
 function skippedApiResult(
   changeId: string,
+  batchId: string,
   command: string,
   source: ApiResult['source'],
   reason: string,
@@ -150,6 +153,7 @@ function skippedApiResult(
   return {
     schema_version: '1.0',
     change_id: changeId,
+    batch_id: batchId,
     target: 'api',
     status: 'skipped',
     command,
@@ -167,6 +171,7 @@ function skippedApiResult(
 
 export interface ParsePlaywrightJsonOptions {
   changeId: string;
+  batchId: string;
   jsonReportPath: string;
   rawLogPath: string;
   htmlReportPath: string;
@@ -195,7 +200,7 @@ interface PlaywrightTestResult {
 }
 
 export function parsePlaywrightJson(opts: ParsePlaywrightJsonOptions): E2eResult {
-  const { changeId, jsonReportPath, rawLogPath, htmlReportPath, executionDir, command } = opts;
+  const { changeId, batchId, jsonReportPath, rawLogPath, htmlReportPath, executionDir, command } = opts;
 
   const source = {
     framework: 'playwright' as const,
@@ -205,14 +210,14 @@ export function parsePlaywrightJson(opts: ParsePlaywrightJsonOptions): E2eResult
   };
 
   if (!fs.existsSync(jsonReportPath)) {
-    return skippedE2eResult(changeId, command, source, 'Playwright JSON report not found — Playwright may not have run.');
+    return skippedE2eResult(changeId, batchId, command, source, 'Playwright JSON report not found — Playwright may not have run.');
   }
 
   let report: { suites?: PlaywrightSpec[]; stats?: Record<string, number> };
   try {
     report = JSON.parse(fs.readFileSync(jsonReportPath, 'utf-8'));
   } catch (e) {
-    return skippedE2eResult(changeId, command, source, `Failed to parse Playwright JSON: ${(e as Error).message}`);
+    return skippedE2eResult(changeId, batchId, command, source, `Failed to parse Playwright JSON: ${(e as Error).message}`);
   }
 
   const cases: E2eCaseResult[] = [];
@@ -308,6 +313,7 @@ export function parsePlaywrightJson(opts: ParsePlaywrightJsonOptions): E2eResult
   return {
     schema_version: '1.0',
     change_id: changeId,
+    batch_id: batchId,
     target: 'e2e',
     status: overallStatus,
     command,
@@ -338,6 +344,7 @@ function resolveArtifactRef(originalPath: string, name: string, caseId: string, 
 
 function skippedE2eResult(
   changeId: string,
+  batchId: string,
   command: string,
   source: E2eResult['source'],
   reason: string,
@@ -345,6 +352,7 @@ function skippedE2eResult(
   return {
     schema_version: '1.0',
     change_id: changeId,
+    batch_id: batchId,
     target: 'e2e',
     status: 'skipped',
     command,

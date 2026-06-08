@@ -10,9 +10,11 @@ import { ApiResult } from '../core/types';
 
 export interface PytestRunOptions {
   changeId: string;
+  batchId: string;
   /** Absolute or relative test file/dir paths to run */
   targets: string[];
-  executionDir: string;
+  /** Per-batch directory: execution/runs/<batch-id>/ */
+  batchDir: string;
   /** Working directory for pytest invocation */
   cwd: string;
 }
@@ -26,8 +28,8 @@ export interface PytestRunResult {
 const RAW_DIR = 'raw';
 
 export function runPytest(opts: PytestRunOptions): PytestRunResult {
-  const { changeId, targets, executionDir, cwd } = opts;
-  const rawDir = path.join(executionDir, RAW_DIR);
+  const { changeId, batchId, targets, batchDir, cwd } = opts;
+  const rawDir = path.join(batchDir, RAW_DIR);
   ensureDir(rawDir);
 
   const logPath = path.join(rawDir, 'api.log');
@@ -39,7 +41,7 @@ export function runPytest(opts: PytestRunOptions): PytestRunResult {
   if (pytestCheck.error || pytestCheck.status !== 0) {
     const reason = 'pytest not found or not executable.';
     fs.writeFileSync(logPath, reason, 'utf-8');
-    return makeSkipped(changeId, targets, logPath, xmlPath, jsonPath, reason);
+    return makeSkipped(changeId, batchId, targets, logPath, xmlPath, jsonPath, reason);
   }
 
   // Check target files exist
@@ -49,7 +51,7 @@ export function runPytest(opts: PytestRunOptions): PytestRunResult {
   if (targets.length > 0 && existing.length === 0) {
     const reason = `No test targets found: ${targets.join(', ')}`;
     fs.writeFileSync(logPath, reason, 'utf-8');
-    return makeSkipped(changeId, targets, logPath, xmlPath, jsonPath, reason);
+    return makeSkipped(changeId, batchId, targets, logPath, xmlPath, jsonPath, reason);
   }
 
   const effectiveTargets = existing.length > 0 ? existing : targets;
@@ -86,6 +88,7 @@ export function runPytest(opts: PytestRunOptions): PytestRunResult {
 
   const parseOpts: ParsePytestXmlOptions = {
     changeId,
+    batchId,
     junitXmlPath: xmlPath,
     rawLogPath: logPath,
     jsonReportPath: jsonPath,
@@ -103,6 +106,7 @@ export function runPytest(opts: PytestRunOptions): PytestRunResult {
 
 function makeSkipped(
   changeId: string,
+  batchId: string,
   targets: string[],
   logPath: string,
   xmlPath: string,
@@ -120,6 +124,7 @@ function makeSkipped(
     result: {
       schema_version: '1.0',
       change_id: changeId,
+      batch_id: batchId,
       target: 'api',
       status: 'skipped',
       command,

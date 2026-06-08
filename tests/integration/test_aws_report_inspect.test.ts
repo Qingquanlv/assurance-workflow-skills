@@ -30,8 +30,8 @@ describe('aws report inspect integration', () => {
 
   it('produces no_failures when all tests passed', () => {
     const execDir = makeExecDir(projectRoot, changeId);
-    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [{ case_id: 'TC-A-001', status: 'passed', file: '', test_name: 'test_a', duration_ms: 100, message: '', raw_log_ref: '' }], unmapped_tests: [] };
-    const e2eResult: E2eResult = { schema_version: '1.0', change_id: changeId, target: 'e2e', status: 'passed', command: 'npx playwright test', source: { framework: 'playwright', raw_log: '', json_report: '', html_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [{ case_id: 'TC-B-001', status: 'passed', file: '', test_name: 'test_b', duration_ms: 200, message: '', trace: '', screenshot: '', video: '' }], unmapped_tests: [] };
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [{ case_id: 'TC-A-001', status: 'passed', file: '', test_name: 'test_a', duration_ms: 100, message: '', raw_log_ref: '' }], unmapped_tests: [] };
+    const e2eResult: E2eResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'e2e', status: 'passed', command: 'npx playwright test', source: { framework: 'playwright', raw_log: '', json_report: '', html_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [{ case_id: 'TC-B-001', status: 'passed', file: '', test_name: 'test_b', duration_ms: 200, message: '', trace: '', screenshot: '', video: '' }], unmapped_tests: [] };
     fs.writeFileSync(path.join(execDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
     fs.writeFileSync(path.join(execDir, 'e2e-result.json'), JSON.stringify(e2eResult), 'utf-8');
 
@@ -42,7 +42,7 @@ describe('aws report inspect integration', () => {
 
   it('classifies e2e locator failure and sets fix_proposal_allowed=true', () => {
     const execDir = makeExecDir(projectRoot, changeId);
-    const e2eResult: E2eResult = { schema_version: '1.0', change_id: changeId, target: 'e2e', status: 'failed', command: 'npx playwright test', source: { framework: 'playwright', raw_log: path.join(execDir, 'raw', 'e2e.log'), json_report: '', html_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-C-001', status: 'failed', file: 'tests/e2e/checkout.spec.ts', test_name: 'TC-C-001 checkout', duration_ms: 3000, message: 'Locator not found: button[data-testid=pay]', trace: '', screenshot: '', video: '' }], unmapped_tests: [] };
+    const e2eResult: E2eResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'e2e', status: 'failed', command: 'npx playwright test', source: { framework: 'playwright', raw_log: path.join(execDir, 'raw', 'e2e.log'), json_report: '', html_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-C-001', status: 'failed', file: 'tests/e2e/checkout.spec.ts', test_name: 'TC-C-001 checkout', duration_ms: 3000, message: 'Locator not found: button[data-testid=pay]', trace: '', screenshot: '', video: '' }], unmapped_tests: [] };
     fs.writeFileSync(path.join(execDir, 'e2e-result.json'), JSON.stringify(e2eResult), 'utf-8');
     fs.writeFileSync(path.join(execDir, 'raw', 'e2e.log'), 'Locator not found', 'utf-8');
 
@@ -55,7 +55,7 @@ describe('aws report inspect integration', () => {
 
   it('failure-analysis.json has required schema fields', () => {
     const execDir = makeExecDir(projectRoot, changeId);
-    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, target: 'api', status: 'failed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-D-001', status: 'failed', file: 'tests/api/test_d.py', test_name: 'TC-D-001 test_d', duration_ms: 50, message: 'AssertionError: expected 200, got 404', raw_log_ref: '' }], unmapped_tests: [] };
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'failed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-D-001', status: 'failed', file: 'tests/api/test_d.py', test_name: 'TC-D-001 test_d', duration_ms: 50, message: 'AssertionError: expected 200, got 404', raw_log_ref: '' }], unmapped_tests: [] };
     fs.writeFileSync(path.join(execDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
 
     inspect({ changeId, projectRoot });
@@ -71,7 +71,7 @@ describe('aws report inspect integration', () => {
 
   it('failure-summary.md is written with correct heading', () => {
     const execDir = makeExecDir(projectRoot, changeId);
-    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 0, passed: 0, failed: 0, skipped: 0, cases: [], unmapped_tests: [] };
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 0, passed: 0, failed: 0, skipped: 0, cases: [], unmapped_tests: [] };
     fs.writeFileSync(path.join(execDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
 
     const result = inspect({ changeId, projectRoot });

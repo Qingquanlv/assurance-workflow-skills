@@ -14,7 +14,7 @@ describe('Case ID mapping', () => {
     const logPath = path.join(tmpDir, 'l.log');
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, '', 'utf-8');
-    return parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    return parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
   }
 
   it('extracts Case ID from test title prefix', () => {
@@ -44,7 +44,7 @@ describe('Case ID mapping', () => {
     fs.writeFileSync(xmlPath, xml, 'utf-8');
     fs.writeFileSync(logPath, '', 'utf-8');
 
-    const result = parsePytestXml({ changeId: 'REQ-001', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
+    const result = parsePytestXml({ changeId: 'REQ-001', batchId: 'test-batch', junitXmlPath: xmlPath, rawLogPath: logPath, jsonReportPath: '', command: 'pytest' });
 
     expect(result.cases.length + result.unmapped_tests.length).toBe(3);
     expect(result.unmapped_tests.length).toBe(2);

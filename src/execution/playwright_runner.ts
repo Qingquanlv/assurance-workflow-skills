@@ -10,9 +10,11 @@ import { E2eResult } from '../core/types';
 
 export interface PlaywrightRunOptions {
   changeId: string;
+  batchId: string;
   /** Target spec file(s) or empty to run all */
   targets: string[];
-  executionDir: string;
+  /** Per-batch directory: execution/runs/<batch-id>/ */
+  batchDir: string;
   cwd: string;
 }
 
@@ -25,11 +27,11 @@ export interface PlaywrightRunResult {
 const RAW_DIR = 'raw';
 
 export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
-  const { changeId, targets, executionDir, cwd } = opts;
-  const rawDir = path.join(executionDir, RAW_DIR);
-  const tracesDir = path.join(executionDir, 'traces');
-  const screenshotsDir = path.join(executionDir, 'screenshots');
-  const videosDir = path.join(executionDir, 'videos');
+  const { changeId, batchId, targets, batchDir, cwd } = opts;
+  const rawDir = path.join(batchDir, RAW_DIR);
+  const tracesDir = path.join(batchDir, 'traces');
+  const screenshotsDir = path.join(batchDir, 'screenshots');
+  const videosDir = path.join(batchDir, 'videos');
   ensureDir(rawDir);
   ensureDir(tracesDir);
   ensureDir(screenshotsDir);
@@ -51,7 +53,7 @@ export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
   if (pwCheck.error) {
     const reason = 'Playwright (npx playwright) not found.';
     fs.writeFileSync(logPath, reason, 'utf-8');
-    return makeSkipped(changeId, targets, source, reason);
+    return makeSkipped(changeId, batchId, targets, source, reason);
   }
 
   // Check target files
@@ -61,7 +63,7 @@ export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
   if (targets.length > 0 && existing.length === 0) {
     const reason = `No E2E test targets found: ${targets.join(', ')}`;
     fs.writeFileSync(logPath, reason, 'utf-8');
-    return makeSkipped(changeId, targets, source, reason);
+    return makeSkipped(changeId, batchId, targets, source, reason);
   }
 
   const effectiveTargets = existing.length > 0 ? existing : targets;
@@ -131,10 +133,11 @@ export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
 
   const parseOpts: ParsePlaywrightJsonOptions = {
     changeId,
+    batchId,
     jsonReportPath: jsonReportDest,
     rawLogPath: logPath,
     htmlReportPath: htmlReportDest,
-    executionDir,
+    executionDir: batchDir,
     command: commandStr,
   };
 
@@ -182,6 +185,7 @@ function copyArtifacts(
 
 function makeSkipped(
   changeId: string,
+  batchId: string,
   targets: string[],
   source: E2eResult['source'],
   reason: string,
@@ -191,6 +195,7 @@ function makeSkipped(
     result: {
       schema_version: '1.0',
       change_id: changeId,
+      batch_id: batchId,
       target: 'e2e',
       status: 'skipped',
       command,

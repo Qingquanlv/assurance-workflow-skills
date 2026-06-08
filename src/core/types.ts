@@ -22,6 +22,7 @@ export interface ApiResultSource {
 export interface ApiResult {
   schema_version: '1.0';
   change_id: string;
+  batch_id: string;
   target: 'api';
   status: ExecutionStatus;
   command: string;
@@ -56,6 +57,7 @@ export interface E2eResultSource {
 export interface E2eResult {
   schema_version: '1.0';
   change_id: string;
+  batch_id: string;
   target: 'e2e';
   status: ExecutionStatus;
   command: string;

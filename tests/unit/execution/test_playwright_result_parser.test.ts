@@ -13,7 +13,7 @@ describe('parsePlaywrightJson', () => {
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
   function opts(jsonPath: string) {
-    return { changeId: 'REQ-E2E-001', jsonReportPath: jsonPath, rawLogPath: path.join(tmpDir, 'e2e.log'), htmlReportPath: path.join(tmpDir, 'pw-html'), executionDir: tmpDir, command: 'npx playwright test' };
+    return { changeId: 'REQ-E2E-001', batchId: 'test-batch', jsonReportPath: jsonPath, rawLogPath: path.join(tmpDir, 'e2e.log'), htmlReportPath: path.join(tmpDir, 'pw-html'), executionDir: tmpDir, command: 'npx playwright test' };
   }
 
   it('parses a passing test', () => {

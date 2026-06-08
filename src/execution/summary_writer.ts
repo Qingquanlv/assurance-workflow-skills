@@ -5,11 +5,15 @@ import { ApiResult, E2eResult } from '../core/types';
 
 export function buildSummaryMd(
   changeId: string,
+  batchId: string,
   api: ApiResult,
   e2e: E2eResult,
 ): string {
   const lines: string[] = [];
   lines.push(`# Execution Summary: ${changeId}`);
+  lines.push('');
+  lines.push(`- **Batch ID:** \`${batchId}\``);
+  lines.push(`- **Archived at:** \`qa/changes/${changeId}/execution/runs/${batchId}/\``);
   lines.push('');
   lines.push('## Result');
   lines.push('');
@@ -41,9 +45,9 @@ export function buildSummaryMd(
   lines.push('');
   lines.push('## E2E Artifacts');
   lines.push('');
-  lines.push(`- Traces: \`qa/changes/${changeId}/execution/traces/\``);
-  lines.push(`- Screenshots: \`qa/changes/${changeId}/execution/screenshots/\``);
-  lines.push(`- Videos: \`qa/changes/${changeId}/execution/videos/\``);
+  lines.push(`- Traces: \`qa/changes/${changeId}/execution/runs/${batchId}/traces/\``);
+  lines.push(`- Screenshots: \`qa/changes/${changeId}/execution/runs/${batchId}/screenshots/\``);
+  lines.push(`- Videos: \`qa/changes/${changeId}/execution/runs/${batchId}/videos/\``);
   lines.push('');
 
   // Failed cases
