@@ -1,6 +1,6 @@
 ---
 name: aws-api-codegen
-description: Use only after API plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". Reads Stage 1 plan files and generates pytest code, fixtures, and helpers. Does NOT execute pytest — test execution is Phase 8 aws-run. Never runs before planning is complete.
+description: Use only after api-plan-review.json has decision == "pass" and codegen_readiness in ["ready", "ready_with_warnings"]. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". User request may trigger this skill but never replaces the JSON gate. Reads Stage 1 plan files and generates pytest code, fixtures, and helpers. Does NOT execute pytest — test execution is Phase 8 aws-run. Never runs before planning is complete.
 ---
 
 ## Context Contract
@@ -22,6 +22,8 @@ Do not rely on prior conversation context.
    - `tests/api/helpers/<module>_api.py`       ← API-specific helpers
    - `tests/fixtures/<module>_fixtures.py`     ← project-wide fixtures
    - `tests/api/conftest.py`                   ← imports fixtures (append only)
+   - `qa/changes/<change-id>/known-product-issues.md` (only if workarounds exist)
+   - `qa/changes/<change-id>/codegen/api-codegen-summary.md`
 2. Update `workflow-state.yaml`:
    - Set `phases.api_codegen.status = done`
    - List generated files under `phases.api_codegen.generated_tests.files`
@@ -128,13 +130,19 @@ Do not rely on prior conversation context.
    - 读取 `qa/changes/<change-id>/review/api-plan-review.json`。
    - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
    - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
+   - 如果 `codegen_readiness == "ready_with_warnings"`：
+     - 读取 `api-plan-review.json` 中的 `findings`、`needs_review`、`blockers`。
+     - 只有在 warnings 不需要猜测 endpoint、auth、fixture、schema、cleanup、或 product behavior 的情况下，才继续 codegen。
+     - 如果任意 warning 需要猜测上述内容 → **STOP**，不得生成代码。
+     - 将 warnings 保留在生成测试的注释中，或写入 `known-product-issues.md`（如适用）。
 9. 校验 endpoint、assertion、fixture、auth、cleanup 映射完整性。
 10. 根据 `api-codegen-plan.md` 生成 `tests/api/test_<module>_api.py`。
 11. 根据 `api-test-data-plan.md` 生成 `tests/fixtures/<module>_fixtures.py`。
 12. 根据 `api-codegen-plan.md` 生成 `tests/api/helpers/<module>_api.py`（如 helper 计划非空）。
 12b. 更新 `tests/api/conftest.py`（追加 fixture import，不覆盖已有内容）。
 13. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
-14. 输出 Codegen Summary：已生成的文件列表及下一步提示。
+14. 写入 `codegen/api-codegen-summary.md`（见 Codegen Output Summary）。
+15. 输出 Codegen Summary 摘要（文件列表 + 下一步提示）。
 
 ## Checklist
 
@@ -155,6 +163,7 @@ Do not rely on prior conversation context.
 - [ ] 生成 `tests/api/helpers/<module>_api.py`（helper 计划非空时）
 - [ ] 更新 `tests/api/conftest.py`（追加，不覆盖）
 - [ ] 更新 `workflow-state.yaml`（`phases.api_codegen.status = done`）
+- [ ] 写入 `qa/changes/<change-id>/codegen/api-codegen-summary.md`
 - [ ] 输出 Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
@@ -192,11 +201,23 @@ Do not rely on prior conversation context.
 
 ### Codegen Output Summary
 
-codegen 完成后输出以下内容（不执行测试）：
+codegen 完成后必须写入：
 
-- 已生成的文件列表（`tests/api/test_<module>_api.py`, `tests/fixtures/<module>_fixtures.py`, `tests/api/helpers/<module>_api.py`, `tests/api/conftest.py`）
-- 任何已知的 TODO 或需要人工确认的条目
-- 提示下一步：运行 `aws-run` 执行测试（Phase 8）
+```text
+qa/changes/<change-id>/codegen/api-codegen-summary.md
+```
+
+必须包含：
+
+- **Generated Files** — 已生成的文件列表（`tests/api/test_<module>_api.py`, `tests/fixtures/<module>_fixtures.py`, `tests/api/helpers/<module>_api.py`, `tests/api/conftest.py`）
+- **Case → Test Function Mapping** — 表格：Case ID \| Test Function \| File
+- **Fixtures Generated** — fixture 名称和来源
+- **Helpers Generated** — helper 文件及用途（如无则 None）
+- **Warnings Carried from Review** — 来自 `api-plan-review.json` 的警告（如 `codegen_readiness == "ready_with_warnings"`）
+- **Known Product Issues** — 指向 `qa/changes/<change-id>/known-product-issues.md`（如存在）
+- **Next Step** — `aws run --change <change-id>`
+
+同时在聊天中输出摘要，但磁盘文件是 aws-run、aws-inspect 的唯一可信来源，不依赖聊天上下文。
 
 ## Hard Rules
 
@@ -224,8 +245,10 @@ If a direct API endpoint fails due to a product bug and tests use an alternate e
 3. Write or append a known product issue record to:
 
 ```text
-qa/changes/<change-id>/execution/known-product-issues.md
+qa/changes/<change-id>/known-product-issues.md
 ```
+
+> This is a **change-level risk record**, not an execution result. `aws-run` and `aws-inspect` will read it from this path and copy or reference it in `execution/known-product-issues.md`.
 
 4. Mark the direct endpoint as a coverage gap.
 5. Do NOT attempt to set execution status — that is aws-run's responsibility.
@@ -283,7 +306,8 @@ If the product bug should block release, do not workaround silently. Stop and re
 - Codegen Preconditions 未满足
 - Data capability 缺失
 - Endpoint path 仍处于 needs_review
-- 用户未确认继续 codegen
+- 未通过 JSON gate（`api-plan-review.json` 不存在、非法 JSON、`decision != pass`、`codegen_readiness == not_ready`）
+  > 注：在 `aws-workflow` 编排模式下，orchestrator 已通过 gate，无需再次等待用户口头确认；独立运行时需要用户明确触发。
 - A workaround would hide a product bug without writing `known-product-issues.md`
 
 ## Anti-patterns
