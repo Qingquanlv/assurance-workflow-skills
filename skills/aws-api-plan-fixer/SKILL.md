@@ -17,11 +17,16 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Write updated files:
-   - `qa/changes/<change-id>/plans/api-plan.md` (fixed version)
+1. Write updated files (only those actually changed):
+   - `qa/changes/<change-id>/plans/api-plan.md`
+   - `qa/changes/<change-id>/plans/api-test-data-plan.md` (if changed)
    - `qa/changes/<change-id>/plans/api-codegen-plan.md` (if changed)
+   - `qa/changes/<change-id>/plans/m3-review-summary.md` (if changed)
+   - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (if new unknowns found)
+   - `qa/changes/<change-id>/review/api-plan-review-apply-summary.md`
 2. Update `workflow-state.yaml`:
-   - Note the fix attempt in `phases.api_plan_review`
+   - Append to `phases.api_plan_review.fix_attempts`: `{ attempt: N, files_modified: [...], timestamp: <now> }`
+   - Do NOT change `phases.api_plan_review.status` — only the reviewer can update the gate status
 
 ---
 
@@ -72,7 +77,6 @@ Recommended:
 qa/changes/<change-id>/proposal.md
 qa/changes/<change-id>/cases/**/*.yaml
 .aws/data-knowledge.yaml
-tests/api/**
 ```
 
 ## Outputs
@@ -122,11 +126,14 @@ This fixer must never bypass the reviewer. It is **not** a gate producer.
 
 ## Allowed Fixes
 
-You may apply fixes for findings where:
+You may apply fixes for findings where **all** of the following are true:
 
 - `auto_fix_allowed = true`
 - `human_review_required = false`
-- `severity` in `["low", "medium"]`
+
+If `severity` is `high` or `critical` and `auto_fix_allowed = true`, **still stop and require human review** — high/critical findings are too risky for automatic fixes regardless of the flag.
+
+Priority: severity gate overrides auto_fix_allowed for high/critical.
 
 Allowed operations:
 
@@ -168,12 +175,16 @@ Do not hide unknowns. If something is unknown, make it explicit in the plan as a
    - If `decision = reject`, stop.
    - If `human_review_required = true`, stop.
    - If `auto_fix_allowed = false`, stop.
+   - If any fixable finding has `severity in ["high", "critical"]`, stop and require human review.
 4. Collect fixable findings.
 5. Apply minimal edits to target plan files.
 6. Preserve existing style and ordering.
 7. Add unknowns to the appropriate "Open Questions", "TODO", or `data-knowledge.proposal.yaml` section.
 8. Write `api-plan-review-apply-summary.md`.
-9. Tell the orchestrator to re-run `aws-api-plan-reviewer`.
+9. Update `workflow-state.yaml`:
+   - Append fix attempt record: `{ attempt: N, files_modified: [...] }`
+   - Do NOT modify `phases.api_plan_review.status` — gate status is reviewer-only.
+10. Tell the orchestrator to re-run `aws-api-plan-reviewer`.
 
 ---
 
