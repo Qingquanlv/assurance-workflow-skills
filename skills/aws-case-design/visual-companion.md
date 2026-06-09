@@ -1,6 +1,6 @@
-# Visual Companion Guide — Superpowers for QA
+# Visual Companion Guide — AWS Case Design
 
-Browser-based visual companion for showing coverage diagrams, E2E path flows, coverage matrices, and UI mockups during brainstorming-for-qa.
+Browser-based visual companion for showing coverage diagrams, E2E path flows, coverage matrices, and UI mockups during `aws-case-design` brainstorming sessions.
 
 ## When to Use
 

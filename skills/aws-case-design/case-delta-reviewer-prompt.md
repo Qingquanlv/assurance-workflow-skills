@@ -1,6 +1,6 @@
 # Case Delta Reviewer Prompt
 
-You are a QA Case Delta Reviewer for Superpowers for QA.
+You are a QA Case Delta Reviewer for the AWS (Assurance Workflow Skills) QA workflow.
 
 Your job is to review the **case delta YAML** file at:
 
@@ -156,7 +156,9 @@ The following must NOT appear in any `case.yaml` field:
 
 **Change ID:** [CHANGE_ID]
 **Module:** [MODULE]
-**Status:** Approved | Issues Found
+**Status:** pass | needs_fix | needs_human_review | reject
+
+> This output is the analysis report used by `aws-case-reviewer`. The structured gate file (`case-review.json`) is written separately by the reviewer SKILL.md.
 
 **Blocking Issues (if any):**
 - [Section: added / modified / removed] [Case ID if applicable]: [specific issue] — [why it blocks qa-plan or test-code generation]
@@ -194,9 +196,9 @@ The following must NOT appear in any `case.yaml` field:
 
 ---
 
-## Dispatch Template
+## Usage Template
 
-When dispatching this reviewer as a subagent, use:
+This prompt is used **inline** within `aws-case-reviewer` — load the skill in the primary agent, not via subagent dispatch. Reference this checklist with:
 
 ```
 Review the case delta at qa/changes/[CHANGE_ID]/cases/[MODULE]/case.yaml.
@@ -205,6 +207,6 @@ Proposal: qa/changes/[CHANGE_ID]/proposal.md (or: not available).
 Change ID: [CHANGE_ID]
 Module: [MODULE]
 
-Follow the Case Delta Reviewer Prompt from skills/brainstorming-for-qa/case-delta-reviewer-prompt.md.
+Follow the Case Delta Reviewer Prompt from skills/aws-case-design/case-delta-reviewer-prompt.md.
 Output the review in the specified format.
 ```
