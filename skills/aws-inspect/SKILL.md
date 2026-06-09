@@ -21,7 +21,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/execution/failure-analysis.json`
    - `qa/changes/<change-id>/execution/failure-summary.md`
    - `qa/changes/<change-id>/inspect/known-product-issues.md` (if known issues found)
+   - `qa/changes/<change-id>/inspect/failure-analysis.json` (if known issues found)
 2. Update `workflow-state.yaml`:
+   - Set `phases.inspect.status = done`
    - Update `phases.execution.status` if classification changes the result
    - Append to `known_product_issues` if any are discovered
 
@@ -159,7 +161,8 @@ qa/changes/<change-id>/inspect/   ← written when known product issues are dete
 4. Read `qa/changes/<change-id>/execution/failure-analysis.json`.
 5. Read `qa/changes/<change-id>/execution/failure-summary.md`.
 6. Present the failure summary to the user (category breakdown, hard fails, evidence links).
-7. Do **not** generate a Fix Proposal — that is the job of `aws-fix-proposal`.
+7. Update `workflow-state.yaml`: set `phases.inspect.status = done`; if known product issues were found, append to `known_product_issues` list.
+8. Do **not** generate fix proposals — `locator_failure`, `wait_strategy_failure`, `test_code_error` may be fixed by re-running codegen; `known_product_issue`, `coverage_gap`, `assertion_failure`, `business_logic_failure` require a product or case fix outside this skill.
 
 ## Hard Rules
 
