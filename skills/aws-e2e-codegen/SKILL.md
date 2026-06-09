@@ -31,13 +31,13 @@ Do not rely on prior conversation context.
 
 名称：E2E 测试代码生成
 
-描述："QA 超能力：仅在 E2E plan 已 Review 后使用。根据 e2e-plan.md、e2e-test-data-plan.md 和 e2e-codegen-plan.md 生成 Python Playwright 测试（test_*.py + conftest.py）、脚本化前置数据，并执行 pytest --headed 生成执行结果。此 Skill 不生成新的 Case，不重新设计测试范围。"
+描述："QA 超能力：仅在 E2E plan 已 Review 后使用。根据 e2e-plan.md、e2e-test-data-plan.md 和 e2e-codegen-plan.md 生成 Python Playwright 测试（test_*.py + conftest.py）、脚本化前置数据。**不执行 pytest，不生成执行结果** — 测试执行由 aws-run（Phase 8）负责。此 Skill 不生成新的 Case，不重新设计测试范围。"
 
 **E2E Framework: Python Playwright。文件命名 `test_<module>.py` + `conftest.py`。执行命令 `uv run pytest tests/e2e/ -v --headed`。不使用 TypeScript Playwright（`*.spec.ts` + `npx playwright test`）。**
 
 将已 Review 的 E2E 测试计划转化为可执行 Python Playwright 测试代码。
 
-此 Skill 是 AWS M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/e2e/test_*.py`、`/tests/e2e/conftest.py`、脚本化前置数据和 execution 结果。
+此 Skill 是 AWS M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/e2e/test_*_e2e.py`、`/tests/e2e/conftest.py`、脚本化前置数据。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
 
 ## When to Use
 
@@ -47,9 +47,10 @@ Do not rely on prior conversation context.
 - 继续 E2E codegen
 - 实现 e2e-codegen-plan.md
 - 根据 M4 plan 生成 `/tests/e2e`
-- 执行本次 E2E 测试
 
 使用此 Skill。
+
+**不适用于：执行测试（使用 aws-run）、查看执行结果（使用 aws-inspect）。**
 
 ## Do Not Use When
 
@@ -94,10 +95,10 @@ Do not rely on prior conversation context.
 
 可以生成：
 
-- `/tests/e2e/test_<module>.py`  ← Python Playwright 测试文件
+- `tests/e2e/test_<module>_e2e.py`  ← Python Playwright 测试文件
 - `/tests/e2e/conftest.py`
 - `/tests/fixtures/**/*.py`（仅当 plan 中定义了 pytest fixture 时）
-- `qa/changes/<change-id>/scripts/e2e-data-setup.py`
+- `tests/e2e/scripts/<module>_data_setup.py`
 
 不生成 execution 结果文件 — 测试执行由 `aws-run` (Phase 8) 负责。
 
@@ -133,7 +134,7 @@ Do not rely on prior conversation context.
    - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
    - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
 9. 校验 route、natural steps、selector strategy、assertion、fixture、auth、cleanup、data setup script 映射完整性。
-10. 根据 `e2e-test-data-plan.md` 生成 `qa/changes/<change-id>/scripts/e2e-data-setup.py`。
+10. 根据 `e2e-test-data-plan.md` 生成 `tests/e2e/scripts/<module>_data_setup.py`。
 11. 根据 `e2e-codegen-plan.md` 按需生成 `/tests/fixtures/**/*.py`（pytest fixtures）。
 12. 根据 `e2e-codegen-plan.md` 生成 `/tests/e2e/test_<module>.py`。
 13. 更新或生成 `/tests/e2e/conftest.py`（仅追加，不覆盖已有内容）。
@@ -156,15 +157,16 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - [ ] 校验 route 和 natural steps
 - [ ] 校验数据 setup script capability
 - [ ] 校验 selector strategy
-- [ ] 生成 `qa/changes/<change-id>/scripts/e2e-data-setup.py`
+- [ ] 生成 `tests/e2e/scripts/<module>_data_setup.py`
 - [ ] 按需生成 `/tests/fixtures/**/*.py`
-- [ ] 生成 `/tests/e2e/test_<module>.py`
-- [ ] 更新 `/tests/e2e/conftest.py`
+- [ ] 生成 `tests/e2e/test_<module>_e2e.py`
+- [ ] 更新 `tests/e2e/conftest.py`（追加，不覆盖）
+- [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen.status = done`）
 - [ ] 输出 E2E Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
 
-### /tests/e2e/test_\<module\>.py
+### tests/e2e/test_<module>_e2e.py
 
 必须满足：
 
@@ -199,7 +201,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - fixture 来源必须映射到 `.aws/data-knowledge.yaml`。
 - 如果现有 fixture 已满足需求，优先复用，不要重复生成。
 
-### qa/changes/\<change-id\>/scripts/e2e-data-setup.py
+### tests/e2e/scripts/<module>_data_setup.py
 
 必须满足：
 
@@ -217,7 +219,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 
 codegen 完成后输出以下内容（不执行测试）：
 
-- 已生成的文件列表（`tests/e2e/test_*.py`, `conftest.py`, `scripts/e2e-data-setup.py`）
+- 已生成的文件列表（`tests/e2e/test_<module>_e2e.py`, `tests/e2e/conftest.py`, `tests/e2e/scripts/<module>_data_setup.py`）
 - 任何已知的 TODO 或需要人工确认的条目
 - 提示下一步：运行 `aws-run` 执行测试（Phase 8）
 
@@ -228,7 +230,7 @@ codegen 完成后输出以下内容（不执行测试）：
 - `e2e-plan.md` 已存在且 Blockers 为空
 - `e2e-test-data-plan.md` 已存在
 - `e2e-codegen-plan.md` 已存在
-- `plan-review.json` 必须存在、是合法 JSON、`decision == "pass"` 且 `codegen_readiness` 为 `ready` 或 `ready_with_warnings`。缺失/非法/未通过即 STOP，**不接受**用 `m4-review-summary.md` 或对话批准替代
+- `plan-review.json` 必须存在、合法 JSON、`decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]`。缺失/非法/未通过即 STOP，**不接受**用 `m4-review-summary.md` 或对话批准替代
 - `.aws/data-knowledge.yaml` 已存在，且所有 required capability 状态为 found
 - Route Mapping 无 needs_review 项
 - Selector Strategy 无 needs_review 项
@@ -242,7 +244,7 @@ E2E 前置数据必须优先通过脚本构造。
 
 推荐实现顺序：
 
-1. `qa/changes/<change-id>/scripts/e2e-data-setup.py`
+1. `tests/e2e/scripts/<module>_data_setup.py`
 2. API setup call
 3. backend factory / seed script
 4. Playwright request fixture
@@ -279,8 +281,8 @@ E2E 前置数据必须优先通过脚本构造。
 - Do not hardcode real credentials, tokens, secrets, or environment-specific URLs.
 - Do not invent setup scripts, fixtures, auth helpers, or cleanup helpers.
 - Do not bypass `e2e-codegen-plan.md`.
-- Do not fake pytest success.
-- If pytest cannot run, mark execution as skipped with reason.
+- Do not execute pytest. Test execution belongs to aws-run (Phase 8).
+- Do not write any execution result files (e2e-result.json, summary.md, etc.).
 - If data setup cannot run, do not continue UI steps.
 
 ## Stop Conditions
@@ -308,7 +310,7 @@ E2E 前置数据必须优先通过脚本构造。
 - "我帮你补一个 setup script 名"
 - "先用 UI 点一遍把数据造出来"
 - "先写固定 time.sleep() 等页面"
-- "pytest 没跑，但标记 passed"
+- "Workaround 写了，但没写 known-product-issues.md"
 - "顺手修改 case.yaml"
 - "顺手补充断言"
 - "把 E2E 测试扩展成 API 测试"
@@ -317,8 +319,12 @@ E2E 前置数据必须优先通过脚本构造。
 
 ## Next Workflow
 
-完成后，下一个工作流是：
+完成后，下一步是：
 
-**aws-inspect** 或后续 QA Review Skill。
+**Phase 8 — 运行 `aws-run`** 执行测试：
 
-如果测试失败，只能生成失败摘要，不得自动修改断言或自动合并修复。
+```bash
+aws run --change <change-id>
+```
+
+如果测试失败，由 `aws-inspect` 分析原因，不得在此 skill 内自动修改断言或合并修复。
