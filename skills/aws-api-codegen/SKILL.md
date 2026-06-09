@@ -1,6 +1,6 @@
 ---
 name: aws-api-codegen
-description: Use only after API plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". Reads Stage 1 plan files and generates pytest code, fixtures, helpers, and execution results. Never runs before planning is complete.
+description: Use only after API plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". Reads Stage 1 plan files and generates pytest code, fixtures, and helpers. Does NOT execute pytest — test execution is Phase 8 aws-run. Never runs before planning is complete.
 ---
 
 ## Context Contract
@@ -35,7 +35,7 @@ Do not rely on prior conversation context.
 
 将已 Review 的 API 测试计划转化为可执行 pytest 测试代码。
 
-此 Skill 是 AWS M3 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/api`、`/tests/fixtures`、`/tests/helpers` 和 execution 结果。
+此 Skill 是 AWS M3 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/api`、`/tests/fixtures`、`/tests/helpers`。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
 
 ## When to Use
 
@@ -45,9 +45,10 @@ Do not rely on prior conversation context.
 - 继续 API codegen
 - 实现 api-codegen-plan.md
 - 根据 M3 plan 生成 `/tests/api`
-- 执行本次 API 测试
 
 使用此 Skill。
+
+**不适用于：执行测试（使用 aws-run）、查看执行结果（使用 aws-inspect）。**
 
 ## Do Not Use When
 
@@ -199,8 +200,8 @@ codegen 完成后输出以下内容（不执行测试）：
 - Do not hardcode real credentials, tokens, secrets, or environment-specific URLs.
 - Do not invent fixtures, factories, auth helpers, or cleanup helpers.
 - Do not bypass `api-codegen-plan.md`.
-- Do not fake pytest success.
-- If pytest cannot run, mark execution as skipped with reason.
+- Do not execute pytest. Test execution belongs to aws-run (Phase 8).
+- Do not write any execution result files (api-result.json, summary.md, etc.).
 
 ## Workaround Policy
 
@@ -287,8 +288,12 @@ If the product bug should block release, do not workaround silently. Stop and re
 
 ## Next Workflow
 
-完成后，下一个工作流是：
+完成后，下一步是：
 
-**execution-review-for-qa** 或后续 QA Review Skill。
+**Phase 8 — 运行 `aws-run`** 执行测试：
 
-如果测试失败，只能生成失败摘要，不得自动修改断言或自动合并修复。
+```bash
+aws run --change <change-id>
+```
+
+如果测试失败，由 `aws-inspect` 分析原因，不得在此 skill 内自动修改断言或合并修复。
