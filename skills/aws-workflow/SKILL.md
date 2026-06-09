@@ -179,6 +179,7 @@ required_skills:
   - aws-e2e-codegen
   - aws-run
   - aws-inspect
+  - aws-archive
 ```
 
 If any skill fails to load:
@@ -235,14 +236,18 @@ phases:
     checked_skills:
       - aws-case-design
       - aws-case-reviewer
+      - aws-case-fixer
       - aws-api-plan
       - aws-e2e-plan
       - aws-api-plan-reviewer
       - aws-plan-reviewer
+      - aws-api-plan-fixer
+      - aws-plan-fixer
       - aws-api-codegen
       - aws-e2e-codegen
       - aws-run
       - aws-inspect
+      - aws-archive
 
   case_design:
     status: pending | done | failed
@@ -472,6 +477,7 @@ outputs:
   - execution/api-result.json  (latest pointer)
   - execution/e2e-result.json  (latest pointer)
   - execution/summary.md       (latest pointer)
+  - execution/known-product-issues.md (if codegen wrote one)
   - workflow-state.yaml (updated)
 ```
 
@@ -486,6 +492,8 @@ inputs:
 outputs:
   - execution/failure-analysis.json (if failures)
   - execution/failure-summary.md (if failures)
+  - inspect/known-product-issues.md (if known product issues found)
+  - inspect/failure-analysis.json (if known product issues found)
   - human-readable final report
   - workflow-state.yaml (updated)
 ```
@@ -689,7 +697,7 @@ Phase 7B — E2E Codegen
   → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-codegen-plan.md, plan-review.json
   → Execute inline
   → Verify tests/e2e/test_<module>_e2e.py exists
-  → E2E framework: Python Playwright (test_*.py + conftest.py)
+  → E2E framework: Python Playwright (test_*_e2e.py + conftest.py)
   → Do NOT generate *.spec.ts files
   → Update workflow-state.yaml: phases.e2e_codegen.status = done
 
@@ -1115,7 +1123,7 @@ E2E plan files:
 
 Generated test files:
   tests/api/: <N files>
-  tests/e2e/: <N files> (Python Playwright, test_*.py)
+  tests/e2e/: <N files> (Python Playwright, test_*_e2e.py)
 
 Execution result:
   command: aws run --change <change-id> | fallback
