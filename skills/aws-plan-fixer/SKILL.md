@@ -17,11 +17,22 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Write updated files:
-   - `qa/changes/<change-id>/plans/e2e-plan.md` (fixed version)
-   - `qa/changes/<change-id>/plans/e2e-codegen-plan.md` (if changed)
+1. Write updated files (only those actually modified):
+   - `qa/changes/<change-id>/plans/e2e-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-test-data-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
+   - `qa/changes/<change-id>/plans/m4-review-summary.md`
+   - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`
+   - `qa/changes/<change-id>/review/plan-review-apply-summary.md`
 2. Update `workflow-state.yaml`:
-   - Note the fix attempt in `phases.e2e_plan_review`
+   - Set `phases.e2e_plan_fixer.status = done`
+   - Append to `phases.e2e_plan_fixer.fix_attempts`:
+     ```yaml
+     - attempt: <n>
+       fixed: [<finding-id>, ...]
+       skipped: [<finding-id>, ...]
+       reason: <why skipped>
+     ```
 
 ---
 
@@ -73,7 +84,6 @@ Recommended:
 qa/changes/<change-id>/proposal.md
 qa/changes/<change-id>/cases/**/*.yaml
 .aws/data-knowledge.yaml
-tests/e2e/**
 ```
 
 ## Outputs
@@ -125,6 +135,8 @@ You may apply fixes for findings where:
 - `auto_fix_allowed = true`
 - `human_review_required = false`
 - `severity` in `["low", "medium"]`
+
+**Explicit severity rule:** Findings with `severity = high` or `severity = critical` must **always** be escalated to human review — regardless of `auto_fix_allowed`. Never auto-fix high or critical severity findings.
 
 Allowed operations:
 
@@ -185,7 +197,8 @@ Do not hide unknowns. If something is unknown, make it explicit in the plan as a
 6. Preserve existing style and ordering.
 7. Add unknowns to the appropriate "Open Questions", "TODO", or `data-knowledge.proposal.yaml` section.
 8. Write `plan-review-apply-summary.md`.
-9. Tell the orchestrator to re-run `aws-plan-reviewer`.
+9. Update `workflow-state.yaml`: set `phases.e2e_plan_fixer.status = done` and append `fix_attempts` entry.
+10. Tell the orchestrator to re-run `aws-plan-reviewer`.
 
 ---
 
