@@ -17,10 +17,13 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Write updated files:
+1. Write updated files (only those actually changed):
    - `qa/changes/<change-id>/cases/<module>/case.yaml` (fixed version)
+   - `qa/changes/<change-id>/proposal.md` (if fix requires proposal update)
+   - `qa/changes/<change-id>/review/case-review-apply-summary.md`
 2. Update `workflow-state.yaml`:
-   - Note the fix attempt in `phases.case_review` (append attempt count)
+   - Append to `phases.case_review.fix_attempts`: `{ attempt: N, files_modified: [...], timestamp: <now> }`
+   - Do NOT change `phases.case_review.status` — only the reviewer can update the gate status
 
 ---
 
@@ -113,13 +116,14 @@ This fixer must never bypass the reviewer. It is **not** a gate producer.
 
 ## Allowed Fixes
 
-You may apply fixes for findings where:
+You may apply fixes for findings where **all** of the following are true:
 
 - `auto_fix_allowed = true`
 - `human_review_required = false`
-- `severity` in `["low", "medium"]`
 
-You may also apply `high` severity findings only if the review explicitly marks them as mechanical and safe.
+For `severity = "high"`: apply only if the finding is purely structural/formatting (e.g., normalize a field value, fix YAML indentation). If the fix requires any judgment about product behavior, stop and require human review.
+
+For `severity = "critical"`: **always stop and require human review** regardless of `auto_fix_allowed`.
 
 Allowed operations:
 
@@ -131,7 +135,7 @@ Allowed operations:
 - Remove duplicate wording
 - Add trace fields when source is explicit
 - Split overly long steps into clear smaller steps
-- Strengthen assertions when the expected result is explicitly stated
+- Strengthen assertions when the expected result is explicitly stated (must not introduce forbidden content: no API paths, selectors, tokens, credentials, code, or environment-specific values)
 - Add missing cleanup note if the cleanup method is already known
 
 ---
@@ -174,7 +178,10 @@ Do not overwrite existing case files wholesale. Prefer minimal diffs.
 5. Apply minimal edits to target files.
 6. Preserve existing style and ordering where possible.
 7. Write `case-review-apply-summary.md`.
-8. Tell the orchestrator to re-run `aws-case-reviewer`.
+8. Update `workflow-state.yaml`:
+   - Append fix attempt record: `{ attempt: N, files_modified: [...] }`
+   - Do NOT modify `phases.case_review.status` — gate status is reviewer-only.
+9. Tell the orchestrator to re-run `aws-case-reviewer`.
 
 ---
 
