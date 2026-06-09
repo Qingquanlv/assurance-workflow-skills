@@ -22,6 +22,12 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/proposal.md`
    - `qa/changes/<change-id>/cases/<module>/case.yaml`
 2. Create or update `qa/changes/<change-id>/workflow-state.yaml`:
+   - If the file does **not exist**, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
+     - `execution_mode: inline`
+     - `subagent_skill_inheritance: disabled`
+     - `phases.skill_registry_check.status: pass` (assume pass if invoked standalone)
+     - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
+   - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
    - Set `phases.case_design.status = done`
    - List all output files under `phases.case_design.outputs`
 3. Record any warnings or known issues explicitly in `workflow-state.yaml`.
@@ -1298,13 +1304,12 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 
 ## Next Workflow
 
-After writing and self-reviewing the case YAML, invoke:
+After writing and self-reviewing the case YAML:
 
-```
-aws-case-reviewer
-```
+- **If running under `aws-workflow` (orchestrated):** do **NOT** invoke `aws-case-reviewer` directly. Report completion to the orchestrator. The orchestrator will invoke `aws-case-reviewer` as Phase 2.
+- **If running standalone and the user explicitly asks to continue:** load `aws-case-reviewer` next.
 
-aws-case-reviewer reads:
+`aws-case-reviewer` reads:
 
 ```
 qa/changes/<change-id>/proposal.md
@@ -1413,8 +1418,9 @@ Stop and address these before continuing:
 - Do NOT generate or modify `tests/api` or `tests/e2e` in this skill.
 - Do NOT write review or execution result in this skill.
 - Do NOT archive anything in this skill.
-- If the user says "skip brainstorm", confirm explicitly:
-  > "You've asked to skip brainstorming. I'll proceed directly to writing proposal.md and case delta. Note: skipping brainstorm means QA scope has not been reviewed. Confirm?"
+- If the user says "skip brainstorm", do **NOT** skip the hard gate. Instead, offer a shortened brainstorm mode:
+  > "You've asked to skip brainstorming. I cannot skip the hard gate — QA scope must be confirmed before writing any file. I can run a shortened mode: I'll confirm module, change type, test types, data needs, success assertions, exception scope, automation target, and out-of-scope in fewer questions. Shall I proceed with the shortened mode?"
+  In shortened mode, still cover all 8 clarifying categories. Still propose 2–3 coverage approaches. Still require user approval before writing any file.
 
 ---
 
