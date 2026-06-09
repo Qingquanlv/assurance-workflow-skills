@@ -31,7 +31,7 @@ Do not rely on prior conversation context.
 
 名称：API 测试代码生成
 
-描述："QA 超能力：仅在 API plan 已 Review 后使用。根据 api-plan.md、api-test-data-plan.md 和 api-codegen-plan.md 生成 pytest 测试代码、fixtures、helpers，并执行 pytest 生成执行结果。此 Skill 不生成新的 Case，不重新设计测试范围。"
+描述："QA 超能力：仅在 API plan 已 Review 后使用。根据 api-plan.md、api-test-data-plan.md 和 api-codegen-plan.md 生成 pytest 测试代码、fixtures、helpers。**不执行 pytest，不生成执行结果** — 测试执行由 aws-run（Phase 8）负责。此 Skill 不生成新的 Case，不重新设计测试范围。"
 
 将已 Review 的 API 测试计划转化为可执行 pytest 测试代码。
 
@@ -95,7 +95,7 @@ Do not rely on prior conversation context.
 - `/tests/fixtures/*.py`
 - `/tests/helpers/*.py`
 
-不生成 execution 结果文件 — 测试执行由 `aws-run` (Phase 8) 负责。
+**不执行 pytest，不生成 execution 结果文件** — 测试执行完全由 `aws-run`（Phase 8）负责。此 skill 完成后，直接运行 `aws-run` 执行测试。
 
 不得生成或修改：
 
