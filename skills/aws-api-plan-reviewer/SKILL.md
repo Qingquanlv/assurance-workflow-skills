@@ -21,7 +21,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/review/api-plan-review.json`
    - `qa/changes/<change-id>/review/api-plan-review-summary.md`
 2. Update `workflow-state.yaml`:
-   - Set `phases.api_plan_review.status` = `pass | needs_fix | reject`
+   - Set `phases.api_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
    - Set `phases.api_plan_review.gate_file` = `review/api-plan-review.json`
 
 ---
@@ -188,6 +188,20 @@ If `tests/api/**` exists, check whether the plan respects existing style:
 - pytest conftest conventions
 - Incremental append instead of overwrite
 
+### 7. Missing Knowledge and Unknowns
+
+Check whether the plan has any unresolved items:
+
+- Endpoint paths marked as unknown or TBD
+- Auth mechanism not identified
+- Fixture or factory not found in `.aws/data-knowledge.yaml`
+- Data setup strategy left as "to be confirmed"
+- Expected response body schema not specified
+
+Each unknown must appear in the plan's **Needs Review** or **Blockers** section.  
+Unknowns that are silently omitted from the plan are a `high` finding.  
+Unknowns that are documented and have a TODO placeholder are acceptable for `ready_with_warnings`.
+
 ---
 
 ## Decision Rules
@@ -212,6 +226,21 @@ Return one of: `pass` / `needs_fix` / `needs_human_review` / `reject`
 - Plan is for the wrong feature.
 - Required plan files are missing.
 - Plan contradicts case files.
+
+### Decision ↔ JSON Field Constraints
+
+These field values **must always be consistent**. Violating them creates gate bypass risk:
+
+| decision | human_review_required | auto_fix_allowed |
+|---|---|---|
+| `pass` | `false` | `false` |
+| `needs_fix` | `false` | `true` |
+| `needs_human_review` | `true` | `false` (MUST be false) |
+| `reject` | `true` | `false` (MUST be false) |
+
+**Rule**: `human_review_required` MUST be `true` whenever `decision` is `needs_human_review` or `reject`.  
+**Rule**: `auto_fix_allowed` MUST be `false` whenever `human_review_required` is `true`.  
+A reviewer that writes `decision = "needs_human_review"` with `human_review_required: false` has produced an invalid review that enables gate bypass.
 
 ---
 
@@ -264,8 +293,8 @@ qa/changes/<change-id>/review/api-plan-review.json
   "decision": "pass",
   "risk_level": "low",
   "codegen_readiness": "ready",
-  "auto_fix_allowed": false,
-  "human_review_required": false,
+  "auto_fix_allowed": false,          // MUST be false when human_review_required is true
+  "human_review_required": false,       // MUST be true when decision is needs_human_review or reject
   "summary": "Short review summary.",
   "reviewed_files": [],
   "blockers": [],
