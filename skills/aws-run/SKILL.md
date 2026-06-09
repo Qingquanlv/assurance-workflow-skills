@@ -24,8 +24,10 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/execution/api-result.json` (latest pointer)
    - `qa/changes/<change-id>/execution/e2e-result.json` (latest pointer)
    - `qa/changes/<change-id>/execution/summary.md` (latest pointer)
+   - `qa/changes/<change-id>/execution/known-product-issues.md` (if codegen wrote one)
 2. Update `workflow-state.yaml`:
    - Set `phases.execution.status` = `passed | passed_with_known_issues | failed | skipped`
+   - Set `phases.execution.batch_id` = `<YYYYMMDD-HHmmss>` (the current run's batch ID)
 
 ---
 
@@ -118,7 +120,8 @@ qa/changes/<change-id>/execution/
 4. Read `qa/changes/<change-id>/execution/e2e-result.json`.
 5. Read `qa/changes/<change-id>/execution/summary.md`.
 6. Present a brief summary to the user (status, counts, any failures).
-7. Do **not** generate `failure-analysis.json` — that is the job of `aws-inspect`.
+7. Update `workflow-state.yaml`: set `phases.execution.status` and `phases.execution.batch_id`.
+8. Do **not** generate `failure-analysis.json` — that is the job of `aws-inspect`.
 
 ## Known Product Issues During Execution
 
@@ -132,13 +135,13 @@ Examples:
 - A UI flow is skipped due to a known product issue.
 - A backend bug is observed but not fixed in this workflow.
 
-If `aws-api-codegen` or `aws-e2e-codegen` created a `known-product-issues.md` in the codegen stage, copy it to:
+Codegen skills (`aws-api-codegen`, `aws-e2e-codegen`) write workaround records directly to:
 
 ```text
 qa/changes/<change-id>/execution/known-product-issues.md
 ```
 
-Also include in `qa/changes/<change-id>/execution/summary.md` the following status block:
+After `aws run` completes, **check whether this file exists**. If it does, include in `qa/changes/<change-id>/execution/summary.md` the following status block:
 
 ```yaml
 status: passed_with_known_issues
