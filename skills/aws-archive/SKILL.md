@@ -12,7 +12,7 @@ Do not rely on prior conversation context.
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
 2. Verify all required gates have passed:
    - `phases.case_review.status == pass`
-   - `phases.execution.status` in `[passed, passed_with_known_issues]` (if execution was run)
+   - `phases.execution.status` — any value is acceptable (execution failure does not block archive; record status in archive-summary.md)
 3. Read input files from disk: `review/case-review.json`, `execution/api-result.json`, `execution/e2e-result.json`, `execution/known-product-issues.md` (if present).
 4. If any required gate file is missing or has `decision != "pass"`, stop and report.
 5. Use files as the sole source of truth.
@@ -22,7 +22,8 @@ Do not rely on prior conversation context.
 1. Write archived artifacts to `qa/archive/<change-id>/`.
 2. Merge case delta into `qa/cases/<module>/case.yaml`.
 3. Update `workflow-state.yaml`:
-   - Set final workflow status (completed | completed_with_known_issues)
+   - Set `archive_status` = `archived | archived_with_known_issues`
+   - Use `archived_with_known_issues` if `known-product-issues.md` exists or execution had known issues
 
 ---
 
@@ -143,12 +144,11 @@ If any of these files exist:
 
 Check whether execution summaries exist:
 
-- `qa/changes/<change-id>/execution/api-summary.md` (if API tests were generated)
-- `qa/changes/<change-id>/execution/e2e-summary.md` (if E2E tests were generated)
+- `qa/changes/<change-id>/execution/summary.md` (latest run; also at `execution/runs/<batch-id>/summary.md`)
 - `qa/changes/<change-id>/execution/api-result.json`
 - `qa/changes/<change-id>/execution/e2e-result.json`
 
-**Do not block the archive if execution failed** — tests may have been skipped or failed due to environment issues. Instead, record the execution status in `archive-summary.md` (see Step 5).
+**Execution failure does not block archive.** Record the execution status in `archive-summary.md` (see Step 5). This is consistent with Context Contract — all execution status values are accepted.
 
 If execution result files exist: copy them into the archive (already covered by Step 4).
 If execution result files are missing: note that execution was not performed.
@@ -162,10 +162,10 @@ Copy (do not move) the following to `qa/archive/<change-id>/`:
 | `qa/changes/<change-id>/plans/` | `qa/archive/<change-id>/plans/` |
 | `qa/changes/<change-id>/review/` | `qa/archive/<change-id>/review/` |
 | `qa/changes/<change-id>/execution/` | `qa/archive/<change-id>/execution/` |
-| `qa/changes/<change-id>/execution/` | `qa/archive/<change-id>/execution/` |
 | `qa/changes/<change-id>/trace/` | `qa/archive/<change-id>/trace/` |
 | `qa/changes/<change-id>/proposal.md` | `qa/archive/<change-id>/proposal.md` |
 | `qa/changes/<change-id>/.qa.yaml` | `qa/archive/<change-id>/.qa.yaml` |
+| `qa/changes/<change-id>/workflow-state.yaml` | `qa/archive/<change-id>/workflow-state.yaml` |
 
 Do **not** delete `qa/changes/<change-id>/` after archiving. The change directory is preserved as a reference. Deletion, if desired, must be performed manually by a human.
 

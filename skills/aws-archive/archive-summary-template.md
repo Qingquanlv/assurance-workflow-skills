@@ -3,7 +3,7 @@
 ---
 archived_at: {datetime}
 archived_by: {agent|human}
-archive_status: completed | completed_with_known_issues
+archive_status: archived | archived_with_known_issues
 ---
 
 ## Change Summary
