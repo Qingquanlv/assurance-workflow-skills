@@ -59,7 +59,7 @@ Do not rely on prior conversation context.
 - 用户要求生成 `/tests/api/*.py`
 - 用户要求生成 execution result
 - 需求还没有生成 case.yaml
-- case.yaml 尚未通过人工 Review
+- `case-review.json` 中 `decision != "pass"`（结构化 gate 未放行）
 
 ## Inputs
 
@@ -129,6 +129,7 @@ Do not rely on prior conversation context.
 - [ ] 生成 `api-codegen-plan.md`
 - [ ] 生成 `m3-review-summary.md`
 - [ ] 确认未生成测试代码
+- [ ] 更新 `workflow-state.yaml`（`phases.api_plan.status = done`）
 - [ ] 输出下一步提示
 
 ## Output Contract
@@ -186,7 +187,7 @@ endpoint 路径无法确认时：必须写入 **Needs Review**，不得静默猜
 - **Assertion Mapping** — 表格：Case ID \| Assertions
 - **Data Setup Mapping** — 每个 Case 的数据准备步骤
 - **Cleanup Mapping** — 每个 Case 的清理步骤
-- **Execution Plan** — 如何运行测试及写入结果
+- **Run Guidance** — 供 `aws-run`（Phase 8）参考的运行指引（如 pytest 参数、标记、环境变量）；此字段不由 aws-api-codegen 执行，仅作为执行层的输入
 - **Codegen Preconditions** — codegen 开始前必须满足的条件
 
 ### m3-review-summary.md
@@ -202,7 +203,7 @@ endpoint 路径无法确认时：必须写入 **Needs Review**，不得静默猜
 - **Data Knowledge Layer Status** — OK / Warning 及 capability 解析结果
 - **Blockers** — 阻塞 codegen 的项（或 None）
 - **Needs Review** — 需要人工确认的项
-- **Codegen Readiness** — `ready` / `pending_review` / `blocked`
+- **Codegen Readiness** — `ready` / `ready_with_warnings` / `not_ready`
 - **Next Step** — 给 reviewer 的行动指引
 
 ## Data Knowledge Layer Rules
@@ -275,7 +276,13 @@ capabilities:
 - `api-codegen-plan.md`
 - `m3-review-summary.md`
 
-停止后必须输出：
+停止前必须：
+
+1. 更新 `qa/changes/<change-id>/workflow-state.yaml`：
+   - `phases.api_plan.status = done`
+   - `phases.api_plan.outputs` 列出四个生成文件路径
+
+然后输出：
 
 ```
 M3 Stage 1 completed. Please review the generated plan files before continuing to API Codegen.
