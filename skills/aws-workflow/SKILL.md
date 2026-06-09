@@ -252,7 +252,7 @@ phases:
       - cases/<module>/case.yaml
 
   case_review:
-    status: pending | pass | needs_fix | reject
+    status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/case-review.json
 
   api_plan:
@@ -270,11 +270,11 @@ phases:
       - plans/e2e-codegen-plan.md
 
   api_plan_review:
-    status: pending | pass | needs_fix | reject
+    status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/api-plan-review.json
 
   e2e_plan_review:
-    status: pending | pass | needs_fix | reject
+    status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/plan-review.json
 
   api_codegen:
@@ -293,6 +293,15 @@ phases:
 
   execution:
     status: pending | passed | passed_with_known_issues | failed | skipped
+    batch_id: <YYYYMMDD-HHmmss>
+
+  inspect:
+    status: pending | done | failed
+    outputs:
+      - execution/failure-analysis.json
+      - execution/failure-summary.md
+      - inspect/known-product-issues.md (if known issues found)
+      - inspect/failure-analysis.json (if known issues found)
 
 gates:
   data_knowledge:
@@ -636,7 +645,7 @@ Phase 7A — API Codegen
   → Load skill aws-api-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, api-plan.md, api-codegen-plan.md, api-plan-review.json
   → Execute inline
-  → Verify tests/api/test_<module>.py exists
+  → Verify tests/api/test_<module>_api.py exists
   → Update workflow-state.yaml: phases.api_codegen.status = done
 
 [E2E branch — run if test_types includes "e2e"]
@@ -673,12 +682,13 @@ Phase 6B — E2E Plan Fix Loop (if gate requires it)
 Phase 7B — E2E Codegen pre-check
   → Verify `.aws/data-knowledge.yaml` exists on disk
   → If missing: STOP — tell user to create or promote data-knowledge.yaml
+  → Update workflow-state.yaml: gates.data_knowledge
 
 Phase 7B — E2E Codegen
   → Load skill aws-e2e-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-codegen-plan.md, plan-review.json
   → Execute inline
-  → Verify tests/e2e/test_<module>.py exists
+  → Verify tests/e2e/test_<module>_e2e.py exists
   → E2E framework: Python Playwright (test_*.py + conftest.py)
   → Do NOT generate *.spec.ts files
   → Update workflow-state.yaml: phases.e2e_codegen.status = done
@@ -691,7 +701,7 @@ Phase 8 — Test Execution (if run_tests = true)
   → Fallback API: uv run pytest tests/api/ -v
   → Fallback E2E: uv run pytest tests/e2e/ -v --headed
   → Read result from execution/api-result.json, execution/e2e-result.json on disk
-  → Update workflow-state.yaml: phases.execution.status
+  → Update workflow-state.yaml: phases.execution.status and phases.execution.batch_id
 
 Phase 9 — Inspect / Final Summary
   → Load skill aws-inspect if failures detected
@@ -753,35 +763,36 @@ qa/changes/<change-id>/review/plan-review-summary.md
 ### API Codegen outputs
 
 ```text
-tests/api/test_<module>.py
-tests/fixtures/**/*.py
-tests/helpers/**/*.py
+tests/api/test_<module>_api.py
+tests/api/helpers/<module>_api.py
+tests/fixtures/<module>_fixtures.py
+tests/api/conftest.py
 ```
 
-Note: execution result files (`api-result.json`, `api-summary.md`) are written by `aws-run` in Phase 8, not by `aws-api-codegen`.
+Note: execution result files are written by `aws-run` in Phase 8, not by `aws-api-codegen`.
 
 ### E2E Codegen outputs
 
-E2E framework: **Python Playwright** — `test_*.py` files with `pytest --headed`.
+E2E framework: **Python Playwright** — `test_*_e2e.py` files with `pytest --headed`.
 
 ```text
-tests/e2e/test_<module>.py      ← Python Playwright test file (NOT *.spec.ts)
+tests/e2e/test_<module>_e2e.py      ← Python Playwright test file (NOT *.spec.ts)
+tests/e2e/scripts/<module>_data_setup.py
 tests/e2e/conftest.py
-qa/changes/<change-id>/scripts/e2e-data-setup.py
 ```
 
-Note: execution result files (`e2e-result.json`, `e2e-summary.md`) are written by `aws-run` in Phase 8, not by `aws-e2e-codegen`.
+Note: execution result files are written by `aws-run` in Phase 8, not by `aws-e2e-codegen`.
 
 ### Execution outputs (written by aws-run, Phase 8)
 
 ```text
 qa/changes/<change-id>/execution/api-result.json
-qa/changes/<change-id>/execution/api-summary.md
 qa/changes/<change-id>/execution/e2e-result.json
-qa/changes/<change-id>/execution/e2e-summary.md
 qa/changes/<change-id>/execution/summary.md
-qa/changes/<change-id>/execution/failure-analysis.json  ← written by aws report inspect
-qa/changes/<change-id>/execution/failure-summary.md     ← written by aws report inspect
+qa/changes/<change-id>/execution/known-product-issues.md  ← only if codegen wrote one
+qa/changes/<change-id>/execution/runs/<batch-id>/         ← per-run archive
+qa/changes/<change-id>/execution/failure-analysis.json  ← written by aws-inspect
+qa/changes/<change-id>/execution/failure-summary.md     ← written by aws-inspect
 ```
 
 Before advancing to the next phase, verify the required output files for the current phase exist. If any required file is missing, stop and report which files are missing.
