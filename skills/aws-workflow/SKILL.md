@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow from requirement to case design, review, API/E2E planning, plan review, API/E2E code generation, and headed test execution inside OpenCode. Acts as the orchestrator entry skill — loads other AWS skills and delegates to subagents phase by phase."
+description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, aws-run, aws-inspect) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -12,15 +12,65 @@ This is the **orchestrator entry skill** for running the full AWS QA workflow in
 It is not a case design, review, or codegen skill. It coordinates the entire workflow by:
 
 - Loading other AWS skills phase by phase
-- Routing work to specialized subagents when available
+- Loading each phase skill inline in the primary agent (no subagent skill loading)
 - Verifying phase output files before advancing
 - Reading review JSON to make gate decisions
 - Enforcing retry policy for fix/review loops
-- Applying background subagent watchdog (idle/total timeout, foreground retry once)
+- Applying watchdog policy for any document-driven subagents (idle/total timeout, foreground retry once)
 - Stopping on `reject`, missing files, `human_review_required`, or exceeded retries
 - Producing a structured final summary
 
-Do not perform detailed case design, review, fix, or codegen work directly inside this skill unless no subagent is available.
+Do not perform detailed case design, review, fix, or codegen work directly inside this skill — load the appropriate phase skill and execute it inline.
+
+---
+
+## Execution Mode
+
+This workflow uses **inline skill orchestration**.
+
+Do not rely on OpenCode subagents or tasks to inherit loaded skills or conversation context. OpenCode task agents do not reliably resolve project skills when invoked as subagents. This causes "Skills not found" failures in any phase delegated to a background task.
+
+The orchestrator must:
+
+1. Load each phase skill directly in the **primary agent**.
+2. Execute the phase inline (in the same agent context as the orchestrator).
+3. Persist all phase outputs to `qa/changes/<change-id>/` before advancing.
+4. Before entering the next phase, **re-read the required files from disk**.
+5. Treat `qa/changes/<change-id>/workflow-state.yaml` and phase output files as the **only source of truth** between phases.
+6. Never assume another skill shares in-memory context from a previous phase.
+
+### Required Pattern
+
+```text
+primary agent
+  → load aws-workflow
+  → load aws-case-design        ← in primary agent
+  → execute phase inline
+  → write files to disk
+  → update workflow-state.yaml
+  → load aws-case-reviewer      ← in primary agent
+  → read files from disk
+  → execute phase inline
+  → ...
+```
+
+### Forbidden Pattern
+
+```text
+aws-workflow
+  → task / subagent
+      → load skill              ← FORBIDDEN
+```
+
+If parallel execution is genuinely needed, only **document-driven subagents** are permitted:
+
+```text
+subagent receives plan.md as input
+subagent executes the plan directly
+subagent MUST NOT be asked to load a skill
+```
+
+This restriction remains in effect until OpenCode explicitly supports reliable subagent skill inheritance.
 
 ---
 
@@ -110,32 +160,326 @@ For `api-only`, `e2e-only`, `plan-only`, `codegen-only`, `review-case`, and `rev
 
 ---
 
-## Subagent Routing
+## Phase 0 — Skill Registry Check
 
-Subagent name matches the skill name exactly. Invoke as `@<skill-name>`.
+Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**.
 
-| Phase | Subagent / Skill |
+```yaml
+required_skills:
+  - aws-case-design
+  - aws-case-reviewer
+  - aws-case-fixer
+  - aws-api-plan
+  - aws-e2e-plan
+  - aws-api-plan-reviewer
+  - aws-plan-reviewer
+  - aws-api-plan-fixer
+  - aws-plan-fixer
+  - aws-api-codegen
+  - aws-e2e-codegen
+  - aws-run
+  - aws-inspect
+```
+
+If any skill fails to load:
+
+- **STOP** immediately.
+- Report the missing skill name.
+- Do not start case design.
+- Do **not** check subagent skill resolution — this workflow does not use subagent skill loading.
+
+---
+
+## Inline Skill Routing
+
+All phases load skills and execute **in the primary agent**. No subagents or tasks are used.
+
+| Phase | Skill to Load |
 |---|---|
-| Case Design | `aws-case-design` |
-| Case Review | `aws-case-reviewer` |
-| Case Fix | `aws-case-fixer` |
-| API Plan | `aws-api-plan` |
-| API Plan Review | `aws-api-plan-reviewer` |
-| API Plan Fix | `aws-api-plan-fixer` |
-| API Codegen | `aws-api-codegen` |
-| E2E Plan | `aws-e2e-plan` |
-| E2E Plan Review | `aws-plan-reviewer` |
-| E2E Plan Fix | `aws-plan-fixer` |
-| E2E Codegen | `aws-e2e-codegen` |
-| Run | `aws-run` |
-| Inspect | `aws-inspect` |
-| Archive | `aws-archive` |
+| Phase 0: Registry Check | (verify all required skills above) |
+| Phase 1: Case Design | `aws-case-design` |
+| Phase 2: Case Review | `aws-case-reviewer` |
+| Phase 3: Case Fix | `aws-case-fixer` |
+| Phase 4A: API Plan | `aws-api-plan` |
+| Phase 4B: E2E Plan | `aws-e2e-plan` |
+| Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
+| Phase 5B: E2E Plan Review | `aws-plan-reviewer` |
+| Phase 6A: API Plan Fix | `aws-api-plan-fixer` |
+| Phase 6B: E2E Plan Fix | `aws-plan-fixer` |
+| Phase 7A: API Codegen | `aws-api-codegen` |
+| Phase 7B: E2E Codegen | `aws-e2e-codegen` |
+| Phase 8: Execution | `aws-run` |
+| Phase 9: Inspect | `aws-inspect` |
+| Phase 10: Archive | `aws-archive` |
 
-**Routing rules:**
+After each phase, **update `workflow-state.yaml`** before loading the next skill.
+---
 
-1. If the named agent file exists in `.opencode/agents/`, invoke it via `@<skill-name>` with the relevant context.
-2. If the agent does not exist, load the corresponding skill directly in the current agent context and execute it.
-3. The final summary must state which phases used subagent isolation and which ran inline.
+## workflow-state.yaml
+
+Path: `qa/changes/<change-id>/workflow-state.yaml`
+
+This file is the **canonical cross-phase state source**. Every phase must read it at entry and update it at exit.
+
+```yaml
+schema_version: "1.0"
+change_id: <change-id>
+module: <module>
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+phases:
+  skill_registry_check:
+    status: pass | fail
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-api-plan
+      - aws-e2e-plan
+      - aws-api-plan-reviewer
+      - aws-plan-reviewer
+      - aws-api-codegen
+      - aws-e2e-codegen
+      - aws-run
+      - aws-inspect
+
+  case_design:
+    status: pending | done | failed
+    outputs:
+      - .qa.yaml
+      - proposal.md
+      - cases/<module>/case.yaml
+
+  case_review:
+    status: pending | pass | needs_fix | reject
+    gate_file: review/case-review.json
+
+  api_plan:
+    status: pending | done | failed
+    outputs:
+      - plans/api-plan.md
+      - plans/api-test-data-plan.md
+      - plans/api-codegen-plan.md
+
+  e2e_plan:
+    status: pending | done | failed
+    outputs:
+      - plans/e2e-plan.md
+      - plans/e2e-test-data-plan.md
+      - plans/e2e-codegen-plan.md
+
+  api_plan_review:
+    status: pending | pass | needs_fix | reject
+    gate_file: review/api-plan-review.json
+
+  e2e_plan_review:
+    status: pending | pass | needs_fix | reject
+    gate_file: review/plan-review.json
+
+  api_codegen:
+    status: pending | done | failed
+    generated_tests:
+      framework: pytest
+      language: python
+      files: []
+
+  e2e_codegen:
+    status: pending | done | failed
+    generated_tests:
+      framework: pytest-playwright
+      language: python
+      files: []
+
+  execution:
+    status: pending | passed | passed_with_known_issues | failed | skipped
+
+gates:
+  data_knowledge:
+    status: present | missing
+    decision: pass | force_continue | stop
+
+known_product_issues: []
+
+agent_warnings:
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline
+    workaround:
+      - use file-based phase contracts
+      - use document-driven subagents only if parallelism is needed
+    status: acknowledged
+```
+
+---
+
+## Phase Contracts
+
+### Phase 1 — Case Design
+
+```yaml
+inputs:
+  - user requirement text
+  - qa/cases/** (existing cases)
+  - source code (backend/frontend)
+outputs:
+  - qa/changes/<change-id>/.qa.yaml
+  - qa/changes/<change-id>/proposal.md
+  - qa/changes/<change-id>/cases/<module>/case.yaml
+  - qa/changes/<change-id>/workflow-state.yaml (create/update)
+```
+
+### Phase 2 — Case Review
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - .qa.yaml
+  - proposal.md
+  - cases/<module>/case.yaml
+outputs:
+  - review/case-review.json
+  - review/case-review-summary.md
+  - workflow-state.yaml (updated)
+gate: decision == "pass"
+```
+
+### Phase 4A — API Plan
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - proposal.md
+  - cases/<module>/case.yaml
+  - .aws/config.yaml
+  - .aws/data-knowledge.yaml (or plans/data-knowledge.proposal.yaml)
+  - backend source files
+outputs:
+  - plans/api-plan.md
+  - plans/api-test-data-plan.md
+  - plans/api-codegen-plan.md
+  - plans/m3-review-summary.md
+  - workflow-state.yaml (updated)
+```
+
+### Phase 4B — E2E Plan
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - proposal.md
+  - cases/<module>/case.yaml
+  - .aws/config.yaml
+  - .aws/data-knowledge.yaml (or plans/data-knowledge.proposal.yaml)
+  - frontend source files
+outputs:
+  - plans/e2e-plan.md
+  - plans/e2e-test-data-plan.md
+  - plans/e2e-codegen-plan.md
+  - plans/m4-review-summary.md
+  - workflow-state.yaml (updated)
+```
+
+### Phase 5A — API Plan Review
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - plans/api-plan.md
+  - plans/api-test-data-plan.md
+  - plans/api-codegen-plan.md
+outputs:
+  - review/api-plan-review.json
+  - review/api-plan-review-summary.md
+  - workflow-state.yaml (updated)
+gate:
+  - decision == "pass"
+  - codegen_readiness in ["ready", "ready_with_warnings"]
+```
+
+### Phase 5B — E2E Plan Review
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - plans/e2e-plan.md
+  - plans/e2e-test-data-plan.md
+  - plans/e2e-codegen-plan.md
+outputs:
+  - review/plan-review.json
+  - review/plan-review-summary.md
+  - workflow-state.yaml (updated)
+gate:
+  - decision == "pass"
+  - codegen_readiness in ["ready", "ready_with_warnings"]
+```
+
+### Phase 7A — API Codegen
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - plans/api-plan.md
+  - plans/api-test-data-plan.md
+  - plans/api-codegen-plan.md
+  - review/api-plan-review.json  # must be present and decision==pass
+outputs:
+  - tests/api/test_<module>_api.py
+  - tests/api/helpers/<module>_api.py
+  - tests/api/conftest.py (append only)
+  - workflow-state.yaml (updated)
+```
+
+### Phase 7B — E2E Codegen
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - plans/e2e-plan.md
+  - plans/e2e-test-data-plan.md
+  - plans/e2e-codegen-plan.md
+  - review/plan-review.json  # must be present and decision==pass
+outputs:
+  - tests/e2e/test_<module>_e2e.py
+  - tests/e2e/scripts/<module>_data_setup.py
+  - tests/e2e/conftest.py (append only)
+  - workflow-state.yaml (updated)
+```
+
+### Phase 8 — Execution
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - generated test files (from phases 7A/7B)
+  - .aws/config.yaml
+outputs:
+  - execution/runs/<batch-id>/api-result.json
+  - execution/runs/<batch-id>/e2e-result.json
+  - execution/runs/<batch-id>/summary.md
+  - execution/api-result.json  (latest pointer)
+  - execution/e2e-result.json  (latest pointer)
+  - execution/summary.md       (latest pointer)
+  - workflow-state.yaml (updated)
+```
+
+### Phase 9 — Inspect / Final Summary
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - execution/api-result.json
+  - execution/e2e-result.json
+  - execution/known-product-issues.md (if present)
+outputs:
+  - execution/failure-analysis.json (if failures)
+  - execution/failure-summary.md (if failures)
+  - human-readable final report
+  - workflow-state.yaml (updated)
+```
 
 ---
 
@@ -209,104 +553,153 @@ Append to `agent_warnings` — never overwrite prior incidents.
 
 ### Workflow State
 
-Maintain `agent_warnings` in orchestrator working memory throughout the run. The final summary **must** include it (see Final Response Format).
+Maintain `agent_warnings` in `workflow-state.yaml` throughout the run. The final summary **must** include it (see Final Response Format). The `OPENCODE-SKILL-RESOLUTION-001` warning must always be present since this workflow runs inline.
 
 ---
 
 ## Full Workflow (run_mode = full)
 
+All phases execute **inline in the primary agent**. No subagents or tasks are used.
+
 ```
+Phase 0 — Skill Registry Check
+  → Verify all required skills can load in primary agent
+  → If any skill fails to load: STOP, report missing skill name
+  → Write workflow-state.yaml (create, set execution_mode: inline)
+  → Record OPENCODE-SKILL-RESOLUTION-001 warning in workflow-state.yaml
+
 Phase 1 — Case Design
-  → Invoke @aws-case-design
-  → Verify output files exist
+  → Load skill aws-case-design in primary agent
+  → Execute inline
+  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Update workflow-state.yaml: phases.case_design.status = done
 
 Phase 2 — Case Review (initial)
-  → Invoke @aws-case-reviewer
-  → Read case-review.json
+  → Load skill aws-case-reviewer in primary agent
+  → Re-read from disk: workflow-state.yaml, case.yaml, proposal.md
+  → Execute inline
+  → Read case-review.json from disk
   → Apply case review gate
+  → Update workflow-state.yaml: phases.case_review.status
 
 Phase 3 — Case Fix Loop (if gate requires it)
   → For each attempt (max = max_case_fix_attempts):
-      → Invoke @aws-case-fixer
-      → Invoke @aws-case-reviewer
-      → Read new case-review.json
+      → Load skill aws-case-fixer in primary agent
+      → Re-read from disk: case-review.json, case.yaml
+      → Execute inline
+      → Load skill aws-case-reviewer in primary agent
+      → Re-read from disk: case.yaml (updated)
+      → Execute inline
+      → Read new case-review.json from disk
       → Apply case review gate
-      → If pass → exit loop
+      → If pass → exit loop, update workflow-state.yaml
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
 [API branch — run if test_types includes "api"]
 
 Phase 4A — API Plan
-  → Invoke @aws-api-plan
-  → Verify api-plan.md, api-test-data-plan.md, api-codegen-plan.md exist
+  → Load skill aws-api-plan in primary agent
+  → Re-read from disk: workflow-state.yaml, proposal.md, case.yaml
+  → Execute inline
+  → Verify api-plan.md, api-test-data-plan.md, api-codegen-plan.md exist on disk
+  → Update workflow-state.yaml: phases.api_plan.status = done
 
 Phase 5A — API Plan Review (initial)
-  → Invoke @aws-api-plan-reviewer
-  → Read api-plan-review.json
+  → Load skill aws-api-plan-reviewer in primary agent
+  → Re-read from disk: workflow-state.yaml, api-plan.md, api-test-data-plan.md, api-codegen-plan.md
+  → Execute inline
+  → Read api-plan-review.json from disk
   → Apply API plan review gate
+  → Update workflow-state.yaml: phases.api_plan_review.status
 
 Phase 6A — API Plan Fix Loop (if gate requires it)
   → For each attempt (max = max_plan_fix_attempts):
-      → Invoke @aws-api-plan-fixer
-      → Invoke @aws-api-plan-reviewer
-      → Read new api-plan-review.json
+      → Load skill aws-api-plan-fixer in primary agent
+      → Re-read from disk: api-plan-review.json, api-plan.md
+      → Execute inline
+      → Load skill aws-api-plan-reviewer in primary agent
+      → Re-read from disk: updated plan files
+      → Execute inline
+      → Read new api-plan-review.json from disk
       → Apply API plan review gate
-      → If pass → exit loop
+      → If pass → exit loop, update workflow-state.yaml
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
 Phase 7A — API Codegen pre-check
-  → Verify `.aws/data-knowledge.yaml` exists
-  → If missing: STOP — tell user to create `.aws/data-knowledge.yaml` or promote `data-knowledge.proposal.yaml`. Do not proceed to codegen.
-  → If present: continue
+  → Verify `.aws/data-knowledge.yaml` exists on disk
+  → If missing: STOP — tell user to create or promote data-knowledge.yaml
+  → Update workflow-state.yaml: gates.data_knowledge
 
 Phase 7A — API Codegen
-  → Invoke @aws-api-codegen
+  → Load skill aws-api-codegen in primary agent
+  → Re-read from disk: workflow-state.yaml, api-plan.md, api-codegen-plan.md, api-plan-review.json
+  → Execute inline
   → Verify tests/api/test_<module>.py exists
+  → Update workflow-state.yaml: phases.api_codegen.status = done
 
 [E2E branch — run if test_types includes "e2e"]
 
 Phase 4B — E2E Plan
-  → Invoke @aws-e2e-plan
-  → Verify e2e-plan.md, e2e-test-data-plan.md, e2e-codegen-plan.md exist
+  → Load skill aws-e2e-plan in primary agent
+  → Re-read from disk: workflow-state.yaml, proposal.md, case.yaml
+  → Execute inline
+  → Verify e2e-plan.md, e2e-test-data-plan.md, e2e-codegen-plan.md exist on disk
+  → Update workflow-state.yaml: phases.e2e_plan.status = done
 
 Phase 5B — E2E Plan Review (initial)
-  → Invoke @aws-plan-reviewer
-  → Read plan-review.json (e2e)
+  → Load skill aws-plan-reviewer in primary agent
+  → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-test-data-plan.md, e2e-codegen-plan.md
+  → Execute inline
+  → Read plan-review.json from disk
   → Apply plan review gate
+  → Update workflow-state.yaml: phases.e2e_plan_review.status
 
 Phase 6B — E2E Plan Fix Loop (if gate requires it)
   → For each attempt (max = max_plan_fix_attempts):
-      → Invoke @aws-plan-fixer
-      → Invoke @aws-plan-reviewer
-      → Read new plan-review.json
+      → Load skill aws-plan-fixer in primary agent
+      → Re-read from disk: plan-review.json, e2e-plan.md
+      → Execute inline
+      → Load skill aws-plan-reviewer in primary agent
+      → Re-read from disk: updated plan files
+      → Execute inline
+      → Read new plan-review.json from disk
       → Apply plan review gate
-      → If pass → exit loop
+      → If pass → exit loop, update workflow-state.yaml
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
 Phase 7B — E2E Codegen pre-check
-  → Verify `.aws/data-knowledge.yaml` exists
-  → If missing: STOP — tell user to create `.aws/data-knowledge.yaml` or promote `data-knowledge.proposal.yaml`. Do not proceed to codegen.
-  → If present: continue
+  → Verify `.aws/data-knowledge.yaml` exists on disk
+  → If missing: STOP — tell user to create or promote data-knowledge.yaml
 
 Phase 7B — E2E Codegen
-  → Invoke @aws-e2e-codegen
+  → Load skill aws-e2e-codegen in primary agent
+  → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-codegen-plan.md, plan-review.json
+  → Execute inline
   → Verify tests/e2e/test_<module>.py exists
   → E2E framework: Python Playwright (test_*.py + conftest.py)
   → Do NOT generate *.spec.ts files
+  → Update workflow-state.yaml: phases.e2e_codegen.status = done
 
 Phase 8 — Test Execution (if run_tests = true)
-  → Invoke @aws-run with change-id
+  → Load skill aws-run in primary agent
+  → Re-read from disk: workflow-state.yaml
+  → Execute inline: runs aws run --change <change-id> via CLI
   → Primary command: aws run --change <change-id>
-  → Fallback API command:  uv run pytest tests/api/ -v
-  → Fallback E2E command:  uv run pytest tests/e2e/ -v --headed
-  → Record result from execution/*.json files
+  → Fallback API: uv run pytest tests/api/ -v
+  → Fallback E2E: uv run pytest tests/e2e/ -v --headed
+  → Read result from execution/api-result.json, execution/e2e-result.json on disk
+  → Update workflow-state.yaml: phases.execution.status
 
-Phase 9 — Final Summary
+Phase 9 — Inspect / Final Summary
+  → Load skill aws-inspect if failures detected
+  → Re-read from disk: workflow-state.yaml, execution result files
+  → Execute inline
   → Output structured summary (see Final Response Format)
-  → Launch @aws-dashboard if run_dashboard = true
+  → Report agent_warnings from workflow-state.yaml
+  → Load skill aws-dashboard if run_dashboard = true
 ```
 
 ---
@@ -727,17 +1120,16 @@ Known product issues:
 
 Risk status: clean | passed_with_known_issues | failed
 
-Subagent isolation used:
-  <list phases that used subagent> or none
+Execution mode: inline (no subagents used)
 
-Agent warnings:
-  count: <N>
-  incidents:
+Agent Warnings:
+  - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
+  <additional watchdog incidents if any>:
     - phase: <api_plan | e2e_plan | api_codegen | e2e_codegen>
-      issue: <background subagent idle timeout | background subagent total timeout>
-      action: cancelled and retried foreground
+      issue: <idle timeout | total timeout>
+      action: retried foreground
       retry_result: <passed | failed>
-  (if none: count: 0, incidents: none)
+  (if no additional incidents: none)
 
 Warnings:
   - <any warnings>

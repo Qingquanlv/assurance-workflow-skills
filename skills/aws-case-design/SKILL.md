@@ -3,6 +3,31 @@ name: aws-case-design
 description: "Superpowers for QA: MUST use before generating case delta. Clarifies requirements, target module, QA scope, test types, data needs, assertions, automation targets, and coverage approach through collaborative dialogue. Then writes proposal.md and semantic case delta YAML directly."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
+2. Read all required input files for this phase (existing `qa/cases/**`, source code).
+3. If `workflow-state.yaml` exists, verify `phases.skill_registry_check.status == pass`.
+4. If required files are missing, stop and report what is missing.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write all required output files:
+   - `qa/changes/<change-id>/.qa.yaml`
+   - `qa/changes/<change-id>/proposal.md`
+   - `qa/changes/<change-id>/cases/<module>/case.yaml`
+2. Create or update `qa/changes/<change-id>/workflow-state.yaml`:
+   - Set `phases.case_design.status = done`
+   - List all output files under `phases.case_design.outputs`
+3. Record any warnings or known issues explicitly in `workflow-state.yaml`.
+
+---
+
 # Brainstorming Requirements Into QA Coverage
 
 Help turn requirements and change descriptions into a well-scoped QA coverage plan through collaborative dialogue — then generate the proposal and semantic case delta YAML directly in this skill.
