@@ -38,7 +38,7 @@ Do not rely on prior conversation context.
 
 将已 Review 的 API 测试计划转化为可执行 pytest 测试代码。
 
-此 Skill 是 AWS M3 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/api`、`/tests/fixtures`、`/tests/helpers`。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
+此 Skill 是 AWS M3 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `tests/api/`、`tests/fixtures/`、`tests/api/helpers/`。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
 
 ## When to Use
 
