@@ -3,6 +3,29 @@ name: aws-plan-reviewer
 description: "Review AWS E2E planning artifacts before code generation. Use after aws-e2e-plan has generated test planning files. Read-only: writes plan-review.json and plan-review-summary.md, never modifies plan files."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.e2e_plan.status == done`.
+3. Read input files from disk: `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`.
+4. If any required file is missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/review/plan-review.json`
+   - `qa/changes/<change-id>/review/plan-review-summary.md`
+2. Update `workflow-state.yaml`:
+   - Set `phases.e2e_plan_review.status` = `pass | needs_fix | reject`
+   - Set `phases.e2e_plan_review.gate_file` = `review/plan-review.json`
+
+---
+
 # AWS Plan Reviewer
 
 ## Purpose

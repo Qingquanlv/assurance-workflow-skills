@@ -3,6 +3,31 @@ name: aws-api-plan
 description: Use when a QA Case Delta contains API automation cases and you need to generate reviewable plan files before writing any test code. Triggers on: "generate API plan", "M3 Stage 1", "api-plan.md", "review before codegen", "api planning". Only processes API cases with automation.required = true. Never generates test code.
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.case_review.status == pass` (gate must be cleared).
+3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (or `plans/data-knowledge.proposal.yaml`), backend source files.
+4. If required files are missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/plans/api-plan.md`
+   - `qa/changes/<change-id>/plans/api-test-data-plan.md`
+   - `qa/changes/<change-id>/plans/api-codegen-plan.md`
+   - `qa/changes/<change-id>/plans/m3-review-summary.md`
+2. Update `workflow-state.yaml`:
+   - Set `phases.api_plan.status = done`
+   - List all output files under `phases.api_plan.outputs`
+
+---
+
 # API Planning for QA
 
 名称：API 测试计划生成

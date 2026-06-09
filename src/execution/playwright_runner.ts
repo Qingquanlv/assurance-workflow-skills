@@ -1,12 +1,14 @@
 /**
- * Playwright runner — shells out to `npx playwright test`, captures output, preserves artifacts.
+ * E2E runner — executes Python Playwright tests via pytest-playwright.
+ * Uses `uv run pytest` or `python3 -m pytest` with --headed, NOT `npx playwright test`.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { ensureDir } from '../utils/fs';
-import { parsePlaywrightJson, ParsePlaywrightJsonOptions } from './result_parser';
+import { parsePytestXmlForE2e } from './result_parser';
 import { E2eResult } from '../core/types';
+import { resolvePytestRunner } from './pytest_env';
 
 export interface PlaywrightRunOptions {
   changeId: string;
@@ -38,57 +40,55 @@ export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
   ensureDir(videosDir);
 
   const logPath = path.join(rawDir, 'e2e.log');
-  const jsonReportDest = path.join(rawDir, 'playwright-results.json');
-  const htmlReportDest = path.join(rawDir, 'playwright-report');
+  const xmlPath = path.join(rawDir, 'e2e-junit.xml');
 
   const source = {
-    framework: 'playwright' as const,
+    framework: 'pytest-playwright' as const,
     raw_log: logPath,
-    json_report: jsonReportDest,
-    html_report: htmlReportDest,
+    junit_xml: xmlPath,
+    json_report: '',
+    html_report: '',
   };
 
-  // Check if npx/playwright is available
-  const pwCheck = spawnSync('npx', ['playwright', '--version'], { cwd, encoding: 'utf-8', shell: true });
-  if (pwCheck.error) {
-    const reason = 'Playwright (npx playwright) not found.';
+  const runner = resolvePytestRunner(cwd);
+  if (!runner) {
+    const reason = 'pytest not found for E2E. Tried: uv run pytest, python3 -m pytest, python -m pytest.';
     fs.writeFileSync(logPath, reason, 'utf-8');
     return makeSkipped(changeId, batchId, targets, source, reason);
   }
 
-  // Check target files
-  const existing = targets.filter(t => {
+  const runnableTargets = targets.filter(t =>
+    !t.includes('conftest.py') && !t.endsWith('__init__.py') && !t.includes('/scripts/')
+  );
+
+  const existing = runnableTargets.filter(t => {
     try { return fs.existsSync(path.resolve(cwd, t)); } catch { return false; }
   });
-  if (targets.length > 0 && existing.length === 0) {
-    const reason = `No E2E test targets found: ${targets.join(', ')}`;
+  if (runnableTargets.length > 0 && existing.length === 0) {
+    const reason = `No E2E test targets found: ${runnableTargets.join(', ')}`;
     fs.writeFileSync(logPath, reason, 'utf-8');
     return makeSkipped(changeId, batchId, targets, source, reason);
   }
 
-  const effectiveTargets = existing.length > 0 ? existing : targets;
+  let effectiveTargets = existing.length > 0 ? existing : runnableTargets;
+  if (effectiveTargets.length === 0 && fs.existsSync(path.resolve(cwd, 'tests/e2e'))) {
+    effectiveTargets = ['tests/e2e'];
+  }
 
-  // Build command
-  const tempJsonReport = path.join(rawDir, '_pw-json-tmp.json');
   const args = [
-    'playwright', 'test',
+    ...runner.baseArgs,
     ...effectiveTargets,
-    '--reporter=json,html',
-    `--output=${rawDir}`,
+    '-v',
+    '--headed',
+    `--junitxml=${xmlPath}`,
   ];
 
-  // Pass JSON output path via env
-  const commandStr = `npx ${args.join(' ')}`;
+  const commandStr = `${runner.label} ${effectiveTargets.join(' ')} -v --headed --junitxml=${xmlPath}`;
 
-  const proc = spawnSync('npx', args, {
+  const proc = spawnSync(runner.exe, args, {
     cwd,
     encoding: 'utf-8',
     maxBuffer: 50 * 1024 * 1024,
-    shell: true,
-    env: {
-      ...process.env,
-      PLAYWRIGHT_JSON_OUTPUT_NAME: tempJsonReport,
-    },
   });
 
   const logContent = [
@@ -99,64 +99,22 @@ export function runPlaywright(opts: PlaywrightRunOptions): PlaywrightRunResult {
   ].join('\n');
   fs.writeFileSync(logPath, logContent, 'utf-8');
 
-  // Playwright writes JSON to PLAYWRIGHT_JSON_OUTPUT_NAME or a default location
-  const possibleJsonPaths = [
-    tempJsonReport,
-    path.join(cwd, 'playwright-results.json'),
-    path.join(cwd, 'test-results.json'),
-  ];
-
-  for (const p of possibleJsonPaths) {
-    if (fs.existsSync(p)) {
-      fs.copyFileSync(p, jsonReportDest);
-      break;
-    }
-  }
-
-  // Copy HTML report
-  const possibleHtmlDirs = [
-    path.join(cwd, 'playwright-report'),
-    path.join(cwd, 'test-results', 'html'),
-  ];
-  for (const d of possibleHtmlDirs) {
-    if (fs.existsSync(d)) {
-      copyDir(d, htmlReportDest);
-      break;
-    }
-  }
-
-  // Copy traces / screenshots / videos from test-results
+  // Copy pytest-playwright artifacts from test-results/ if present
   const testResultsDir = path.join(cwd, 'test-results');
   if (fs.existsSync(testResultsDir)) {
     copyArtifacts(testResultsDir, tracesDir, screenshotsDir, videosDir);
   }
 
-  const parseOpts: ParsePlaywrightJsonOptions = {
+  const result = parsePytestXmlForE2e({
     changeId,
     batchId,
-    jsonReportPath: jsonReportDest,
+    junitXmlPath: xmlPath,
     rawLogPath: logPath,
-    htmlReportPath: htmlReportDest,
-    executionDir: batchDir,
     command: commandStr,
-  };
+    executionDir: batchDir,
+  });
 
-  const result = parsePlaywrightJson(parseOpts);
   return { result, command: commandStr, exitCode: proc.status };
-}
-
-function copyDir(src: string, dest: string): void {
-  if (!fs.existsSync(src)) return;
-  ensureDir(dest);
-  for (const entry of fs.readdirSync(src)) {
-    const s = path.join(src, entry);
-    const d = path.join(dest, entry);
-    if (fs.statSync(s).isDirectory()) {
-      copyDir(s, d);
-    } else {
-      fs.copyFileSync(s, d);
-    }
-  }
 }
 
 function copyArtifacts(
@@ -190,7 +148,7 @@ function makeSkipped(
   source: E2eResult['source'],
   reason: string,
 ): PlaywrightRunResult {
-  const command = `npx playwright test ${targets.join(' ')}`;
+  const command = `uv run pytest ${targets.join(' ')} -v --headed --junitxml=<xml>`;
   return {
     result: {
       schema_version: '1.0',

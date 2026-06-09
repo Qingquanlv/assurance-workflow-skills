@@ -3,6 +3,27 @@ name: aws-case-fixer
 description: "Apply safe, automatic fixes to AWS case artifacts based on case-review.json. Use after aws-case-reviewer returns decision=needs_fix with auto_fix_allowed=true and human_review_required=false. Never invents product behavior."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.case_review.status == needs_fix`.
+3. Read input files from disk: `review/case-review.json`, `cases/<module>/case.yaml`, `proposal.md`.
+4. Verify `case-review.json` has `auto_fix_allowed == true` and `human_review_required == false`. If not, stop.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write updated files:
+   - `qa/changes/<change-id>/cases/<module>/case.yaml` (fixed version)
+2. Update `workflow-state.yaml`:
+   - Note the fix attempt in `phases.case_review` (append attempt count)
+
+---
+
 # AWS Case Fixer
 
 ## Purpose

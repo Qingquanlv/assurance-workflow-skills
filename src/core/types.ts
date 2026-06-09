@@ -48,8 +48,9 @@ export interface E2eCaseResult {
 }
 
 export interface E2eResultSource {
-  framework: 'playwright';
+  framework: 'pytest-playwright' | 'playwright';
   raw_log: string;
+  junit_xml?: string;
   json_report: string;
   html_report: string;
 }

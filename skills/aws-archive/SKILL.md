@@ -3,6 +3,29 @@ name: aws-archive
 description: Use after aws-case-reviewer passes (decision=pass). Merges case delta into qa/cases/<module>/case.yaml, confirms test code exists in tests/, archives process artifacts to qa/archive/<change-id>/. Requires decision=pass in case-review.json.
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify all required gates have passed:
+   - `phases.case_review.status == pass`
+   - `phases.execution.status` in `[passed, passed_with_known_issues]` (if execution was run)
+3. Read input files from disk: `review/case-review.json`, `execution/api-result.json`, `execution/e2e-result.json`, `execution/known-product-issues.md` (if present).
+4. If any required gate file is missing or has `decision != "pass"`, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write archived artifacts to `qa/archive/<change-id>/`.
+2. Merge case delta into `qa/cases/<module>/case.yaml`.
+3. Update `workflow-state.yaml`:
+   - Set final workflow status (completed | completed_with_known_issues)
+
+---
+
 ## Purpose
 
 Complete the change cycle: merge primary assets and archive process artifacts.

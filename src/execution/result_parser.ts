@@ -167,7 +167,132 @@ function skippedApiResult(
   };
 }
 
-// ─── Playwright JSON parser ───────────────────────────────────────────────────
+// ─── pytest-playwright E2E (JUnit XML) parser ────────────────────────────────
+
+export interface ParsePytestE2eXmlOptions {
+  changeId: string;
+  batchId: string;
+  junitXmlPath: string;
+  rawLogPath: string;
+  command: string;
+  executionDir: string;
+}
+
+export function parsePytestXmlForE2e(opts: ParsePytestE2eXmlOptions): E2eResult {
+  const { changeId, batchId, junitXmlPath, rawLogPath, command, executionDir } = opts;
+
+  const source: E2eResult['source'] = {
+    framework: 'pytest-playwright',
+    raw_log: rawLogPath,
+    junit_xml: junitXmlPath,
+    json_report: '',
+    html_report: '',
+  };
+
+  if (!fs.existsSync(junitXmlPath)) {
+    return skippedE2eResult(changeId, batchId, command, source, 'JUnit XML report not found — pytest E2E may not have run.');
+  }
+
+  let xmlContent: string;
+  try {
+    xmlContent = fs.readFileSync(junitXmlPath, 'utf-8');
+  } catch {
+    return skippedE2eResult(changeId, batchId, command, source, 'Failed to read E2E JUnit XML report.');
+  }
+
+  let parsed: ReturnType<typeof parseXml>;
+  try {
+    parsed = parseXml(xmlContent);
+  } catch (e) {
+    return skippedE2eResult(changeId, batchId, command, source, `Failed to parse E2E JUnit XML: ${(e as Error).message}`);
+  }
+
+  const suites = parsed?.testsuites?.testsuite ?? parsed?.testsuite;
+  const suiteArray: unknown[] = Array.isArray(suites) ? suites : suites ? [suites] : [];
+
+  const cases: E2eCaseResult[] = [];
+  const unmapped: E2eCaseResult[] = [];
+
+  for (const suite of suiteArray) {
+    const s = suite as Record<string, unknown>;
+    const testcases = s.testcase;
+    if (!testcases) continue;
+    const testcaseArray: unknown[] = Array.isArray(testcases) ? testcases : [testcases];
+
+    for (const tc of testcaseArray) {
+      const t = tc as Record<string, unknown>;
+      const attrs = (t['$'] ?? t) as Record<string, string>;
+      const name = attrs.name ?? '';
+      const classname = attrs.classname ?? '';
+      const time = parseFloat(attrs.time ?? '0');
+
+      let status: ExecutionStatus = 'passed';
+      let message = '';
+
+      if (t.failure) {
+        status = 'failed';
+        const fail = (t.failure as Record<string, string>);
+        message = fail._ ?? fail.message ?? String(t.failure);
+      } else if (t.error) {
+        status = 'failed';
+        const err = (t.error as Record<string, string>);
+        message = err._ ?? err.message ?? String(t.error);
+      } else if (t.skipped) {
+        status = 'skipped';
+        const sk = (t.skipped as Record<string, string>);
+        message = sk._ ?? sk.message ?? String(t.skipped);
+      }
+
+      const filePath = classname ? classname.replace(/\./g, '/') + '.py' : '';
+      const caseId = extractCaseId(`${name} ${classname}`);
+
+      const entry: E2eCaseResult = {
+        case_id: caseId,
+        status,
+        file: filePath,
+        test_name: name,
+        duration_ms: Math.round(time * 1000),
+        message,
+        trace: resolveArtifactRef('', 'trace', caseId, executionDir),
+        screenshot: resolveArtifactRef('', 'screenshot', caseId, executionDir),
+        video: resolveArtifactRef('', 'video', caseId, executionDir),
+      };
+
+      if (caseId) {
+        cases.push(entry);
+      } else {
+        unmapped.push(entry);
+      }
+    }
+  }
+
+  const allCases = [...cases, ...unmapped];
+  const totalPassed = allCases.filter(c => c.status === 'passed').length;
+  const totalFailed = allCases.filter(c => c.status === 'failed').length;
+  const totalSkipped = allCases.filter(c => c.status === 'skipped').length;
+
+  let overallStatus: ExecutionStatus = 'passed';
+  if (allCases.length === 0) overallStatus = 'skipped';
+  else if (totalFailed > 0) overallStatus = 'failed';
+
+  return {
+    schema_version: '1.0',
+    change_id: changeId,
+    batch_id: batchId,
+    target: 'e2e',
+    status: overallStatus,
+    command,
+    source,
+    total: allCases.length,
+    passed: totalPassed,
+    failed: totalFailed,
+    skipped: totalSkipped,
+    cases,
+    unmapped_tests: unmapped,
+  };
+}
+
+// ─── Playwright JSON parser (legacy TypeScript Playwright) ────────────────────
 
 export interface ParsePlaywrightJsonOptions {
   changeId: string;

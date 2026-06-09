@@ -3,6 +3,28 @@ name: aws-api-plan-fixer
 description: "Apply safe, automatic fixes to AWS API plan artifacts based on api-plan-review.json. Use after aws-api-plan-reviewer returns decision=needs_fix with auto_fix_allowed=true and human_review_required=false. Never invents endpoints, auth, fixtures, or expected response schema."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.api_plan_review.status == needs_fix`.
+3. Read input files from disk: `review/api-plan-review.json`, `plans/api-plan.md`, `plans/api-test-data-plan.md`, `plans/api-codegen-plan.md`.
+4. Verify `api-plan-review.json` has `auto_fix_allowed == true` and `human_review_required == false`. If not, stop.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write updated files:
+   - `qa/changes/<change-id>/plans/api-plan.md` (fixed version)
+   - `qa/changes/<change-id>/plans/api-codegen-plan.md` (if changed)
+2. Update `workflow-state.yaml`:
+   - Note the fix attempt in `phases.api_plan_review`
+
+---
+
 # AWS API Plan Fixer
 
 ## Purpose

@@ -3,6 +3,29 @@ name: aws-case-reviewer
 description: "Review AWS QA case design artifacts and produce a structured review result. Use after aws-case-design has generated or updated QA case artifacts. Read-only: writes case-review.json and case-review-summary.md, never modifies case files."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.case_design.status == done`.
+3. Read input files from disk: `.qa.yaml`, `proposal.md`, `cases/<module>/case.yaml`.
+4. If any required file is missing, stop and report what is missing.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/review/case-review.json`
+   - `qa/changes/<change-id>/review/case-review-summary.md`
+2. Update `workflow-state.yaml`:
+   - Set `phases.case_review.status` = `pass | needs_fix | reject`
+   - Set `phases.case_review.gate_file` = `review/case-review.json`
+
+---
+
 # AWS Case Reviewer
 
 ## Purpose

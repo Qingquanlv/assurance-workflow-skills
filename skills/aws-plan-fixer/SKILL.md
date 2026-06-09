@@ -3,6 +3,28 @@ name: aws-plan-fixer
 description: "Apply safe, automatic fixes to AWS E2E plan artifacts based on plan-review.json. Use after aws-plan-reviewer returns decision=needs_fix with auto_fix_allowed=true and human_review_required=false. Never invents routes, selectors, auth, or data factories."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.e2e_plan_review.status == needs_fix`.
+3. Read input files from disk: `review/plan-review.json`, `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`.
+4. Verify `plan-review.json` has `auto_fix_allowed == true` and `human_review_required == false`. If not, stop.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write updated files:
+   - `qa/changes/<change-id>/plans/e2e-plan.md` (fixed version)
+   - `qa/changes/<change-id>/plans/e2e-codegen-plan.md` (if changed)
+2. Update `workflow-state.yaml`:
+   - Note the fix attempt in `phases.e2e_plan_review`
+
+---
+
 # AWS Plan Fixer
 
 ## Purpose

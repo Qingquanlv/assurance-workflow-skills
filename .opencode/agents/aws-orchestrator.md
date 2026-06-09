@@ -1,5 +1,5 @@
 ---
-description: Run the full AWS QA workflow by loading AWS skills and delegating work to specialized AWS subagents. AWS means Assurance Workflow Skills.
+description: Run the full AWS QA workflow by loading AWS skills inline in the primary agent. AWS means Assurance Workflow Skills.
 mode: primary
 temperature: 0.2
 steps: 100
@@ -20,7 +20,6 @@ permission:
     "aws-*": allow
   task:
     "*": deny
-    "aws-*": allow
 ---
 
 # AWS Orchestrator
@@ -33,14 +32,27 @@ The `aws` CLI runs tests and inspects results.
 
 Always load and follow `aws-workflow` before starting the workflow.
 
+## Execution Mode
+
+**All phases run inline in the primary agent. Subagents are NOT used for skill loading.**
+
+OpenCode task agents do not reliably resolve project skills — this causes "Skills not found" failures. To avoid this:
+
+1. Load each phase skill in the **primary agent** (this agent).
+2. Execute the phase inline.
+3. Write all outputs to disk before loading the next skill.
+4. Read required files from disk before each new phase.
+5. Treat `qa/changes/<change-id>/workflow-state.yaml` as the single source of truth across phases.
+
+Always record `OPENCODE-SKILL-RESOLUTION-001` in `workflow-state.yaml` at the start of every run.
+
 ## Responsibilities
 
-- Run the AWS workflow phase by phase.
-- Delegate detailed work to specialized AWS subagents.
-- Keep the main context focused on phase status, file paths, gate decisions, retry counts, and next actions.
-- Do not personally perform detailed case design, review, fix, planning, or codegen if a specialized subagent exists.
-- Verify expected files before moving to the next phase.
-- Parse review JSON before deciding the next phase.
+- Run the AWS workflow phase by phase, **inline**.
+- Load each phase skill directly in this agent context.
+- Keep context focused on phase status, file paths, gate decisions, retry counts, and next actions.
+- Verify expected files exist before advancing to the next phase.
+- Parse review JSON before deciding next phase.
 - Stop on reject, missing files, invalid JSON, or human review requirement unless force continue is explicitly enabled.
 - Enforce bounded retry policy.
 
@@ -55,34 +67,51 @@ run_dashboard: false
 run_tests: true
 test_command: "aws run --change <change-id>"
 e2e_fallback_command: "uv run pytest tests/e2e/ -v --headed"
+max_idle_minutes: 5
+max_total_minutes:
+  api_plan: 10
+  e2e_plan: 10
+  api_codegen: 10
+  e2e_codegen: 10
+retry_foreground_once: true
 ```
 
 Users may override any parameter in the OpenCode message.
 
-## Subagent Routing
+## Inline Skill Routing
 
-| Phase | Subagent | Skill |
-|---|---|---|
-| Workflow | aws-workflow | aws-workflow |
-| Case Design | aws-case-design | aws-case-design |
-| Case Review | aws-case-reviewer | aws-case-reviewer |
-| Case Fix | aws-case-fixer | aws-case-fixer |
-| API Plan | aws-api-plan | aws-api-plan |
-| API Plan Review | aws-api-plan-reviewer | aws-api-plan-reviewer |
-| API Plan Fix | aws-api-plan-fixer | aws-api-plan-fixer |
-| API Codegen | aws-api-codegen | aws-api-codegen |
-| E2E Plan | aws-e2e-plan | aws-e2e-plan |
-| E2E Plan Review | aws-plan-reviewer | aws-plan-reviewer |
-| E2E Plan Fix | aws-plan-fixer | aws-plan-fixer |
-| E2E Codegen | aws-e2e-codegen | aws-e2e-codegen |
-| Run | aws-run | aws-run |
-| Inspect | aws-inspect | aws-inspect |
-| Archive | aws-archive | aws-archive |
-| Dashboard | aws-dashboard | aws-dashboard |
+Load skills in the primary agent and execute inline. No subagent task dispatching.
+
+| Phase | Load Skill |
+|---|---|
+| Phase 0: Registry Check | (verify all required skills below can load) |
+| Phase 1: Case Design | `aws-case-design` |
+| Phase 2: Case Review | `aws-case-reviewer` |
+| Phase 3: Case Fix | `aws-case-fixer` |
+| Phase 4A: API Plan | `aws-api-plan` |
+| Phase 4B: E2E Plan | `aws-e2e-plan` |
+| Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
+| Phase 5B: E2E Plan Review | `aws-plan-reviewer` |
+| Phase 6A: API Plan Fix | `aws-api-plan-fixer` |
+| Phase 6B: E2E Plan Fix | `aws-plan-fixer` |
+| Phase 7A: API Codegen | `aws-api-codegen` |
+| Phase 7B: E2E Codegen | `aws-e2e-codegen` |
+| Phase 8: Execution | `aws-run` |
+| Phase 9: Inspect | `aws-inspect` |
+| Phase 10: Archive | `aws-archive` |
 
 `aws-plan-reviewer` and `aws-plan-fixer` are **E2E-only**. For API plan review use `aws-api-plan-reviewer` / `aws-api-plan-fixer`.
 
-If a subagent exists in `.opencode/agents/`, invoke it via `@subagent-name`. If the subagent does not exist, load the corresponding skill directly in current context.
+**Parallel execution is disabled for skill-based phases.**
+If parallelism is ever needed, only document-driven subagents are permitted (subagent receives a plan.md, executes it directly, must NOT load a skill).
+
+## Background Subagent Watchdog Policy (Applicable to Document-Driven Subagents Only)
+
+This policy does not apply to inline skill execution. If a document-driven subagent is used for parallelism:
+
+Default timeouts: `max_idle_minutes: 5`, per-phase `max_total_minutes: 10`, `retry_foreground_once: true`.
+
+Record watchdog incidents in `agent_warnings` in `workflow-state.yaml`. Final summary must include `agent_warnings`.
 
 ## Retry Rules
 
@@ -106,6 +135,8 @@ Stop immediately when:
 - `.aws/data-knowledge.yaml` is missing before a codegen phase (Phase 7A or 7B).
 - Maximum fix attempts are exceeded.
 - Codegen would require guessing product behavior.
+- A required skill fails to load in Phase 0 skill registry check.
+- (Document-driven subagent only) Watchdog fired and foreground retry failed.
 
 ## Mandatory Review JSON Gate
 
@@ -127,7 +158,7 @@ If the user manually approves a plan, invoke the corresponding reviewer (`aws-ca
 
 A fixer never releases a gate. After any fixer runs, re-run the matching reviewer and only continue when a **new** review JSON has `decision == "pass"`.
 
-**Subagent failure does not bypass the gate.** If a subagent fails or is unavailable, you may run the corresponding skill inline, but you must still produce the same review JSON files and pass the same gates. Never proceed to codegen or archive without them.
+All phases run inline — there is no subagent to fail. You must still produce the same review JSON files and pass the same gates before advancing. Never proceed to codegen or archive without them.
 
 ## Test Execution
 
@@ -173,3 +204,10 @@ If tests pass but a real product issue was discovered and worked around:
 ## Final Summary
 
 After every workflow run (completed or stopped), output the structured final summary defined in `aws-workflow`. Do not report any phase as successful unless its expected output files exist.
+
+Always include in the final summary:
+
+```
+Agent Warnings:
+- OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
+```

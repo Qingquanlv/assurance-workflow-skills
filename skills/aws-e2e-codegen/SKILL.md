@@ -3,6 +3,30 @@ name: aws-e2e-codegen
 description: Use only after E2E plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate E2E test code from plan", "continue E2E codegen", "implement e2e-codegen-plan", "generate /tests/e2e". Reads Stage 1 plan files and generates Python Playwright tests (test_*.py + conftest.py) and script-based data setup. Does NOT execute tests — execution is handled by aws-run. Never runs before planning is complete.
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.e2e_plan_review.status == pass` (gate must be cleared).
+3. Read input files from disk: `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`, `review/plan-review.json`.
+4. Verify `review/plan-review.json` exists and `decision == "pass"`. If not, stop.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write generated test files:
+   - `tests/e2e/test_<module>_e2e.py`
+   - `tests/e2e/scripts/<module>_data_setup.py`
+   - `tests/e2e/conftest.py` (append only, do not overwrite existing)
+2. Update `workflow-state.yaml`:
+   - Set `phases.e2e_codegen.status = done`
+   - List generated files under `phases.e2e_codegen.generated_tests.files`
+
+---
+
 # E2E Codegen for QA
 
 名称：E2E 测试代码生成

@@ -6,6 +6,20 @@ description: >
   Trigger phrases: "查看 case", "Case Center", "展示用例", "open dashboard", "show cases"
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml` if a change-id is provided.
+2. Identify the project root containing `qa/cases/` and `qa/changes/`.
+3. Use files as the sole source of truth for case data.
+
+**This skill is read-only.** It does not write to `workflow-state.yaml` or modify any case files.
+
+---
+
 # QA Dashboard — Case Center
 
 Launch a browser-based Case Center that reads `qa/cases/` and `qa/changes/` YAML files

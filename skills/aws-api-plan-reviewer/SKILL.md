@@ -3,6 +3,29 @@ name: aws-api-plan-reviewer
 description: "Review AWS API planning artifacts before API code generation. Use after aws-api-plan has generated API plan files. Read-only: writes api-plan-review.json and api-plan-review-summary.md, never modifies plan files."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.api_plan.status == done`.
+3. Read input files from disk: `plans/api-plan.md`, `plans/api-test-data-plan.md`, `plans/api-codegen-plan.md`.
+4. If any required file is missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/review/api-plan-review.json`
+   - `qa/changes/<change-id>/review/api-plan-review-summary.md`
+2. Update `workflow-state.yaml`:
+   - Set `phases.api_plan_review.status` = `pass | needs_fix | reject`
+   - Set `phases.api_plan_review.gate_file` = `review/api-plan-review.json`
+
+---
+
 # AWS API Plan Reviewer
 
 ## Purpose

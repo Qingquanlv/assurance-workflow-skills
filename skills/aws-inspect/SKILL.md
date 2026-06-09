@@ -3,6 +3,30 @@ name: aws-inspect
 description: "AWS M5: Inspect execution results and classify test failures via `aws report inspect --change <change-id>`. Use when tests have failed and the user wants to understand why. Classifies failures into categories (locator, assertion, environment, etc.) and writes qa/changes/<change-id>/execution/failure-analysis.json and failure-summary.md."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.execution.status` is set (execution must have run).
+3. Read input files from disk: `execution/api-result.json`, `execution/e2e-result.json`, `execution/known-product-issues.md` (if present).
+4. If execution result files are missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files (if failures detected):
+   - `qa/changes/<change-id>/execution/failure-analysis.json`
+   - `qa/changes/<change-id>/execution/failure-summary.md`
+   - `qa/changes/<change-id>/inspect/known-product-issues.md` (if known issues found)
+2. Update `workflow-state.yaml`:
+   - Update `phases.execution.status` if classification changes the result
+   - Append to `known_product_issues` if any are discovered
+
+---
+
 # Skill: aws-inspect
 
 ## Purpose

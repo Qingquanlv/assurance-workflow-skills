@@ -16,6 +16,7 @@ It is not a case design, review, or codegen skill. It coordinates the entire wor
 - Verifying phase output files before advancing
 - Reading review JSON to make gate decisions
 - Enforcing retry policy for fix/review loops
+- Applying background subagent watchdog (idle/total timeout, foreground retry once)
 - Stopping on `reject`, missing files, `human_review_required`, or exceeded retries
 - Producing a structured final summary
 
@@ -63,6 +64,12 @@ false
 | `run_tests` | `true` | Whether to execute tests via aws-run after codegen |
 | `test_command` | `aws run --change <change-id>` | The test execution command (fallback: `uv run pytest tests/e2e/ -v --headed`) |
 | `e2e_framework` | `python-playwright` | E2E framework: `python-playwright` only (TS Playwright not supported) |
+| `max_idle_minutes` | `5` | Background subagent idle timeout before cancel |
+| `max_total_minutes_api_plan` | `10` | Hard cap for background `api_plan` subagent |
+| `max_total_minutes_e2e_plan` | `10` | Hard cap for background `e2e_plan` subagent |
+| `max_total_minutes_api_codegen` | `10` | Hard cap for background `api_codegen` subagent |
+| `max_total_minutes_e2e_codegen` | `10` | Hard cap for background `e2e_codegen` subagent |
+| `retry_foreground_once` | `true` | Retry cancelled/timed-out background phase once in foreground |
 
 Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above.
 
@@ -129,6 +136,80 @@ Subagent name matches the skill name exactly. Invoke as `@<skill-name>`.
 1. If the named agent file exists in `.opencode/agents/`, invoke it via `@<skill-name>` with the relevant context.
 2. If the agent does not exist, load the corresponding skill directly in the current agent context and execute it.
 3. The final summary must state which phases used subagent isolation and which ran inline.
+
+---
+
+## Background Subagent Watchdog Policy
+
+When this workflow dispatches any **background** subagent, it must apply watchdog control.
+
+Foreground subagent dispatch (orchestrator waits for completion inline) does not require idle cancellation, but still respects per-phase `max_total_minutes` if configured.
+
+### Default Config
+
+```yaml
+max_idle_minutes: 5
+max_total_minutes:
+  api_plan: 10
+  e2e_plan: 10
+  api_codegen: 10
+  e2e_codegen: 10
+retry_foreground_once: true
+```
+
+### Phases Under Watchdog
+
+| Phase key | Subagent | Watchdog applies when dispatched in background |
+|---|---|---|
+| `api_plan` | `aws-api-plan` | yes |
+| `e2e_plan` | `aws-e2e-plan` | yes |
+| `api_codegen` | `aws-api-codegen` | yes |
+| `e2e_codegen` | `aws-e2e-codegen` | yes |
+
+Other phases (review, fix, run, inspect, archive) are not background-dispatched by default. If dispatched in background, apply the same idle/total timeout rules using the closest phase key or `max_idle_minutes` only.
+
+### What Counts as Visible Progress
+
+Treat any of the following as progress (resets idle timer):
+
+- New or updated expected output file for the phase
+- New review JSON or summary markdown written
+- Subagent status message indicating active work (reading, writing, planning, generating)
+- Terminal command started with relevant output
+
+No visible progress for `max_idle_minutes` → idle timeout.
+
+Total elapsed time exceeding phase `max_total_minutes` → total timeout (same handling as idle timeout).
+
+### Behavior
+
+1. If a background subagent has **no visible progress** for `max_idle_minutes`, **cancel** it.
+2. If total elapsed time exceeds the phase `max_total_minutes`, **cancel** it.
+3. If `retry_foreground_once == true`, **retry the same phase in foreground once** (orchestrator loads the skill directly or invokes subagent synchronously).
+4. If the foreground retry **fails** (idle timeout, total timeout, unrecoverable error, or required outputs still missing), **stop the workflow**.
+5. Record every watchdog incident in workflow state:
+
+```yaml
+agent_warnings:
+  - phase: api_plan | e2e_plan | api_codegen | e2e_codegen
+    issue: background subagent idle timeout | background subagent total timeout
+    action: cancelled and retried foreground
+    retry_result: passed | failed
+```
+
+Append to `agent_warnings` — never overwrite prior incidents.
+
+### Foreground Retry Rules
+
+- Foreground retry is **one attempt only** per phase per workflow run.
+- Foreground retry must produce the **same expected output files** as a normal subagent run.
+- Foreground retry does **not** bypass review JSON gates.
+- If foreground retry passes, continue the workflow from the next gate check for that phase.
+- If foreground retry fails, stop and report `Stop reason: background subagent watchdog — foreground retry failed for <phase>`.
+
+### Workflow State
+
+Maintain `agent_warnings` in orchestrator working memory throughout the run. The final summary **must** include it (see Final Response Format).
 
 ---
 
@@ -582,6 +663,7 @@ Stop the workflow immediately when any of the following is true:
 - `.aws/data-knowledge.yaml` is missing before codegen phase (see Phase 7A/7B pre-check)
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A subagent returns an unrecoverable error
+- Background subagent watchdog fired and foreground retry failed for `api_plan`, `e2e_plan`, `api_codegen`, or `e2e_codegen`
 
 When stopped, report the exact stop reason, which file or gate triggered it, and what a human must do to resume.
 
@@ -647,6 +729,15 @@ Risk status: clean | passed_with_known_issues | failed
 
 Subagent isolation used:
   <list phases that used subagent> or none
+
+Agent warnings:
+  count: <N>
+  incidents:
+    - phase: <api_plan | e2e_plan | api_codegen | e2e_codegen>
+      issue: <background subagent idle timeout | background subagent total timeout>
+      action: cancelled and retried foreground
+      retry_result: <passed | failed>
+  (if none: count: 0, incidents: none)
 
 Warnings:
   - <any warnings>

@@ -69,7 +69,7 @@ describe('aws run integration', () => {
     const e2eResult = JSON.parse(fs.readFileSync(path.join(projectRoot, 'qa', 'changes', 'REQ-TEST-001', 'execution', 'e2e-result.json'), 'utf-8'));
     expect(e2eResult.schema_version).toBe('1.0');
     expect(e2eResult.target).toBe('e2e');
-    expect(e2eResult.source.framework).toBe('playwright');
+    expect(e2eResult.source.framework).toBe('pytest-playwright');
   });
 
   it('when pytest unavailable, api-result.json.status is skipped not passed', () => {

@@ -3,6 +3,30 @@ name: aws-api-codegen
 description: Use only after API plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate test code from plan", "continue API codegen", "implement api-codegen-plan", "generate /tests/api". Reads Stage 1 plan files and generates pytest code, fixtures, helpers, and execution results. Never runs before planning is complete.
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.api_plan_review.status == pass` (gate must be cleared).
+3. Read input files from disk: `plans/api-plan.md`, `plans/api-test-data-plan.md`, `plans/api-codegen-plan.md`, `review/api-plan-review.json`.
+4. Verify `review/api-plan-review.json` exists and `decision == "pass"`. If not, stop.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write generated test files:
+   - `tests/api/test_<module>_api.py`
+   - `tests/api/helpers/<module>_api.py`
+   - `tests/api/conftest.py` (append only, do not overwrite existing)
+2. Update `workflow-state.yaml`:
+   - Set `phases.api_codegen.status = done`
+   - List generated files under `phases.api_codegen.generated_tests.files`
+
+---
+
 # API Codegen for QA
 
 名称：API 测试代码生成

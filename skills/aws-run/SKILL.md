@@ -3,6 +3,32 @@ name: aws-run
 description: "AWS M5: Execute API and E2E tests for a change via `aws run --change <change-id>`. Use when the user asks to run tests, execute test suite, or verify a change. Calls pytest for API tests and pytest + Python Playwright (uv run pytest tests/e2e/ -v --headed) for E2E tests. Writes api-result.json, e2e-result.json, summary.md. Never fabricates test results."
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify codegen phases are done (`phases.api_codegen.status == done` and/or `phases.e2e_codegen.status == done` per `test_types`).
+3. Read `.aws/config.yaml` for change-id and test configuration.
+4. If required files are missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/api-result.json`
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/e2e-result.json`
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/summary.md`
+   - `qa/changes/<change-id>/execution/api-result.json` (latest pointer)
+   - `qa/changes/<change-id>/execution/e2e-result.json` (latest pointer)
+   - `qa/changes/<change-id>/execution/summary.md` (latest pointer)
+2. Update `workflow-state.yaml`:
+   - Set `phases.execution.status` = `passed | passed_with_known_issues | failed | skipped`
+
+---
+
 # Skill: aws-run
 
 ## Purpose
@@ -42,26 +68,46 @@ MCP is optional and must not replace the CLI execution chain.
 `aws run` is the only trusted execution layer. It:
 
 1. Reads `qa/changes/<change-id>/plans/api-codegen-plan.md` and `e2e-codegen-plan.md` to locate test files.
-2. Executes `pytest` for API tests and `pytest + Python Playwright` for E2E tests (`uv run pytest tests/e2e/ -v --headed`).
-3. Preserves raw pytest reports and pytest-playwright artifacts in `execution/raw/`.
-4. Parses real execution results — **never fabricates** passed / failed / skipped.
-5. Writes normalised result files and a human-readable summary.
+2. Resolves the project's pytest runner in priority order:
+   - `uv run pytest` (when `pyproject.toml` or `uv.lock` exists)
+   - `python3 -m pytest`
+   - `python -m pytest`
+3. Executes **API tests** via pytest with JUnit XML output.
+4. Executes **E2E tests** via **pytest-playwright** (`pytest tests/e2e/ -v --headed`), **NOT** `npx playwright test`.
+5. Preserves each run under `execution/runs/<batch-id>/` — consecutive runs never overwrite previous results.
+6. Parses real execution results — **never fabricates** passed / failed / skipped.
+7. Writes normalised result files and a human-readable summary.
+
+### Runner Commands (actual)
+
+| Target | Command |
+|--------|---------|
+| API | `uv run pytest tests/api/test_*.py --junitxml=...` |
+| E2E | `uv run pytest tests/e2e/test_*.py -v --headed --junitxml=...` |
+
+> **Do not use** `python -m pytest` when pytest is only installed in `.venv` (use `uv run pytest`).
+> **Do not use** `npx playwright test` for Python Playwright projects.
 
 ## Output Files (read after CLI completes)
 
 ```
 qa/changes/<change-id>/execution/
-├── api-result.json
+├── api-result.json          ← latest run (includes batch_id)
 ├── e2e-result.json
 ├── summary.md
-├── raw/
-│   ├── api.log
-│   ├── e2e.log
-│   ├── pytest-report.xml
-│   └── pytest-report.json
-├── traces/          ← pytest-playwright traces if produced
-├── screenshots/     ← pytest-playwright screenshots if produced
-└── videos/          ← pytest-playwright videos if produced
+└── runs/
+    └── <YYYYMMDD-HHmmss>/   ← per-run archive (never overwritten)
+        ├── api-result.json
+        ├── e2e-result.json
+        ├── summary.md
+        └── raw/
+            ├── api.log
+            ├── e2e.log
+            ├── pytest-report.xml    ← API JUnit XML
+            └── e2e-junit.xml        ← E2E JUnit XML (pytest-playwright)
+        ├── traces/
+        ├── screenshots/
+        └── videos/
 ```
 
 ## Steps

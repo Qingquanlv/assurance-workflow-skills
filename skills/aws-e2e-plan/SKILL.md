@@ -3,6 +3,31 @@ name: aws-e2e-plan
 description: Use when a QA Case Delta contains E2E automation cases and you need to generate reviewable E2E plan files before writing any Playwright code. Triggers on: "generate E2E plan", "M4 Stage 1", "e2e-plan.md", "review before E2E codegen", "E2E planning". Only processes E2E cases with automation.required = true. Never generates test code.
 ---
 
+## Context Contract
+
+Do not rely on prior conversation context.
+
+**Before doing any work:**
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. Verify `phases.case_review.status == pass` (gate must be cleared).
+3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (or `plans/data-knowledge.proposal.yaml`), frontend source files.
+4. If required files are missing, stop and report.
+5. Use files as the sole source of truth.
+
+**After completing work:**
+
+1. Write output files:
+   - `qa/changes/<change-id>/plans/e2e-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-test-data-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
+   - `qa/changes/<change-id>/plans/m4-review-summary.md`
+2. Update `workflow-state.yaml`:
+   - Set `phases.e2e_plan.status = done`
+   - List all output files under `phases.e2e_plan.outputs`
+
+---
+
 # E2E Planning for QA
 
 名称：E2E 测试计划生成
