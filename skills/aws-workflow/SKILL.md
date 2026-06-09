@@ -212,6 +212,7 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Phase 8: Execution | `aws-run` |
 | Phase 9: Inspect | `aws-inspect` |
 | Phase 10: Archive | `aws-archive` |
+| Phase 9 (optional): Dashboard | `aws-dashboard` (only when `run_dashboard = true`) |
 
 After each phase, **update `workflow-state.yaml`** before loading the next skill.
 ---
@@ -307,6 +308,9 @@ phases:
       - execution/failure-summary.md
       - inspect/known-product-issues.md (if known issues found)
       - inspect/failure-analysis.json (if known issues found)
+
+  archive:
+    status: pending | archived | archived_with_known_issues | skipped
 
 gates:
   data_knowledge:
@@ -496,6 +500,25 @@ outputs:
   - inspect/failure-analysis.json (if known product issues found)
   - human-readable final report
   - workflow-state.yaml (updated)
+```
+
+### Phase 10 — Archive
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - review/case-review.json (decision == "pass")
+  - review/api-plan-review.json (if api tested)
+  - review/plan-review.json (if e2e tested)
+  - execution/api-result.json
+  - execution/e2e-result.json
+  - execution/summary.md
+  - execution/known-product-issues.md (if present)
+outputs:
+  - qa/cases/<module>/case.yaml (merged)
+  - qa/archive/<change-id>/  (all process artifacts copied)
+  - workflow-state.yaml (updated: phases.archive.status)
+gate: all applicable review JSON files have decision == "pass"
 ```
 
 ---
@@ -712,12 +735,20 @@ Phase 8 — Test Execution (if run_tests = true)
   → Update workflow-state.yaml: phases.execution.status and phases.execution.batch_id
 
 Phase 9 — Inspect / Final Summary
-  → Load skill aws-inspect if failures detected
+  → Load skill aws-inspect if failures detected OR known-product-issues.md exists
   → Re-read from disk: workflow-state.yaml, execution result files
   → Execute inline
+  → Update workflow-state.yaml: phases.inspect.status = done
   → Output structured summary (see Final Response Format)
   → Report agent_warnings from workflow-state.yaml
   → Load skill aws-dashboard if run_dashboard = true
+
+Phase 10 — Archive (optional, if user requests or run_mode = full and all gates pass)
+  → Load skill aws-archive in primary agent
+  → Re-read from disk: workflow-state.yaml, review JSON files, execution result files
+  → Execute inline
+  → Archive case delta into qa/cases/, copy artifacts to qa/archive/<change-id>/
+  → Update workflow-state.yaml: phases.archive.status = archived | archived_with_known_issues
 ```
 
 ---
