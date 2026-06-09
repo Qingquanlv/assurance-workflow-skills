@@ -17,10 +17,11 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Write generated test files:
-   - `tests/api/test_<module>_api.py`
-   - `tests/api/helpers/<module>_api.py`
-   - `tests/api/conftest.py` (append only, do not overwrite existing)
+1. Write generated test files (canonical output structure):
+   - `tests/api/test_<module>_api.py`          ← test functions
+   - `tests/api/helpers/<module>_api.py`       ← API-specific helpers
+   - `tests/fixtures/<module>_fixtures.py`     ← project-wide fixtures
+   - `tests/api/conftest.py`                   ← imports fixtures (append only)
 2. Update `workflow-state.yaml`:
    - Set `phases.api_codegen.status = done`
    - List generated files under `phases.api_codegen.generated_tests.files`
@@ -90,11 +91,12 @@ Do not rely on prior conversation context.
 
 ## Outputs
 
-可以生成：
+可以生成（路径以项目根为基准）：
 
-- `/tests/api/*.py`
-- `/tests/fixtures/*.py`
-- `/tests/helpers/*.py`
+- `tests/api/test_<module>_api.py`        ← 测试函数
+- `tests/api/helpers/<module>_api.py`     ← API-specific helpers
+- `tests/fixtures/<module>_fixtures.py`   ← 项目级 fixture
+- `tests/api/conftest.py`                 ← conftest（追加，不覆盖）
 
 **不执行 pytest，不生成 execution 结果文件** — 测试执行完全由 `aws-run`（Phase 8）负责。此 skill 完成后，直接运行 `aws-run` 执行测试。
 
@@ -122,9 +124,10 @@ Do not rely on prior conversation context.
    - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
    - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
 9. 校验 endpoint、assertion、fixture、auth、cleanup 映射完整性。
-10. 根据 `api-codegen-plan.md` 生成 `/tests/api/*.py`。
-11. 根据 `api-test-data-plan.md` 生成 `/tests/fixtures/*.py`。
-12. 根据 `api-codegen-plan.md` 生成 `/tests/helpers/*.py`（如 helper 计划非空）。
+10. 根据 `api-codegen-plan.md` 生成 `tests/api/test_<module>_api.py`。
+11. 根据 `api-test-data-plan.md` 生成 `tests/fixtures/<module>_fixtures.py`。
+12. 根据 `api-codegen-plan.md` 生成 `tests/api/helpers/<module>_api.py`（如 helper 计划非空）。
+12b. 更新 `tests/api/conftest.py`（追加 fixture import，不覆盖已有内容）。
 13. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
 14. 输出 Codegen Summary：已生成的文件列表及下一步提示。
 
@@ -142,14 +145,16 @@ Do not rely on prior conversation context.
 - [ ] 检查 Codegen Preconditions
 - [ ] 检查 Mandatory Review JSON Gate（`api-plan-review.json` 存在、合法、`decision == pass`、`codegen_readiness in [ready, ready_with_warnings]`）
 - [ ] 校验测试数据 capability
-- [ ] 生成 `/tests/api/*.py`
-- [ ] 生成 `/tests/fixtures/*.py`
-- [ ] 生成 `/tests/helpers/*.py`
+- [ ] 生成 `tests/api/test_<module>_api.py`
+- [ ] 生成 `tests/fixtures/<module>_fixtures.py`
+- [ ] 生成 `tests/api/helpers/<module>_api.py`（helper 计划非空时）
+- [ ] 更新 `tests/api/conftest.py`（追加，不覆盖）
+- [ ] 更新 `workflow-state.yaml`（`phases.api_codegen.status = done`）
 - [ ] 输出 Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
 
-### /tests/api/*.py
+### tests/api/test_<module>_api.py
 
 必须满足：
 
@@ -163,7 +168,7 @@ Do not rely on prior conversation context.
 - 不得生成 E2E 代码。
 - 不得生成 POM（Page Object Model）。
 
-### /tests/fixtures/*.py
+### tests/fixtures/<module>_fixtures.py
 
 必须满足：
 
@@ -172,7 +177,7 @@ Do not rely on prior conversation context.
 - 不得硬编码真实账号、密码、Token。
 - 必须保留 cleanup 入口或说明 cleanup 由现有 fixture 负责。
 
-### /tests/helpers/*.py
+### tests/api/helpers/<module>_api.py
 
 必须满足：
 
@@ -184,7 +189,7 @@ Do not rely on prior conversation context.
 
 codegen 完成后输出以下内容（不执行测试）：
 
-- 已生成的文件列表（`tests/api/*.py`, `tests/fixtures/*.py`, `tests/helpers/*.py`）
+- 已生成的文件列表（`tests/api/test_<module>_api.py`, `tests/fixtures/<module>_fixtures.py`, `tests/api/helpers/<module>_api.py`, `tests/api/conftest.py`）
 - 任何已知的 TODO 或需要人工确认的条目
 - 提示下一步：运行 `aws-run` 执行测试（Phase 8）
 
@@ -218,7 +223,9 @@ qa/changes/<change-id>/execution/known-product-issues.md
 ```
 
 4. Mark the direct endpoint as a coverage gap.
-5. Ensure execution status is `passed_with_known_issues`, not `passed`.
+5. Do NOT attempt to set execution status — that is aws-run's responsibility.
+   Write `known-product-issues.md` so that `aws-run` and `aws-inspect` can detect
+   the issue and correctly record status as `passed_with_known_issues`.
 6. Never claim the original endpoint is directly covered if it is not exercised successfully.
 
 ### known-product-issues.md Template
@@ -281,7 +288,7 @@ If the product bug should block release, do not workaround silently. Stop and re
 - "Plan 文件不完整，但我先生成代码"
 - "我帮你补一个 fixture 名"
 - "先生成一个差不多能跑的测试"
-- "pytest 没跑，但标记 passed"
+- "Workaround 写了，但没写 known-product-issues.md"
 - "顺手修改 case.yaml"
 - "顺手补充断言"
 - "把 API 测试扩展成 E2E"
