@@ -170,11 +170,17 @@ Do not overwrite existing case files wholesale. Prefer minimal diffs.
 
 1. Read `case-review.json`.
 2. Validate it is for `review_type = case`.
-3. Check gate fields:
-   - If `decision = reject`, stop.
-   - If `human_review_required = true`, stop.
-   - If `auto_fix_allowed = false`, stop.
-4. Collect fixable findings.
+3. Check gate fields (check in this order — stop on the first failed condition):
+   - If `decision != "needs_fix"`, stop. (`pass`, `needs_human_review`, `reject` all mean fixer must not run.)
+   - If `decision == "reject"`, stop.
+   - If `human_review_required == true`, stop.
+   - If `auto_fix_allowed == false`, stop.
+4. Collect fixable items — **only from `case-review.json`.`auto_fix_plan`**:
+   - Only apply fixes that have an explicit entry in `auto_fix_plan`.
+   - Findings without an `auto_fix_plan` entry must **not** be changed, even if `auto_fix_allowed == true`.
+   - Do **not** infer fixes from vague `findings` messages.
+   - **Allowed sources:** `auto_fix_plan` entries; findings where `auto_fix_allowed == true` **and** `auto_fix_plan` provides the exact operation.
+   - **Forbidden:** inferring fix operations from finding descriptions alone.
 5. Apply minimal edits to target files.
 6. Preserve existing style and ordering where possible.
 7. Write `case-review-apply-summary.md`.

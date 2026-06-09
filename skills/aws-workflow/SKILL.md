@@ -254,6 +254,7 @@ phases:
   case_review:
     status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/case-review.json
+    fix_attempts: []   # appended by aws-case-fixer each run
 
   api_plan:
     status: pending | done | failed
@@ -272,10 +273,12 @@ phases:
   api_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/api-plan-review.json
+    fix_attempts: []   # appended by aws-api-plan-fixer each run
 
   e2e_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject
     gate_file: review/plan-review.json
+    fix_attempts: []   # appended by aws-plan-fixer each run
 
   api_codegen:
     status: pending | done | failed
