@@ -525,9 +525,13 @@ gate: all applicable review JSON files have decision == "pass"
 
 ## Background Subagent Watchdog Policy
 
-When this workflow dispatches any **background** subagent, it must apply watchdog control.
+> **DEPRECATED — disabled by default.**
+> This section applies only if you explicitly enable document-driven background subagents for parallelism in the future. Under the current inline execution model (`execution_mode: inline`), no background subagents are dispatched and this policy does not apply.
+> Do not treat this section as active workflow behavior. If you see a conflict between this section and the inline execution model described above, inline execution takes precedence.
 
-Foreground subagent dispatch (orchestrator waits for completion inline) does not require idle cancellation, but still respects per-phase `max_total_minutes` if configured.
+When this workflow dispatches any **background document-driven subagent** (future, opt-in only), it must apply watchdog control.
+
+Foreground execution (the current default) does not require idle cancellation.
 
 ### Default Config
 
