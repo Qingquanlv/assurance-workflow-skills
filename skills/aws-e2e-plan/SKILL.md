@@ -11,7 +11,10 @@ Do not rely on prior conversation context.
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
 2. Verify `phases.case_review.status == pass` (gate must be cleared).
-3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (or `plans/data-knowledge.proposal.yaml`), frontend source files.
+3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (if missing, proceed and generate proposal — see Data Knowledge Layer Rules), frontend source files.
+   > **data-knowledge 分层规则：**
+   > - `aws-e2e-plan` 阶段：`.aws/data-knowledge.yaml` 缺失不阻断，生成 `data-knowledge.proposal.yaml`，Codegen Readiness 设为 `ready_with_warnings` 或 `not_ready`。
+   > - `aws-e2e-codegen` 阶段：`.aws/data-knowledge.yaml` **必须存在**。`data-knowledge.proposal.yaml` 仅供参考，不可替代。
 4. If required files are missing, stop and report.
 5. Use files as the sole source of truth.
 
@@ -319,7 +322,7 @@ capabilities:
 - Prefer script-based setup for E2E preconditions.
 - Never invent setup scripts, fixtures, auth helpers, or cleanup helpers.
 - Missing data capability must be recorded as blocker or needs_review.
-- Test code generation requires separate user confirmation.
+- Test code generation requires `plan-review.json` `decision == "pass"`. User approval may be input to `aws-plan-reviewer`, but is not itself a gate artifact.
 
 ## Stop Conditions
 
@@ -369,6 +372,12 @@ M4 Stage 1 completed. Please review the generated E2E plan files before continui
 
 完成后，下一个工作流是：
 
-**aws-e2e-codegen**
+**aws-plan-reviewer**
 
-只有用户 Review plan 并明确要求继续 codegen 后，才能进入下一步。
+流程：
+1. 将 plan 文件交由 `aws-plan-reviewer` 生成 `plan-review.json`。
+2. 只有当 `plan-review.json` 满足以下条件，orchestrator 才可以进入 `aws-e2e-codegen`：
+   - `decision == "pass"`
+   - `codegen_readiness in ["ready", "ready_with_warnings"]`
+
+用户的自然语言确认（"看起来不错"、"继续"）**不能替代** `plan-review.json` gate。
