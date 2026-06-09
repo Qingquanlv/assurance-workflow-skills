@@ -253,7 +253,7 @@ qa/changes/<change-id>/known-product-issues.md
 4. Mark the direct endpoint as a coverage gap.
 5. Do NOT attempt to set execution status — that is aws-run's responsibility.
    Write `known-product-issues.md` so that `aws-run` and `aws-inspect` can detect
-   the issue and correctly record status as `passed_with_known_issues`.
+   the issue and correctly record `phases.execution.status` as `PASS_WITH_WARNINGS`.
 6. Never claim the original endpoint is directly covered if it is not exercised successfully.
 
 ### known-product-issues.md Template
