@@ -72,7 +72,12 @@ Do not rely on prior conversation context.
 - `qa/changes/<change-id>/plans/api-codegen-plan.md`
 - `qa/changes/<change-id>/plans/m3-review-summary.md`
 - `qa/changes/<change-id>/cases/**/case.yaml`
-- `.aws/data-knowledge.yaml`
+- `.aws/data-knowledge.yaml`  ← **必须存在。缺失是 BLOCKER。**
+
+> **data-knowledge 分层规则：**
+> - `aws-api-plan` 阶段：`.aws/data-knowledge.yaml` 缺失不阻断，生成 `data-knowledge.proposal.yaml`。
+> - `aws-api-codegen` 阶段：`.aws/data-knowledge.yaml` **必须存在**。`data-knowledge.proposal.yaml` 仅供参考，不可替代。
+> - 如果 `.aws/data-knowledge.yaml` 不存在，**STOP**——告知用户需先创建或 promote `data-knowledge.proposal.yaml`。
 
 如果缺少任何 plan 文件，必须停止，并提示先运行 `aws-api-plan`。
 

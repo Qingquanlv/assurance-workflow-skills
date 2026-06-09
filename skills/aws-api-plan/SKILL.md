@@ -11,7 +11,8 @@ Do not rely on prior conversation context.
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
 2. Verify `phases.case_review.status == pass` (gate must be cleared).
-3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (or `plans/data-knowledge.proposal.yaml`), backend source files.
+3. Read input files from disk: `proposal.md`, `cases/<module>/case.yaml`, `.aws/config.yaml`, `.aws/data-knowledge.yaml` (if missing, proceed and generate proposal — see Data Knowledge Layer Rules), backend source files.
+   > **Note:** `data-knowledge.proposal.yaml` is a planning artifact only. It is NOT a valid substitute for `.aws/data-knowledge.yaml` in `aws-api-codegen`.
 4. If required files are missing, stop and report.
 5. Use files as the sole source of truth.
 
@@ -210,43 +211,34 @@ endpoint 路径无法确认时：必须写入 **Needs Review**，不得静默猜
 
 必须读取：`.aws/data-knowledge.yaml`
 
-如果文件不存在，生成最小模板并继续：
+如果文件不存在：
+
+1. 生成 `plans/data-knowledge.proposal.yaml` — 使用以下**空提案模板**。
+2. **不得**生成 `.aws/data-knowledge.yaml`。
+3. **不得**在模板中发明具体能力名称（fixture 名、auth 方式、cleanup 方法）。
+4. 扫描 `tests/` 目录，将发现的候选能力填入 `discovered_candidates`（置 `confidence: low`）。
+5. 将缺失能力记录在 `needs_review`。
 
 ```yaml
 capabilities:
-  fixtures:
-    active_user_fixture:
-      kind: pytest_fixture
-      symbol: tests.fixtures.auth_fixtures.active_user_fixture
-      entity: user
-      state: active
-      returns:
-        persisted: true
-        id_attr: id
-        auth_subject: user
-      verify:
-        operation: get_user_by_id
-        asserts:
-          - expr: "$.status"
-            equals: active
+  fixtures: {}
+  auth: {}
+  cleanup: {}
 
-  auth:
-    bearer_default:
-      acquire:
-        operation: login
-      extract_jsonpath: "$.access_token"
-      header_template: "Authorization: Bearer {token}"
+discovered_candidates:
+  - name: <candidate-fixture-or-factory-name>
+    source: <file-path-where-found>
+    confidence: low | medium | high
 
-  cleanup:
-    user_session_logout:
-      operation: logout
-      retry_safe: true
+needs_review:
+  - <missing capability description>
 ```
 
 规则：
 
 - 不得自由发明 fixture、factory、auth、cleanup。
-- 如果 capability 缺失，必须记录为 blocker 或 needs_review。
+- `discovered_candidates` 仅记录候选，不等于已确认的能力。
+- 如果 capability 缺失或 `confidence: low`，必须记录为 blocker 或 needs_review，并将 Codegen Readiness 设为 `ready_with_warnings` 或 `not_ready`。
 - 如果 capability 存在但 verify 不完整，必须记录为 needs_review。
 - Stage 1 只做静态校验，不执行真实造数。
 
@@ -311,6 +303,12 @@ M3 Stage 1 completed. Please review the generated plan files before continuing t
 
 完成后，下一个工作流是：
 
-**aws-api-codegen**
+**aws-api-plan-reviewer**
 
-只有用户 Review plan 并明确要求继续 codegen 后，才能进入下一步。
+流程：
+1. 将 plan 文件交由 `aws-api-plan-reviewer` 生成 `api-plan-review.json`。
+2. 只有当 `api-plan-review.json` 满足以下条件，orchestrator 才可以进入 `aws-api-codegen`：
+   - `decision == "pass"`
+   - `codegen_readiness in ["ready", "ready_with_warnings"]`
+
+用户的自然语言确认（"看起来不错"、"继续"）**不能替代** `api-plan-review.json` gate。
