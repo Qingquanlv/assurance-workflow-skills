@@ -21,7 +21,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/review/case-review.json`
    - `qa/changes/<change-id>/review/case-review-summary.md`
 2. Update `workflow-state.yaml`:
-   - Set `phases.case_review.status` = `pass | needs_fix | reject`
+   - Set `phases.case_review.status` = `pass | needs_fix | needs_human_review | reject`
    - Set `phases.case_review.gate_file` = `review/case-review.json`
 
 ---
@@ -163,26 +163,44 @@ Cases produced by `aws-case-design` use an `automation:` block (not a flat `auto
 
 ```yaml
 schema_version: "1.0"
-case_id: "TC-..."
+case_id: "TC-<MODULE>-<TYPE>-<NNN>"
 title: "..."
 status: "draft"
-priority: "P1"
-severity: "major"
-type: "e2e"
+priority: "P1"                         # P0|P1|P2|P3
+severity: "major"                      # blocker|critical|major|minor
+type: "e2e"                            # e2e|api|unit|manual
 module: "..."
 requirement_id: "..."
 feature_name: "..."
+test_condition_id: "..."               # required (TBD acceptable with rationale)
+design_technique: "use_case"          # use_case|equivalence_partitioning|boundary_value_analysis|...
+objective: "..."                       # why this case exists
 tags: []
 summary: "..."
 preconditions: []
 test_data: []
 steps: []
 assertions: []
+postconditions: []                     # required (may be empty)
+edge_cases: []                         # required (may be empty)
+related_cases: []                      # required (may be empty)
+risk:
+  likelihood: 3                        # integer 1-5
+  impact: 4                            # integer 1-5
+  level: "high"                        # low|medium|high|critical
+  rationale: "..."
+regression:
+  candidate: true
+  tier: "smoke"                        # smoke|sanity|regression|full|none
+  selection_reason: []
+  maintenance_rule: "..."
+  rationale: "..."
 automation:
   required: true
-  type: "e2e"
-  notes: ""
-trace: []
+  target: "..."
+  framework: "pytest|pytest-playwright"
+  status: "planned"                    # not_automated|planned|automated|flaky|deprecated
+trace: {}
 ```
 
 Do not require every project to use exactly the same fields if the existing project convention differs. Prefer consistency with nearby case files.
@@ -262,6 +280,38 @@ Check whether the case links back to:
 - Source document or user request if available
 - Related existing case if modified
 
+### 9. Forbidden Content
+
+Case YAML must NOT contain any of the following. Flag as a blocker if found:
+
+- HTTP method or endpoint path (e.g. `POST /api/v1/...`, `GET /api/...`)
+- `Authorization` header values (e.g. `Bearer ${token}`)
+- Concrete request URLs with environment host (e.g. `https://prod.example.com/...`)
+- Hard-coded auth tokens, real credentials, or secrets
+- pytest code (`def test_`, `assert`, `@pytest.fixture`, `httpx`, `requests`)
+- Playwright code (`page.locator(...)`, `await page.click(...)`)
+- CSS selectors (`.btn`, `#form`, `.class-name`)
+- XPath (`//button[@class='receive']`)
+- `data-testid` attributes
+- Raw SQL data setup
+- Execution history or test run results embedded in the case body
+
+These details belong in API plan, test code, or data-knowledge.yaml — not in case.yaml.
+
+### 10. Duplicate and Conflicting Cases
+
+- Check for cases with the same functional scenario (different IDs but identical intent).
+- Check for cases whose assertions contradict each other.
+- Check for cases that overlap with existing stable cases in `qa/cases/<module>/case.yaml`.
+- Flag duplicates as auto-fixable (rename/merge) if safe; flag contradictions as `needs_human_review`.
+
+### 11. Risk and Ambiguity
+
+- Check whether `risk.level` is consistent with `priority` (P0/P1 → high/critical).
+- Check whether high/critical risk cases have `automation.required = true`.
+- Check whether `risk.rationale` is meaningful (not a generic placeholder).
+- Flag vague risk rationale as low/medium finding. Flag missing risk block as blocker.
+
 ---
 
 ## Decision Rules
@@ -300,6 +350,21 @@ Return one of these decisions:
 - Required files are missing.
 - YAML is invalid and cannot be safely repaired.
 - Generated cases conflict with explicit requirement.
+
+### Decision ↔ JSON Field Constraints
+
+These field values **must always be consistent**. Violating them creates gate bypass risk:
+
+| decision | human_review_required | auto_fix_allowed |
+|---|---|---|
+| `pass` | `false` | `false` |
+| `needs_fix` | `false` | `true` |
+| `needs_human_review` | `true` | `false` (MUST be false) |
+| `reject` | `true` | `false` (MUST be false) |
+
+**Rule**: `human_review_required` MUST be `true` whenever `decision` is `needs_human_review` or `reject`.
+**Rule**: `auto_fix_allowed` MUST be `false` whenever `human_review_required` is `true`.
+A reviewer that writes `decision = "needs_human_review"` with `human_review_required: false` produces an invalid review that enables fixer gate bypass.
 
 ---
 
