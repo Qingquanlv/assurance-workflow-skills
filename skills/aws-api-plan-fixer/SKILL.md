@@ -143,7 +143,9 @@ Allowed operations:
 - Add known assertions from case YAML
 - Add known preconditions from case YAML
 - Add known execution command
-- Add TODO markers for unknown endpoint/auth/data
+- Add TODO markers **only** for unknowns that are already classified as non-blocking warnings in `api-plan-review.json` (i.e., `severity` in `["low","medium"]` and `auto_fix_allowed == true`)
+  - Do **not** convert blockers into TODO-only warnings
+  - Unknown endpoint path, unknown auth mechanism, missing required fixture, unknown expected response schema, or unsafe cleanup must **remain** as blockers or `needs_human_review` — do not downgrade them to TODO
 - Add missing cleanup note if cleanup method is already known
 - Clarify fixture reuse if present in `.aws/data-knowledge.yaml`
 - Add codegen constraints such as "append only, do not overwrite existing tests"
@@ -167,16 +169,34 @@ Do not hide unknowns. If something is unknown, make it explicit in the plan as a
 
 ---
 
+## Fix Source Rule
+
+This fixer may **only** apply fixes explicitly listed in `api-plan-review.json`.`auto_fix_plan`.
+
+A finding is fixable only when **all** of the following are true:
+
+- An entry in `auto_fix_plan` references this finding by ID
+- The entry provides an exact `target_file` path
+- The entry specifies an exact `operation` (e.g. `edit`, `append`, `normalize`, `add_todo`, `move_section`)
+- No product behavior judgment is required to execute the operation
+- `auto_fix_allowed == true` on the finding
+- `human_review_required == false` on the finding
+
+**Forbidden:** Inferring fix operations from vague finding `message` or `suggestion` fields alone — these are descriptive, not prescriptive. If no `auto_fix_plan` entry exists for a finding, leave it unchanged.
+
+---
+
 ## Fix Strategy
 
 1. Read `api-plan-review.json`.
 2. Validate it is for `review_type = api-plan`.
-3. Check gate fields:
-   - If `decision = reject`, stop.
-   - If `human_review_required = true`, stop.
-   - If `auto_fix_allowed = false`, stop.
-   - If any fixable finding has `severity in ["high", "critical"]`, stop and require human review.
-4. Collect fixable findings.
+3. Check gate fields (check in this order — stop on the first failed condition):
+   - If `decision != "needs_fix"`, stop. (`pass`, `needs_human_review`, `reject` all mean fixer must not run.)
+   - If `decision == "reject"`, stop.
+   - If `human_review_required == true`, stop.
+   - If `auto_fix_allowed == false`, stop.
+   - If any planned fix entry has `severity in ["high", "critical"]`, stop and require human review.
+4. Collect fixable items — **only from `api-plan-review.json`.`auto_fix_plan`** (see Fix Source Rule below).
 5. Apply minimal edits to target plan files.
 6. Preserve existing style and ordering.
 7. Add unknowns to the appropriate "Open Questions", "TODO", or `data-knowledge.proposal.yaml` section.
