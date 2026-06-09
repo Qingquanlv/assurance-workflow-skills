@@ -16,7 +16,6 @@ It is not a case design, review, or codegen skill. It coordinates the entire wor
 - Verifying phase output files before advancing
 - Reading review JSON to make gate decisions
 - Enforcing retry policy for fix/review loops
-- Applying watchdog policy for any document-driven subagents (idle/total timeout, foreground retry once)
 - Stopping on `reject`, missing files, `human_review_required`, or exceeded retries
 - Producing a structured final summary
 
@@ -114,12 +113,7 @@ false
 | `run_tests` | `true` | Whether to execute tests via aws-run after codegen |
 | `test_command` | `aws run --change <change-id>` | The test execution command (fallback: `uv run pytest tests/e2e/ -v --headed`) |
 | `e2e_framework` | `python-playwright` | E2E framework: `python-playwright` only (TS Playwright not supported) |
-| `max_idle_minutes` | `5` | Background subagent idle timeout before cancel |
-| `max_total_minutes_api_plan` | `10` | Hard cap for background `api_plan` subagent |
-| `max_total_minutes_e2e_plan` | `10` | Hard cap for background `e2e_plan` subagent |
-| `max_total_minutes_api_codegen` | `10` | Hard cap for background `api_codegen` subagent |
-| `max_total_minutes_e2e_codegen` | `10` | Hard cap for background `e2e_codegen` subagent |
-| `retry_foreground_once` | `true` | Retry cancelled/timed-out background phase once in foreground |
+
 
 Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above.
 
@@ -520,84 +514,6 @@ outputs:
   - workflow-state.yaml (updated: phases.archive.status)
 gate: all applicable review JSON files have decision == "pass"
 ```
-
----
-
-## Background Subagent Watchdog Policy
-
-> **DEPRECATED — disabled by default.**
-> This section applies only if you explicitly enable document-driven background subagents for parallelism in the future. Under the current inline execution model (`execution_mode: inline`), no background subagents are dispatched and this policy does not apply.
-> Do not treat this section as active workflow behavior. If you see a conflict between this section and the inline execution model described above, inline execution takes precedence.
-
-When this workflow dispatches any **background document-driven subagent** (future, opt-in only), it must apply watchdog control.
-
-Foreground execution (the current default) does not require idle cancellation.
-
-### Default Config
-
-```yaml
-max_idle_minutes: 5
-max_total_minutes:
-  api_plan: 10
-  e2e_plan: 10
-  api_codegen: 10
-  e2e_codegen: 10
-retry_foreground_once: true
-```
-
-### Phases Under Watchdog
-
-| Phase key | Subagent | Watchdog applies when dispatched in background |
-|---|---|---|
-| `api_plan` | `aws-api-plan` | yes |
-| `e2e_plan` | `aws-e2e-plan` | yes |
-| `api_codegen` | `aws-api-codegen` | yes |
-| `e2e_codegen` | `aws-e2e-codegen` | yes |
-
-Other phases (review, fix, run, inspect, archive) are not background-dispatched by default. If dispatched in background, apply the same idle/total timeout rules using the closest phase key or `max_idle_minutes` only.
-
-### What Counts as Visible Progress
-
-Treat any of the following as progress (resets idle timer):
-
-- New or updated expected output file for the phase
-- New review JSON or summary markdown written
-- Subagent status message indicating active work (reading, writing, planning, generating)
-- Terminal command started with relevant output
-
-No visible progress for `max_idle_minutes` → idle timeout.
-
-Total elapsed time exceeding phase `max_total_minutes` → total timeout (same handling as idle timeout).
-
-### Behavior
-
-1. If a background subagent has **no visible progress** for `max_idle_minutes`, **cancel** it.
-2. If total elapsed time exceeds the phase `max_total_minutes`, **cancel** it.
-3. If `retry_foreground_once == true`, **retry the same phase in foreground once** (orchestrator loads the skill directly or invokes subagent synchronously).
-4. If the foreground retry **fails** (idle timeout, total timeout, unrecoverable error, or required outputs still missing), **stop the workflow**.
-5. Record every watchdog incident in workflow state:
-
-```yaml
-agent_warnings:
-  - phase: api_plan | e2e_plan | api_codegen | e2e_codegen
-    issue: background subagent idle timeout | background subagent total timeout
-    action: cancelled and retried foreground
-    retry_result: passed | failed
-```
-
-Append to `agent_warnings` — never overwrite prior incidents.
-
-### Foreground Retry Rules
-
-- Foreground retry is **one attempt only** per phase per workflow run.
-- Foreground retry must produce the **same expected output files** as a normal subagent run.
-- Foreground retry does **not** bypass review JSON gates.
-- If foreground retry passes, continue the workflow from the next gate check for that phase.
-- If foreground retry fails, stop and report `Stop reason: background subagent watchdog — foreground retry failed for <phase>`.
-
-### Workflow State
-
-Maintain `agent_warnings` in `workflow-state.yaml` throughout the run. The final summary **must** include it (see Final Response Format). The `OPENCODE-SKILL-RESOLUTION-001` warning must always be present since this workflow runs inline.
 
 ---
 
@@ -1110,7 +1026,6 @@ Stop the workflow immediately when any of the following is true:
 - `.aws/data-knowledge.yaml` is missing before codegen phase (see Phase 7A/7B pre-check)
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A subagent returns an unrecoverable error
-- Background subagent watchdog fired and foreground retry failed for `api_plan`, `e2e_plan`, `api_codegen`, or `e2e_codegen`
 
 When stopped, report the exact stop reason, which file or gate triggered it, and what a human must do to resume.
 
@@ -1178,12 +1093,6 @@ Execution mode: inline (no subagents used)
 
 Agent Warnings:
   - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
-  <additional watchdog incidents if any>:
-    - phase: <api_plan | e2e_plan | api_codegen | e2e_codegen>
-      issue: <idle timeout | total timeout>
-      action: retried foreground
-      retry_result: <passed | failed>
-  (if no additional incidents: none)
 
 Warnings:
   - <any warnings>
