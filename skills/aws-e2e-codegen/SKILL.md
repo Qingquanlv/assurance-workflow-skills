@@ -1,6 +1,6 @@
 ---
 name: aws-e2e-codegen
-description: Use only after E2E plan files have been reviewed and the user explicitly requests codegen. Triggers on: "generate E2E test code from plan", "continue E2E codegen", "implement e2e-codegen-plan", "generate /tests/e2e". Reads Stage 1 plan files and generates Python Playwright tests (test_*.py + conftest.py) and script-based data setup. Does NOT execute tests — execution is handled by aws-run. Never runs before planning is complete.
+description: Use only after plan-review.json has decision == "pass" and codegen_readiness in ["ready", "ready_with_warnings"]. Triggers on: "generate E2E test code from plan", "continue E2E codegen", "implement e2e-codegen-plan", "generate /tests/e2e". User request may trigger this skill but never replaces the JSON gate. Reads Stage 1 plan files and generates Python Playwright tests and script-based data setup. Does NOT execute tests — execution is handled by aws-run. Never runs before planning is complete.
 ---
 
 ## Context Contract
@@ -10,20 +10,65 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify `phases.e2e_plan_review.status == pass` (gate must be cleared).
-3. Read input files from disk: `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`, `review/plan-review.json`.
-4. Verify `review/plan-review.json` exists and `decision == "pass"`. If not, stop.
+2. Verify `phases.e2e_plan_review.status == pass` (gate must be cleared) — but **never rely on workflow-state alone**. The JSON gate is the source of truth.
+3. Read input files from disk: `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`, `plans/m4-review-summary.md`, `review/plan-review.json`, `.aws/data-knowledge.yaml`, `cases/**/case.yaml`.
+4. Verify `review/plan-review.json` gate fields in order — **STOP** on first failure:
+   - file exists and is valid JSON
+   - `review_type == "e2e-plan"`
+   - `change_id == <change-id>`
+   - `decision == "pass"`
+   - `codegen_readiness in ["ready", "ready_with_warnings"]`
+   - `blockers` is empty
+   - no `needs_review` item has `blocking == true`
+   - `.aws/data-knowledge.yaml` exists on disk
 5. Use files as the sole source of truth.
 
 **After completing work:**
 
-1. Write generated test files:
-   - `tests/e2e/test_<module>_e2e.py`
-   - `tests/e2e/scripts/<module>_data_setup.py`
-   - `tests/e2e/conftest.py` (append only, do not overwrite existing)
+1. Write generated test files per `e2e-codegen-plan.md` Target Files and **Generated File Policy**:
+   - `tests/e2e/test_<module>_e2e.py` — required when mapped in plan
+   - `tests/e2e/scripts/<module>_data_setup.py` — only when plan + data-knowledge authorize new script
+   - `tests/fixtures/**/*.py` — only when plan + data-knowledge authorize new fixture wrappers
+   - `tests/e2e/conftest.py` — only if plan explicitly requires it (see **conftest.py Policy**)
+   - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
+   - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` (create `codegen/` directory if missing)
 2. Update `workflow-state.yaml`:
    - Set `phases.e2e_codegen.status = done`
+   - Set `phases.e2e_codegen.review_gate_file = review/plan-review.json`
+   - Set `phases.e2e_codegen.codegen_readiness` = value from review JSON
    - List generated files under `phases.e2e_codegen.generated_tests.files`
+   - Set `phases.e2e_codegen.data_setup.scripts` = newly generated script paths
+   - Set `phases.e2e_codegen.data_setup.reused` = reused script/capability paths
+   - Set `phases.e2e_codegen.fixtures.generated` = newly generated fixture paths
+   - Set `phases.e2e_codegen.fixtures.reused` = reused fixture paths
+   - Set `phases.e2e_codegen.warnings_carried` = warning IDs or summaries from review JSON
+   - Set `phases.e2e_codegen.known_product_issues.present` = true|false
+   - Set `phases.e2e_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
+
+Example `workflow-state.yaml` fragment:
+
+```yaml
+phases:
+  e2e_codegen:
+    status: done
+    review_gate_file: review/plan-review.json
+    codegen_readiness: ready_with_warnings
+    generated_tests:
+      files:
+        - tests/e2e/test_<module>_e2e.py
+    data_setup:
+      scripts:
+        - tests/e2e/scripts/<module>_data_setup.py
+      reused: []
+    fixtures:
+      generated: []
+      reused: []
+    warnings_carried:
+      - PLAN-FINDING-001
+    known_product_issues:
+      present: true
+      file: qa/changes/<change-id>/known-product-issues.md
+```
 
 ---
 
@@ -31,13 +76,13 @@ Do not rely on prior conversation context.
 
 名称：E2E 测试代码生成
 
-描述："QA 超能力：仅在 E2E plan 已 Review 后使用。根据 e2e-plan.md、e2e-test-data-plan.md 和 e2e-codegen-plan.md 生成 Python Playwright 测试（test_*.py + conftest.py）、脚本化前置数据。**不执行 pytest，不生成执行结果** — 测试执行由 aws-run（Phase 8）负责。此 Skill 不生成新的 Case，不重新设计测试范围。"
+描述："QA 超能力：仅在 E2E plan 已 Review 后使用。根据 e2e-plan.md、e2e-test-data-plan.md 和 e2e-codegen-plan.md 生成 Python Playwright 测试（test_*_e2e.py）、脚本化前置数据。**不执行 pytest，不生成执行结果** — 测试执行由 aws-run（Phase 8）负责。此 Skill 不生成新的 Case，不重新设计测试范围。"
 
-**E2E Framework: Python Playwright。文件命名 `test_<module>.py` + `conftest.py`。执行命令 `uv run pytest tests/e2e/ -v --headed`。不使用 TypeScript Playwright（`*.spec.ts` + `npx playwright test`）。**
+**E2E Framework: Python Playwright。文件命名 `tests/e2e/test_<module>_e2e.py`。执行命令 `uv run pytest tests/e2e/ -v --headed`。不使用 TypeScript Playwright（`*.spec.ts` + `npx playwright test`）。**
 
 将已 Review 的 E2E 测试计划转化为可执行 Python Playwright 测试代码。
 
-此 Skill 是 AWS M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `/tests/e2e/test_*_e2e.py`、`/tests/e2e/conftest.py`、脚本化前置数据。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
+此 Skill 是 AWS M4 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于 `e2e-codegen-plan.md` Target Files 生成测试代码和脚本化前置数据。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
 
 ## When to Use
 
@@ -60,7 +105,8 @@ Do not rely on prior conversation context.
 - `e2e-test-data-plan.md` 尚未生成
 - `e2e-codegen-plan.md` 尚未生成
 - `m4-review-summary.md` 尚未生成
-- 用户还没有确认继续 codegen
+- **Standalone mode:** 用户尚未明确要求继续 E2E codegen
+- **Orchestrated mode:** `plan-review.json` gate 尚未通过（见 Mandatory Review JSON Gate）
 - 用户要求重新设计测试范围
 - 用户要求生成 API-only 测试代码
 - E2E plan 仍有 blocker
@@ -74,31 +120,72 @@ Do not rely on prior conversation context.
 - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
 - `qa/changes/<change-id>/plans/m4-review-summary.md`
 - `qa/changes/<change-id>/cases/**/case.yaml`
-- `.aws/data-knowledge.yaml`
+- `.aws/data-knowledge.yaml`  ← **必须存在。缺失是 BLOCKER。**
+- `qa/changes/<change-id>/review/plan-review.json`
+
+Optional (required when `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage gap):
+
+- `qa/changes/<change-id>/known-product-issues.md` — must exist before codegen if workaround / coverage gap is in scope
+
+> **data-knowledge 分层规则：**
+> - `aws-e2e-plan` 阶段：`.aws/data-knowledge.yaml` 缺失不阻断 planning；生成 `data-knowledge.proposal.yaml`。
+> - `aws-e2e-codegen` 阶段：`.aws/data-knowledge.yaml` **必须存在**。`data-knowledge.proposal.yaml` 仅供参考，不可替代。
+> - 如果 `.aws/data-knowledge.yaml` 不存在，**STOP**——告知用户需先创建或 promote `data-knowledge.proposal.yaml`。
 
 如果缺少任何 plan 文件，必须停止，并提示先运行 `aws-e2e-plan`。
 
 ## Mandatory Review JSON Gate
 
-在生成任何 E2E 测试代码之前，必须验证 E2E plan review gate：
+Same checks as Context Contract step 4. In summary:
 
-- `qa/changes/<change-id>/review/plan-review.json` 必须存在
-- 必须是合法 JSON
+- `qa/changes/<change-id>/review/plan-review.json` must exist and be valid JSON
+- `review_type == "e2e-plan"` and `change_id == <change-id>`
 - `decision == "pass"`
 - `codegen_readiness in ["ready", "ready_with_warnings"]`
+- `blockers` is empty
+- no blocking `needs_review` items
+- `.aws/data-knowledge.yaml` exists on disk
 
-如果以上任一条件不满足（文件缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == "not_ready"`），必须 **STOP**，不得生成代码。
+If any condition fails, **STOP** — do not generate code.
 
-用户在对话中说 "approved" / "looks good" 不能替代此 JSON gate。如果用户口头批准，必须由 `aws-plan-reviewer` 写出 `plan-review.json` 后才能继续。
+用户在对话中说 "approved" / "looks good" 不能替代此 JSON gate。如果用户口头批准，必须由 `aws-e2e-plan-reviewer` 写出 `plan-review.json` 后才能继续。
+
+### ready_with_warnings — Handling Rules
+
+If `codegen_readiness == "ready_with_warnings"`:
+
+- Read `findings` and `needs_review` from `plan-review.json`.
+- Continue **only** when all warnings are non-blocking and codegen does **not** need to guess:
+  - route
+  - selector
+  - auth / storageState
+  - setup script
+  - fixture
+  - expected UI copy
+  - cleanup behavior
+  - product semantics
+- If any warning requires guessing → **STOP**.
+- Carry warning IDs into generated code comments only when helpful, and into `codegen/e2e-codegen-summary.md`.
+
+This aligns with `aws-e2e-plan-reviewer` **Ready With Warnings Boundary**.
+
+If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage gap:
+
+- `qa/changes/<change-id>/known-product-issues.md` **MUST** already exist and document the gap (reviewer pass prerequisite)
+- Codegen **MUST NOT** be the first writer of `known-product-issues.md` for coverage gaps
+- See **Known Product Issue / Workaround Policy**
 
 ## Outputs
 
-可以生成：
+可以生成（路径以项目根为基准；以 `e2e-codegen-plan.md` Target Files 为准）：
 
-- `tests/e2e/test_<module>_e2e.py`  ← Python Playwright 测试文件
-- `/tests/e2e/conftest.py`
-- `/tests/fixtures/**/*.py`（仅当 plan 中定义了 pytest fixture 时）
-- `tests/e2e/scripts/<module>_data_setup.py`
+- `tests/e2e/test_<module>_e2e.py` — test functions (required when mapped)
+- `tests/e2e/scripts/<module>_data_setup.py` — **only when** plan + data-knowledge authorize new setup script
+- `tests/fixtures/**/*.py` — **only when** plan + data-knowledge authorize new fixture wrappers
+- `tests/e2e/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
+- `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` — always
+
+**known-product-issues.md:** Codegen may **append** implementation notes only when the file already exists and `aws-e2e-plan-reviewer` has acknowledged the issue. Codegen **MUST NOT** create the file for E2E coverage gaps.
 
 不生成 execution 结果文件 — 测试执行由 `aws-run` (Phase 8) 负责。
 
@@ -109,6 +196,7 @@ Do not rely on prior conversation context.
 - `/tests/helpers/*`
 - `/tests/e2e/pages/*`
 - POM / Page Object Model
+- Test files with naming other than `tests/e2e/test_<module>_e2e.py` unless `e2e-codegen-plan.md` Target Files explicitly specifies another path
 
 不得生成或修改：
 
@@ -120,6 +208,26 @@ Do not rely on prior conversation context.
 
 除非用户明确要求修订 plan。
 
+## Generated File Policy
+
+- Only create or modify files listed in `e2e-codegen-plan.md` **Target Files**.
+- If a required output file is not listed in Target Files, **STOP** and report codegen precondition failure.
+- If a target test file already exists, **append** new test functions only — do not overwrite unrelated tests.
+- Do not delete existing tests.
+- Preserve existing imports, fixtures, and project style.
+- Do not generate empty fixture, script, or conftest files "just in case".
+
+## conftest.py Policy
+
+Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requires it.
+
+- Prefer existing pytest fixture discovery and existing conftest hierarchy.
+- If `tests/e2e/conftest.py` exists:
+  - append only the minimal fixture/import required by the plan
+  - never rewrite existing content
+  - never duplicate existing fixtures/imports
+- If not required by the plan, do **not** create or modify `conftest.py`.
+
 ## Workflow
 
 1. 读取 `e2e-plan.md`。
@@ -129,23 +237,21 @@ Do not rely on prior conversation context.
 5. 读取 `case.yaml`。
 6. 读取 `.aws/data-knowledge.yaml`。
 7. 检查 Codegen Preconditions（见 Output Contract 中的 Codegen Preconditions）。
-8. 检查 Mandatory Review JSON Gate（见上文章节）：
-   - 读取 `qa/changes/<change-id>/review/plan-review.json`。
-   - 如果文件缺失、非法 JSON、`decision != "pass"`，或 `codegen_readiness == "not_ready"` → **STOP**，不得生成代码。
-   - 仅当 `decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]` 时才继续。
-9. 校验 route、natural steps、selector strategy、assertion、fixture、auth、cleanup、data setup script 映射完整性。
-10. 根据 `e2e-test-data-plan.md` 生成 `tests/e2e/scripts/<module>_data_setup.py`。
-11. 根据 `e2e-codegen-plan.md` 按需生成 `/tests/fixtures/**/*.py`（pytest fixtures）。
-12. 根据 `e2e-codegen-plan.md` 生成 `/tests/e2e/test_<module>.py`。
-13. 更新或生成 `/tests/e2e/conftest.py`（仅追加，不覆盖已有内容）。
-14. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
-15. 输出 E2E Codegen Summary：已生成的文件列表及下一步提示。
+8. 检查 Mandatory Review JSON Gate（Context Contract step 4 + **ready_with_warnings — Handling Rules**）。
+9. 校验 route、natural steps、selector strategy（含 Source / Confidence）、assertion、fixture、auth、cleanup、data setup script 映射完整性。
+10. 根据 `e2e-codegen-plan.md` **Target Files** 生成或追加 `tests/e2e/test_<module>_e2e.py`。
+11. 仅当 plan + data-knowledge 授权且 Target Files 列出时，生成 `tests/e2e/scripts/<module>_data_setup.py`；若 capability 已存在，复用现有脚本/fixture，不新建文件。
+12. 仅当 plan + data-knowledge 授权且 Target Files 列出时，生成 `tests/fixtures/**/*.py`。
+12b. 仅当 plan 明确要求时，按 **conftest.py Policy** 更新 `tests/e2e/conftest.py`。
+13. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
+14. 创建 `qa/changes/<change-id>/codegen/`（若不存在），写入 `codegen/e2e-codegen-summary.md`。
+15. 输出 E2E Codegen Summary 摘要（文件列表 + 下一步提示）。
 
 ## Checklist
 
-Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it:
+必须按顺序完成：
 
-- [ ] 确认用户要求继续 E2E codegen
+- [ ] 确认触发条件（standalone: 用户明确要求；orchestrated: JSON gate 已通过）
 - [ ] 读取 `e2e-plan.md`
 - [ ] 读取 `e2e-test-data-plan.md`
 - [ ] 读取 `e2e-codegen-plan.md`
@@ -153,15 +259,14 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - [ ] 读取 `case.yaml`
 - [ ] 读取 `.aws/data-knowledge.yaml`
 - [ ] 检查 Codegen Preconditions
-- [ ] 检查 Mandatory Review JSON Gate（`plan-review.json` 存在、合法、`decision == pass`、`codegen_readiness in [ready, ready_with_warnings]`）
-- [ ] 校验 route 和 natural steps
-- [ ] 校验数据 setup script capability
-- [ ] 校验 selector strategy
-- [ ] 生成 `tests/e2e/scripts/<module>_data_setup.py`
-- [ ] 按需生成 `/tests/fixtures/**/*.py`
-- [ ] 生成 `tests/e2e/test_<module>_e2e.py`
-- [ ] 更新 `tests/e2e/conftest.py`（追加，不覆盖）
-- [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen.status = done`）
+- [ ] 检查 Mandatory Review JSON Gate（完整 gate + ready_with_warnings 规则）
+- [ ] 校验 route、selector（Source / Confidence）、data setup capability
+- [ ] 生成或追加 `tests/e2e/test_<module>_e2e.py`（仅 Target Files 授权）
+- [ ] 生成 `tests/e2e/scripts/<module>_data_setup.py`（仅 plan + data-knowledge 授权）
+- [ ] 生成 `tests/fixtures/**/*.py`（仅 plan + data-knowledge 授权）
+- [ ] 更新 `tests/e2e/conftest.py`（仅 plan 明确要求时）
+- [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen` 含 review_gate_file、codegen_readiness、data_setup、fixtures、warnings_carried、known_product_issues）
+- [ ] 创建 `codegen/` 目录（若不存在），写入 `e2e-codegen-summary.md`
 - [ ] 输出 E2E Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
@@ -178,11 +283,14 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - 不得硬编码生产账号、密码、Token。
 - 不得使用固定 `time.sleep()` 作为默认等待策略；必须使用 Playwright 条件等待（`expect(locator).to_be_visible()`、`page.wait_for_*`）。
 - locator 选择优先级：role > label > text > testid > CSS fallback。
+- **Locator generation rule:** Do not generate a locator unless the locator strategy is confirmed in `e2e-codegen-plan.md` with **Source** and **Confidence**. If key locator confidence is `unknown` or requires guessing → **STOP**. Do not invent `data-testid`, button text, label text, or CSS selector.
 - API setup / script setup 必须在 UI 操作前完成。
 - 前置数据 verify 失败时，不得继续 UI 步骤，必须 fail fast。
 - E2E 只覆盖用户路径，不把造数流程扩展成 UI 点击流程。
 
-### /tests/e2e/conftest.py
+### tests/e2e/conftest.py
+
+Apply **conftest.py Policy** above.
 
 必须满足：
 
@@ -193,15 +301,36 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 - fixture 不得隐藏业务失败。
 - fixture 不得硬编码真实账号、密码、Token。
 
-### /tests/fixtures/\*\*/\*.py
+### tests/fixtures/**/*.py
+
+Generate **only when**:
+
+- `e2e-codegen-plan.md` Target Files lists it
+- `e2e-codegen-plan.md` defines fixture mapping
+- `.aws/data-knowledge.yaml` explicitly authorizes new fixture wrapper/factory
+
+If existing fixture already satisfies the need, **reuse it** — do not generate a new fixture file.
+
+Do not invent fixture names, factories, auth helpers, or cleanup helpers.
 
 必须满足：
 
-- 仅当 `e2e-test-data-plan.md` 需要 pytest fixture 时才生成。
-- fixture 来源必须映射到 `.aws/data-knowledge.yaml`。
-- 如果现有 fixture 已满足需求，优先复用，不要重复生成。
+- fixture 来源必须映射到 `.aws/data-knowledge.yaml` 中已定义的 capability。
+- 不得自由发明业务状态或新建 business data factory，除非 data-knowledge 明确定义该 capability。
+- 不得硬编码真实账号、密码、Token。
+- 必须保留 cleanup 入口或说明 cleanup 由现有 fixture 负责。
 
 ### tests/e2e/scripts/<module>_data_setup.py
+
+Generate **only when**:
+
+- `e2e-codegen-plan.md` Target Files lists it, and
+- `.aws/data-knowledge.yaml` explicitly authorizes the setup capability or wrapper, and
+- `e2e-test-data-plan.md` requires a new script rather than reusing an existing script/fixture
+
+If required capability already exists, **reuse it** instead of generating a new script.
+
+Do not create new business data factories or setup endpoints unless `.aws/data-knowledge.yaml` defines the capability.
 
 必须满足：
 
@@ -217,11 +346,24 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 
 ### Codegen Output Summary
 
-codegen 完成后输出以下内容（不执行测试）：
+codegen 完成后必须写入（create `qa/changes/<change-id>/codegen/` if it does not exist）：
 
-- 已生成的文件列表（`tests/e2e/test_<module>_e2e.py`, `tests/e2e/conftest.py`, `tests/e2e/scripts/<module>_data_setup.py`）
-- 任何已知的 TODO 或需要人工确认的条目
-- 提示下一步：运行 `aws-run` 执行测试（Phase 8）
+```text
+qa/changes/<change-id>/codegen/e2e-codegen-summary.md
+```
+
+必须包含：
+
+- **Generated Files** — 实际生成或修改的文件列表（仅列出真实写入的文件；optional 文件若未生成则标注 N/A）
+- **Case → Test Function Mapping** — 表格：Case ID \| Test Function \| File
+- **Data Setup Scripts Generated/Reused** — 脚本路径及来源
+- **Fixtures Generated/Reused** — fixture 名称和来源（或 "Reused existing — no new file"）
+- **Conftest Changes** — 变更摘要（如无则 None）
+- **Warnings Carried from Review** — 来自 `plan-review.json` 的警告（如 `codegen_readiness == "ready_with_warnings"`）
+- **Known Product Issues** — 指向 `qa/changes/<change-id>/known-product-issues.md`（如存在；note if append-only)
+- **Next Step** — `aws run --change <change-id>`
+
+同时在聊天中输出摘要，但磁盘文件是 aws-run、workflow UI 的唯一可信来源，不依赖聊天上下文。
 
 ### Codegen Preconditions
 
@@ -229,14 +371,14 @@ codegen 完成后输出以下内容（不执行测试）：
 
 - `e2e-plan.md` 已存在且 Blockers 为空
 - `e2e-test-data-plan.md` 已存在
-- `e2e-codegen-plan.md` 已存在
-- `plan-review.json` 必须存在、合法 JSON、`decision == "pass"` 且 `codegen_readiness in ["ready", "ready_with_warnings"]`。缺失/非法/未通过即 STOP，**不接受**用 `m4-review-summary.md` 或对话批准替代
+- `e2e-codegen-plan.md` 已存在且 Target Files 非空
+- Mandatory Review JSON Gate 全部通过（见上文章节）— **不接受**用 `m4-review-summary.md` 或对话批准替代
 - `.aws/data-knowledge.yaml` 已存在，且所有 required capability 状态为 found
-- Route Mapping 无 needs_review 项
-- Selector Strategy 无 needs_review 项
-- Data Setup Script Plan 无 needs_review 项
+- Route Mapping 无 blocking needs_review 项；关键 route 有 Source 且 Confidence ≠ unknown
+- Selector Strategy 无 blocking needs_review 项；关键 locator 有 Source 且 Confidence ≠ unknown
+- Data Setup Script Plan 无 blocking needs_review 项
 
-如果任何条件未满足，必须停止并请求用户确认。
+如果任何条件未满足，**STOP and report** — do not ask for chat confirmation to bypass the gate.
 
 ## Data Setup Strategy
 
@@ -253,12 +395,33 @@ E2E 前置数据必须优先通过脚本构造。
 
 脚本生成规则：
 
-- 如果 plan 指定 data setup script，则必须生成脚本。
-- 如果项目已有 data setup script，优先复用。
+- 仅当 `e2e-codegen-plan.md` Target Files 列出且 data-knowledge 授权时才生成新脚本。
+- 如果项目已有 data setup script 或 capability，优先复用。
 - 如果缺少 setup capability，停止 codegen，不得继续。
 - 如果脚本无法运行，E2E 执行必须 skipped，不得继续 UI 步骤。
 - 如果 verify 失败，E2E 执行必须 failed 或 skipped，并写明原因。
-- cleanup 必须在脚本或 conftest.py 中明确。
+- cleanup 必须在脚本或已有 conftest/fixture 中明确。
+
+## Known Product Issue / Workaround Policy
+
+Do not silently change tests to avoid product bugs or skip flows.
+
+**Prerequisites (all required before codegen with workaround):**
+
+- `plan-review.json` `decision == "pass"`
+- `codegen_readiness == "ready_with_warnings"`
+- `qa/changes/<change-id>/known-product-issues.md` **already exists** and documents the gap
+- The issue was acknowledged by `aws-e2e-plan-reviewer` (not deferred to codegen)
+
+**Codegen MUST NOT** be the first writer of `known-product-issues.md` for E2E coverage gaps or flow workarounds. If workaround is required but `known-product-issues.md` is missing → **STOP**.
+
+**During codegen, the skill must:**
+
+1. Add an explicit test docstring referencing the known issue ID (e.g. `KPI-001`) and explaining the workaround.
+2. Add a local comment in the test function body explaining why the alternate flow is used.
+3. **May append** implementation-only notes to existing `known-product-issues.md` — **must not** create the file or add undocumented coverage gaps.
+4. Mark skipped or worked-around flow as a coverage gap in test comments — never claim direct E2E coverage for a skipped or worked-around flow.
+5. Do **not** set execution status — that is `aws-run`'s responsibility.
 
 ## Execution
 
@@ -278,29 +441,37 @@ E2E 前置数据必须优先通过脚本构造。
 - Do not generate `/tests/e2e/pages/*`.
 - Do not generate `/tests/helpers/*`.
 - Do not generate `*.spec.ts` files (TypeScript Playwright is not used in this project).
+- Do not generate test files except `tests/e2e/test_<module>_e2e.py` unless `e2e-codegen-plan.md` Target Files explicitly specifies another path.
 - Do not hardcode real credentials, tokens, secrets, or environment-specific URLs.
 - Do not invent setup scripts, fixtures, auth helpers, or cleanup helpers.
-- Do not bypass `e2e-codegen-plan.md`.
+- Do not bypass `e2e-codegen-plan.md` Target Files.
 - Do not execute pytest. Test execution belongs to aws-run (Phase 8).
 - Do not write any execution result files (e2e-result.json, summary.md, etc.).
 - If data setup cannot run, do not continue UI steps.
+- Do not create `known-product-issues.md` as the first acknowledgment of an E2E coverage gap — that belongs to human + `aws-e2e-plan-reviewer` before pass.
+- Do not generate locators without confirmed Source and Confidence in `e2e-codegen-plan.md`.
 
 ## Stop Conditions
 
-必须停止并询问用户：
+**STOP and report** to orchestrator/user. In orchestrated mode, do **not** ask for chat confirmation to bypass the gate.
+
+必须停止并报告（不得靠用户一句「继续」绕过）：
 
 - 缺少 `e2e-plan.md`
 - 缺少 `e2e-test-data-plan.md`
 - 缺少 `e2e-codegen-plan.md`
 - 缺少 `m4-review-summary.md`
 - 缺少 `.aws/data-knowledge.yaml`
-- `plan-review.json` 缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == not_ready`
+- `plan-review.json` 缺失、非法 JSON、`review_type` / `change_id` 不匹配、`decision != pass`、或 `codegen_readiness == not_ready`
+- `blockers` 非空或存在 `blocking == true` 的 `needs_review` 项
 - Codegen Preconditions 未满足
+- Required output file 不在 `e2e-codegen-plan.md` Target Files 中
 - Data setup capability 缺失
-- Route path 仍处于 needs_review
-- Selector strategy 仍处于 needs_review
-- Data setup script plan 仍处于 needs_review
-- 用户未确认继续 codegen
+- Route / selector 仍处于 blocking needs_review 或 Confidence = unknown
+- Data setup script plan 仍处于 blocking needs_review
+- Workaround required but `known-product-issues.md` 缺失（codegen 不得首次创建）
+- `ready_with_warnings` 但任何 warning 需要 guessing route / selector / auth / setup / fixture / UI copy / cleanup / product semantics
+- **Standalone mode:** 用户未明确要求继续 codegen
 
 ## Anti-patterns
 
@@ -310,12 +481,17 @@ E2E 前置数据必须优先通过脚本构造。
 - "我帮你补一个 setup script 名"
 - "先用 UI 点一遍把数据造出来"
 - "先写固定 time.sleep() 等页面"
-- "Workaround 写了，但没写 known-product-issues.md"
+- "Workaround 写了，但没引用已有 known-product-issues.md"
+- "codegen 首次创建 known-product-issues.md 来承认 coverage gap"
+- "生成空 fixture / script / conftest 文件"
+- "未经 plan 授权就改 conftest.py"
+- "未经 Source / Confidence 确认就发明 locator"
 - "顺手修改 case.yaml"
 - "顺手补充断言"
 - "把 E2E 测试扩展成 API 测试"
 - "生成 Page Object Model"
 - "生成 *.spec.ts 文件"
+- "用 test_<module>.py 代替 test_<module>_e2e.py（除非 Target Files 明确指定）"
 
 ## Next Workflow
 

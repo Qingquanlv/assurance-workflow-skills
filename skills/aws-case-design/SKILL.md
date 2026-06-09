@@ -1,6 +1,6 @@
 ---
 name: aws-case-design
-description: "Superpowers for QA: MUST use before generating case delta. Clarifies requirements, target module, QA scope, test types, data needs, assertions, automation targets, and coverage approach through collaborative dialogue. Then writes proposal.md and semantic case delta YAML directly."
+description: "MUST use to design QA scope and generate proposal.md plus semantic case delta YAML before aws-case-reviewer. Clarifies requirements, target module, QA scope, test types, data needs, assertions, automation targets, and coverage approach through collaborative dialogue."
 ---
 
 ## Context Contract
@@ -10,9 +10,18 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
-2. Read all required input files for this phase (existing `qa/cases/**`, source code).
-3. If `workflow-state.yaml` exists, verify `phases.skill_registry_check.status == pass`.
-4. If required files are missing, stop and report what is missing.
+2. Read **Required** inputs:
+   - user requirement text
+   - project source root or enough requirement context to derive QA scope
+3. Read **Optional** inputs (missing = warning, do **not** STOP):
+   - existing `qa/cases/**`
+   - existing `tests/api/**`
+   - existing `tests/e2e/**`
+   - existing `qa/knowledge/**`
+   - existing `qa/changes/**`
+   - backend / frontend source files (when available)
+   If optional QA directories are missing, record a warning and continue as a **new QA asset initialization** path. Do **not** stop solely because `qa/cases/`, `tests/`, or `qa/knowledge/` does not exist.
+4. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
 5. Use files as the sole source of truth.
 
 **After completing work:**
@@ -22,11 +31,14 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/proposal.md`
    - `qa/changes/<change-id>/cases/<module>/case.yaml`
 2. Create or update `qa/changes/<change-id>/workflow-state.yaml`:
-   - If the file does **not exist**, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
+   - If the file does **not** exist, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
      - `execution_mode: inline`
      - `subagent_skill_inheritance: disabled`
-     - `phases.skill_registry_check.status: pass` (assume pass if invoked standalone)
+     - `phases.skill_registry_check.status: skipped`
+     - `phases.skill_registry_check.reason: standalone aws-case-design invocation; full registry check is owned by aws-workflow`
+     - `phases.skill_registry_check.checked_skills: [aws-case-design]`
      - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
+   - Do **not** set `phases.skill_registry_check.status: pass` from this skill — full registry verification belongs to `aws-workflow` Phase 0.
    - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
    - Set `phases.case_design.status = done`
    - List all output files under `phases.case_design.outputs`
@@ -67,7 +79,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
-3. **Identify target module** — ask one confirmation question
+3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
 4. **Ask clarifying questions one at a time** — cover 8 categories, one question per message
 5. **Analyze risks internally** — do NOT dump full risk analysis to the user
 6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
@@ -163,7 +175,12 @@ digraph brainstorming_for_qa {
 }
 ```
 
-**The terminal state is invoking aws-case-reviewer.** Do NOT invoke aws-api-plan, aws-e2e-plan, aws-api-codegen, aws-e2e-codegen, or aws-archive from aws-case-design.
+**The terminal state is handoff to the orchestrator or user with:**
+- `change_id`
+- case file path
+- next recommended skill: `aws-case-reviewer`
+
+Do NOT invoke `aws-case-reviewer` directly when running under `aws-workflow`. Do NOT invoke aws-api-plan, aws-e2e-plan, aws-api-codegen, aws-e2e-codegen, or aws-archive from aws-case-design.
 
 ---
 
@@ -199,7 +216,7 @@ Do not proceed until you have an ID.
 
 Before asking any questions, explore the existing QA state. This prevents proposing cases that already exist and ensures you understand current module ownership and automation coverage.
 
-**Check in this order:**
+**Check in this order** (all paths are optional on first-time QA setup — record a warning and continue if missing):
 
 ```
 qa/cases/                         → module structure and ownership
@@ -225,9 +242,29 @@ qa/changes/                       → in-progress or recently archived changes (
 
 ---
 
+## Knowledge Source Boundary
+
+| Source | Purpose | aws-case-design may |
+|---|---|---|
+| `qa/knowledge/` | Project documentation: business terms, page flows, natural step conventions, historical QA notes | Read only |
+| `.aws/data-knowledge.yaml` | Formal data capability registry used by planning/codegen gates | Read only; must NOT create or modify |
+
+If missing data capabilities are discovered during brainstorming, record them in:
+
+- `proposal.md` under **Data Needs**
+- case YAML `test_data` as natural language needs
+
+Formal promotion into `.aws/data-knowledge.yaml` is handled outside `aws-case-design` (by the user or a dedicated data knowledge update process).
+
+---
+
 ### Step 3: Identify Target Module
 
-Ask exactly one question to confirm the target module:
+Ask **one module confirmation question at a time**.
+
+If the requirement appears to span multiple independent modules, ask the user to choose the **first module to scope**. Do not force all modules into one case delta.
+
+Example:
 
 > "This looks like it belongs under `qa/cases/warehouse/inbound/`. Is that correct, or should another module own these cases?"
 
@@ -288,6 +325,8 @@ Consider offering the visual companion **only** when the upcoming question invol
 > "Some of what we're working on might be easier to explain if I can show it in a browser — for example, an E2E path diagram or a coverage matrix. Want to try it? (Requires opening a local URL)"
 
 If they agree, read: `skills/aws-case-design/visual-companion.md`
+
+**Visual companion is optional and must never block case design.** If the browser, local URL, or companion tooling is unavailable, continue with text-only coverage approaches. Do not wait for visual setup before writing `proposal.md` or case YAML.
 
 ---
 
@@ -395,12 +434,18 @@ Approved exception cases, or explicitly excluded ones.
 - Target case file path is confirmed.
 - Required fixtures / factories can be created or reused.
 
-## Exit Criteria
+## Exit Criteria for This Phase
 
-- `cases/<module>/case.yaml` is generated and passes case review.
+- `proposal.md` is written.
+- `cases/<module>/case.yaml` is generated and self-reviewed.
 - Each case is traceable to `requirement_id` and `test_condition_id`.
-- `plans/*.md` is generated.
 - Required automation targets are identified.
+- Ready for `aws-case-reviewer`.
+
+## Downstream Exit Criteria
+
+- After case review passes, `plans/*.md` can be generated by downstream plan skills (`aws-api-plan`, `aws-e2e-plan`).
+- After codegen and execution, traceability can be updated by downstream execution/archive phases (`aws-run`, `aws-archive`).
 ```
 
 `proposal.md` is a **process asset**. It must NOT be merged into `qa/cases/`. It will be archived with the change. It prevents aws-api-plan, aws-e2e-plan, and aws-api-codegen/aws-e2e-codegen from drifting from the approved scope.
@@ -453,7 +498,9 @@ Case delta:
 Coverage approach: <A/B/C> — <rationale>
 ```
 
-Then ask: "Does this look correct? I'll proceed to aws-case-reviewer."
+Then report:
+
+> "Case design is complete. Next recommended step: `aws-case-reviewer`."
 
 ---
 
@@ -491,16 +538,21 @@ qa/
 │       ├── cases/
 │       │   └── <module>/
 │       │       └── case.yaml       ← case delta (this change's added/modified/removed)
-│       ├── plans/
+│       ├── plans/                  ← created by aws-api-plan / aws-e2e-plan, NOT by aws-case-design
 │       │   ├── api-plan.md         ← API test implementation plan (Markdown)
 │       │   └── e2e-plan.md         ← E2E test implementation plan (Markdown)
 │       ├── execution/
 │       │   ├── api-result.json
-│       │   └── e2e-result.json
+│       │   ├── e2e-result.json
+│       │   ├── summary.md
+│       │   └── execution-manifest.yaml
 │       ├── review/
 │       │   ├── case-review.json
+│       │   ├── case-review-summary.md
+│       │   ├── api-plan-review.json
+│       │   ├── api-plan-review-summary.md
 │       │   ├── plan-review.json
-│       │   └── e2e-result.json
+│       │   └── plan-review-summary.md
 │       └── trace/
 │           └── traceability-matrix.yaml
 │
@@ -535,9 +587,14 @@ qa/
 
 ## .qa.yaml Template
 
+`.qa.yaml` stores **stable change metadata** (change id, targets, feature name). `workflow-state.yaml` stores **mutable runtime phase state** and is the gate source for orchestration.
+
+The optional `workflow` section below is **informational only** — do **not** use `.qa.yaml.workflow` as a gate source.
+
 ```yaml
+schema_version: "1.0"
 schema: case-driven
-created: 2026-06-01
+created_at: "YYYY-MM-DDTHH:mm:ssZ"
 
 change:
   change_id: REQ-001-order-receive
@@ -551,7 +608,7 @@ targets:
       change_case_file: qa/changes/REQ-001-order-receive/cases/warehouse/inbound/case.yaml
       target_case_file: qa/cases/warehouse/inbound/case.yaml
 
-workflow:
+workflow:   # informational only — not a gate source
   current_step: aws-case-design
   next_step: aws-case-reviewer
 ```
@@ -589,7 +646,7 @@ removed: []
 **Every case under `added` or `modified` MUST include all of these fields:**
 
 ```yaml
-case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001
+case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-API-V2-001
 title: <human-readable-title>
 status: draft | active | deprecated
 priority: P0 | P1 | P2 | P3
@@ -636,7 +693,7 @@ related_cases:
 automation:
   required: true | false
   target: API | E2E | Unit | Visual | Mixed
-  framework: pytest | playwright | null
+  framework: pytest | pytest-playwright | null
   suggested_file: <optional-test-file-path>
   status: not_automated | planned | automated | flaky | deprecated
 
@@ -647,8 +704,13 @@ regression:
   maintenance_rule: <when to keep/update/remove this case>
   rationale: <为什么归入这个 tier>
 
-trace: {}
+trace:
+  supersedes: []              # optional — prior requirement/case ids this case replaces
+  related_requirements: []    # optional — related requirement ids
+  change_reason: ""           # optional — why this case changed; may be filled during design
 ```
+
+`trace` is required on every case but **may be `{}` or partially empty during case design**. Downstream archive / execution may enrich it. Reviewers should treat empty `trace` as compliant at case-design time.
 
 **Example case (natural language + ISTQB fields):**
 
@@ -881,7 +943,7 @@ If uncertain, choose the lower priority and explain the assumption in `proposal.
 
 ## Risk-based Regression Rules
 
-Every case SHOULD include a `regression` block.
+Every case under `added` or `modified` MUST include a `regression` block.
 
 ```yaml
 regression:
@@ -962,15 +1024,15 @@ Example:
 
 - Derive test conditions internally during brainstorming (Step 5: Internal Risk Analysis).
 - Write the final test conditions table in `proposal.md`.
-- Every generated case SHOULD reference `test_condition_id`.
-- One test condition can map to multiple cases (e.g. happy path + negative cases).
+- Every generated case MUST reference `test_condition_id`.
 - If `test_condition_id` cannot be derived, use `TBD` and explain why in `proposal.md`.
+- One test condition can map to multiple cases (e.g. happy path + negative cases).
 
 ---
 
 ## Test Design Technique Rule
 
-Every generated case SHOULD include a `design_technique` field.
+Every generated case MUST include a `design_technique` field.
 
 ```yaml
 design_technique: use_case | equivalence_partitioning | boundary_value_analysis | decision_table | state_transition | exploratory | negative | checklist
@@ -1000,7 +1062,7 @@ design_technique: use_case | equivalence_partitioning | boundary_value_analysis 
 
 ## Risk-based Testing Rule
 
-Every generated case SHOULD include a `risk` block.
+Every generated case MUST include a `risk` block.
 
 ```yaml
 risk:
@@ -1035,196 +1097,25 @@ risk:
 
 ---
 
-## Plans Directory
+## Downstream Plans
 
-```
-qa/changes/<change-id>/plans/api-plan.md
-qa/changes/<change-id>/plans/e2e-plan.md
-```
+`aws-case-design` does **NOT** generate plans.
 
-Plans correspond to Superpowers implementation plans and OpenSpec `tasks.md`. They contain the test code generation and execution instructions for each case.
+After case review passes:
 
-**api-plan.md required structure:**
+- `aws-api-plan` generates `qa/changes/<change-id>/plans/api-plan.md` (+ related M3 plan files)
+- `aws-e2e-plan` generates `qa/changes/<change-id>/plans/e2e-plan.md` (+ related M4 plan files)
 
-```markdown
-# API Test Plan: <change-id>
+**Ownership boundaries:**
 
-## Source
+| Concern | Owner skill / artifact |
+|---|---|
+| API method / path / auth mapping | `aws-api-plan` → `plans/api-plan.md` |
+| E2E route / selector / data setup mapping | `aws-e2e-plan` → `plans/e2e-plan.md` |
+| Test code | `aws-api-codegen` / `aws-e2e-codegen` |
+| Execution results | `aws-run` → `execution/*` |
 
-- Change ID: <change-id>
-- Case File: qa/changes/<change-id>/cases/<module>/case.yaml
-- Target Cases: [list of case_ids]
-- Test Conditions Covered: [list of test_condition_ids]
-
-## Scope
-
-What API behavior this plan covers.
-
-## Test Strategy
-
-How the API tests will be generated or updated.
-
-## Test Design Techniques
-
-| Case ID | Technique | Rationale |
-|---|---|---|
-
-## Risk-based Priority
-
-| Case ID | Priority | Severity | Risk Level | Regression Tier |
-|---|---|---|---|---|
-
-## Target Test Files
-
-- `tests/api/...`
-
-## Test Data
-
-Required fixtures, factories, inputs, outputs.
-
-## API Mapping
-
-| Case ID | Method | Path | Auth | Expected |
-|---|---|---|---|---|
-
-## Environment
-
-Base URL, auth fixture, database / cache assumptions.
-
-## Risk Notes
-
-Known risks, external dependencies, flaky risks, data cleanup risks.
-
-## Entry Criteria
-
-- Case YAML exists and passes case review.
-- Required fixtures are available or can be generated.
-- Target API route exists.
-- Test conditions are traceable to cases.
-
-## Implementation Plan
-
-1. Read the target cases from case.yaml.
-2. Map each natural language case to API calls.
-3. Generate or update pytest tests.
-4. Ensure each test references QA Case ID.
-5. Avoid hardcoded secrets and real credentials.
-6. Run pytest.
-
-## Commands
-
-```bash
-pytest <target-test-file> -q
-```
-
-## Exit Criteria
-
-- Target test file exists.
-- All target cases are implemented.
-- Each test references QA Case ID.
-- pytest passes.
-- `execution/api-result.json` is written.
-
-## Reporting
-
-- Execution result path: `qa/changes/<change-id>/execution/api-result.json`
-- Traceability update path: `qa/changes/<change-id>/trace/traceability-matrix.yaml`
-```
-
-**e2e-plan.md required structure:**
-
-```markdown
-# E2E Test Plan: <change-id>
-
-## Source
-
-- Change ID: <change-id>
-- Case File: qa/changes/<change-id>/cases/<module>/case.yaml
-- Target Cases: [list of case_ids]
-- Test Conditions Covered: [list of test_condition_ids]
-
-## Scope
-
-What user workflow this plan covers.
-
-## Test Strategy
-
-How natural language steps will be translated into Playwright tests.
-
-## Test Design Techniques
-
-| Case ID | Technique | Rationale |
-|---|---|---|
-
-## Risk-based Priority
-
-| Case ID | Priority | Severity | Risk Level | Regression Tier |
-|---|---|---|---|---|
-
-## Target Test Files
-
-- `tests/e2e/...`
-
-## Natural Steps
-
-List the natural language steps from case.yaml.
-
-## Test Data
-
-Required fixtures, factories, accounts, and outputs.
-
-## Environment
-
-Browser, base URL, test account assumptions, feature flags if any.
-
-## Selector Strategy
-
-Use accessible selectors and role-based locators. Do not write locators back into case.yaml.
-
-## Flaky Risk Notes
-
-Async UI, unstable selectors, external services, timing, data cleanup risks.
-
-## Entry Criteria
-
-- Case YAML exists and passes case review.
-- Required data factory exists.
-- Target page / route is available.
-- Natural steps are unambiguous.
-- Test conditions are traceable to cases.
-
-## Implementation Plan
-
-1. Read natural language cases from case.yaml.
-2. Translate steps into Playwright actions.
-3. Prefer accessible selectors and role-based locators.
-4. Do not write locators back into case.yaml.
-5. Generate or update Playwright tests.
-6. Ensure each test references QA Case ID.
-7. Run Playwright CLI.
-
-## Commands
-
-```bash
-uv run pytest tests/e2e/ -v --headed
-```
-
-## Exit Criteria
-
-- Target test file exists.
-- All target cases are implemented.
-- Each test references QA Case ID.
-- Playwright run passes.
-- Trace / screenshot / video are collected if configured.
-- `execution/e2e-result.json` is written.
-
-## Reporting
-
-- Execution result path: `qa/changes/<change-id>/execution/e2e-result.json`
-- Traceability update path: `qa/changes/<change-id>/trace/traceability-matrix.yaml`
-```
-
-Do NOT generate plans in aws-case-design. Plans are generated by aws-api-plan and aws-e2e-plan after case review passes.
+Do **not** embed pytest execution, Playwright execution, or `execution/*-result.json` expectations in case YAML or in this skill. Plans describe implementation intent; they do **not** execute tests or write execution results.
 
 ---
 
@@ -1248,7 +1139,7 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 
 **Per-case fields (every added / modified case):**
 
-9. `case_id` — exists and matches `TC-[A-Z]+-[A-Z]+-[0-9]{3}` format.
+9. `case_id` — exists and matches `TC-[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{3}` format (e.g. `TC-USER-001`, `TC-API-V2-001`, `TC-M4-E2E-001`, `TC-3D-ASSET-001`).
 10. `case_id` — unique within this delta.
 11. `title` — exists and is not empty.
 12. `status` — one of draft, active, deprecated.
@@ -1272,10 +1163,13 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 30. `edge_cases` — exists (may be empty list, but must be present).
 31. `related_cases` — exists (may be empty list, but must be present).
 32. `automation` — has `required`, `target`, `framework`, `status`.
+    - `automation.framework` — one of `pytest`, `pytest-playwright`, `null`.
+    - `automation.target` — one of `API`, `E2E`, `Unit`, `Visual`, `Mixed`.
+    - `automation.status` — one of `not_automated`, `planned`, `automated`, `flaky`, `deprecated`.
 33. `regression` — has `candidate`, `tier`, `rationale`.
 34. `regression.selection_reason` — present (may be empty list).
 35. `regression.maintenance_rule` — present and non-empty.
-36. `trace` — exists (may be empty map).
+36. `trace` — exists (may be `{}` or partially filled; see **trace** schema in Case YAML Output Contract).
 
 **Natural language rules:**
 
@@ -1326,7 +1220,7 @@ Do NOT generate plans in this skill.
 
 ## Traceability Matrix Template
 
-The traceability matrix is written by qa-execute and updated throughout the workflow. It lives at:
+The traceability matrix is initialized or updated by downstream execution and archive phases (`aws-run` / `aws-archive`), not by `aws-case-design`. It lives at:
 
 ```
 qa/changes/<change-id>/trace/traceability-matrix.yaml
@@ -1373,7 +1267,7 @@ links:
 
 **Rules:**
 
-- aws-case-design does NOT write `traceability-matrix.yaml`. It is written by qa-execute.
+- `aws-case-design` does NOT write `traceability-matrix.yaml`. It is updated by `aws-run` / `aws-archive` after plans and test code exist.
 - Each `case_id` in the delta SHOULD appear in the traceability matrix after execution.
 - `test_condition_id` in the matrix MUST match the `test_condition_id` in `case.yaml`.
 - `requirement_id` in the matrix MUST match the `requirement_id` in `case.yaml`.

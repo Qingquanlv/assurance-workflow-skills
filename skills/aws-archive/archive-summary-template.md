@@ -3,7 +3,7 @@
 ---
 archived_at: {datetime}
 archived_by: {agent|human}
-archive_status: archived | archived_with_known_issues
+archive_status: archived | archived_with_warnings
 ---
 
 ## Change Summary
@@ -27,10 +27,12 @@ archive_status: archived | archived_with_known_issues
 
 ## Execution Results
 
-| Type | Passed | Failed | Known Issues |
-|------|--------|--------|--------------|
-| API  | {n}    | {n}    | {n}          |
-| E2E  | {n}    | {n}    | {n}          |
+| Type | Status | Passed | Failed | Skipped |
+|------|--------|--------|--------|---------|
+| API  | PASS / PASS_WITH_WARNINGS / FAIL / SKIPPED / not_run | {n} | {n} | {n} |
+| E2E  | PASS / PASS_WITH_WARNINGS / FAIL / SKIPPED / not_run | {n} | {n} | {n} |
+
+Workflow execution status: `{phases.execution.status}`
 
 Batch ID: `{batch_id}` (full results: `execution/runs/{batch_id}/`)
 
@@ -41,17 +43,17 @@ Batch ID: `{batch_id}` (full results: `execution/runs/{batch_id}/`)
 | Case Review | PASS |
 | API Plan Review | PASS / N/A |
 | E2E Plan Review | PASS / N/A |
-| Execution Review | PASS / PASS_WITH_KNOWN_ISSUES |
+| Inspect | done / partial / not_run |
 
 ## Known Product Issues
 
-<!-- Fill in if archive_status == completed_with_known_issues, otherwise write "None" -->
+<!-- Fill in if archive_status == archived_with_warnings, otherwise write "None" -->
 
 | ID | Module | Endpoint | Workaround | Coverage Gap | Status |
 |---|---|---|---|---|---|
 | {KPI-001} | {module} | {METHOD /path} | {description} | open | open |
 
-Source: `execution/known-product-issues.md`
+Source: `qa/changes/{change_id}/known-product-issues.md` (snapshots in `execution/` and `inspect/`)
 
 ## Archived Artifacts
 
@@ -59,6 +61,7 @@ Source: `execution/known-product-issues.md`
 - `qa/archive/{change_id}/plans/`
 - `qa/archive/{change_id}/review/`
 - `qa/archive/{change_id}/execution/`
+- `qa/archive/{change_id}/inspect/`
 - `qa/archive/{change_id}/workflow-state.yaml`
 
 ## Notes

@@ -246,8 +246,8 @@ aws report inspect --change REQ-002-menu-management
 | `aws-api-plan-fixer` | 按 Review 建议修复 API Plan |
 | `aws-api-codegen` | 根据 Plan 生成 pytest 测试代码 |
 | `aws-e2e-plan` | E2E 测试规划（Python Playwright） |
-| `aws-plan-reviewer` | E2E Plan 审查，输出 `plan-review.json` |
-| `aws-plan-fixer` | 按 Review 建议修复 E2E Plan |
+| `aws-e2e-plan-reviewer` | E2E Plan 审查，输出 `plan-review.json` |
+| `aws-e2e-plan-fixer` | 按 Review 建议修复 E2E Plan |
 | `aws-e2e-codegen` | 根据 Plan 生成 Playwright 测试代码 |
 | `aws-run` | 调用 `aws run` 执行测试并汇报 |
 | `aws-inspect` | 调用 `aws report inspect` 并分类失败原因 |
@@ -299,8 +299,8 @@ Max plan fix attempts:
 | `@aws-case-fixer` | 按 JSON 建议自动修复 Case |
 | `@aws-api-plan-reviewer` | 只读 API Plan 审查，写 `api-plan-review.json` |
 | `@aws-api-plan-fixer` | 按 JSON 建议修复 API Plan |
-| `@aws-plan-reviewer` | 只读 E2E Plan 审查，写 `plan-review.json` |
-| `@aws-plan-fixer` | 按 JSON 建议修复 E2E Plan |
+| `@aws-e2e-plan-reviewer` | 只读 E2E Plan 审查，写 `plan-review.json` |
+| `@aws-e2e-plan-fixer` | 按 JSON 建议修复 E2E Plan |
 
 Reviewer 只读，永不修改 Case 或 Plan 文件。Fixer 只处理 `auto_fix_allowed = true` 的 findings，不发明产品行为。
 

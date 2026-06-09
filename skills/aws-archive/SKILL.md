@@ -1,6 +1,6 @@
 ---
 name: aws-archive
-description: Use after aws-case-reviewer passes (decision=pass). Merges case delta into qa/cases/<module>/case.yaml, confirms test code exists in tests/, archives process artifacts to qa/archive/<change-id>/. Requires decision=pass in case-review.json.
+description: Use after all applicable review gates pass and execution is PASS or PASS_WITH_WARNINGS. Merges case delta into qa/cases/<module>/case.yaml, confirms test code exists in tests/, archives process artifacts to qa/archive/<change-id>/. Requires valid review JSON with decision=pass for every applicable gate.
 ---
 
 ## Context Contract
@@ -10,10 +10,16 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify all required gates have passed:
-   - `phases.case_review.status == pass`
-   - `phases.execution.status` — any value is acceptable (execution failure does not block archive; record status in archive-summary.md)
-3. Read input files from disk: `review/case-review.json`, `execution/api-result.json`, `execution/e2e-result.json`, `execution/known-product-issues.md` (if present).
+2. Verify all required gates have passed (see **Pre-condition** and **Archive Gate** below).
+3. Read input files from disk:
+   - `review/case-review.json` (required)
+   - `review/api-plan-review.json` (if API plan exists)
+   - `review/plan-review.json` (if E2E plan exists)
+   - `execution/api-result.json`, `execution/e2e-result.json`, `execution/summary.md` (if present)
+   - `execution/execution-manifest.yaml` (if present)
+   - `inspect/failure-analysis.json`, `inspect/failure-summary.md` (if present)
+   - `qa/changes/<change-id>/known-product-issues.md` (source of truth, if present)
+   - `execution/known-product-issues.md`, `inspect/known-product-issues.md` (snapshots, if present)
 4. If any required gate file is missing or has `decision != "pass"`, stop and report.
 5. Use files as the sole source of truth.
 
@@ -22,8 +28,8 @@ Do not rely on prior conversation context.
 1. Write archived artifacts to `qa/archive/<change-id>/`.
 2. Merge case delta into `qa/cases/<module>/case.yaml`.
 3. Update `workflow-state.yaml`:
-   - Set `archive_status` = `archived | archived_with_known_issues`
-   - Use `archived_with_known_issues` if `known-product-issues.md` exists or execution had known issues
+   - Set `phases.archive.status` = `archived | archived_with_warnings | skipped`
+   - Use `archived_with_warnings` if execution was `PASS_WITH_WARNINGS`, known product issues exist, or inspect recorded warnings
 
 ---
 
@@ -33,23 +39,39 @@ Complete the change cycle: merge primary assets and archive process artifacts.
 
 ## When to Use
 
-- After `aws-case-reviewer` writes `case-review.json` with `decision: pass`
 - User says "archive change `<change-id>`"
 - User says "merge and close this change"
+- Orchestrator Phase 14 with `auto_archive == true` and all archive gates satisfied
 
-## Pre-condition
+## Archive Gate
 
-ALL of these must be true before archiving:
+ALL of the following must be true before archiving:
 
-- `qa/changes/<change-id>/review/case-review.json` exists and `decision: pass`
-- If `qa/changes/<change-id>/plans/api-plan.md` exists → `review/api-plan-review.json` must also exist and `decision: pass`
-- If `qa/changes/<change-id>/plans/e2e-plan.md` exists → `review/plan-review.json` must also exist and `decision: pass`
+**Review gates**
+
+- `qa/changes/<change-id>/review/case-review.json` exists, is valid JSON, and `decision == "pass"`
+- If `qa/changes/<change-id>/plans/api-plan.md` exists → `review/api-plan-review.json` must exist and `decision == "pass"`
+- If `qa/changes/<change-id>/plans/e2e-plan.md` exists → `review/plan-review.json` must exist and `decision == "pass"`
+
+**Execution gates**
+
+- `phases.execution.status` in `[PASS, PASS_WITH_WARNINGS]` — **NEVER archive when FAIL or SKIPPED-only without explicit user override** (default: STOP on FAIL)
+- `phases.healing.status` in `[not_needed, applied, skipped]` — **NEVER archive when exhausted or failed**
+- No unresolved `fix_proposal_eligible` failures in `inspect/failure-analysis.json`
+
+**Inspect gates (when warnings exist)**
+
+- If `phases.execution.status == PASS_WITH_WARNINGS` or known product issues exist:
+  - `phases.inspect.status` must be in `[done, partial]` — if not, STOP and run `aws-inspect` first
+  - Known product issues must be explicitly acknowledged in archive summary
+
+**Assets**
+
 - `qa/changes/<change-id>/cases/<module>/case.yaml` exists (the case delta)
 - `qa/cases/<module>/case.yaml` is writable (the stable main asset)
+- Required test files referenced in codegen plans exist under `tests/`
 
-If any required review JSON is missing, is invalid JSON, or `decision` is not `pass`: **STOP**. Do not archive.
-
-**Pragmatic archive without review JSON is forbidden.** Never archive based on natural language approval, an agent's judgment, or "the tests look done". The only authority to archive is a present, valid review JSON with `decision == "pass"` for every applicable gate (case, and API/E2E plan when the corresponding plan file exists).
+**Pragmatic archive without review JSON is forbidden.** Never archive based on natural language approval, an agent's judgment, or "the tests look done". The only authority to archive is present, valid review JSON with `decision == "pass"` for every applicable gate.
 
 ## Output
 
@@ -91,6 +113,19 @@ If `qa/changes/<change-id>/plans/e2e-plan.md` exists:
 - If missing or invalid → **STOP**.
 - If `decision != "pass"` → **STOP**. E2E plan review must pass before archiving.
 
+### Step 1d: Check Execution and Healing Gates
+
+Read `workflow-state.yaml`:
+
+- If `phases.execution.status == FAIL` → **STOP** (unless user explicitly overrides — default workflow forbids archive on FAIL)
+- If `phases.execution.status == SKIPPED` and tests were expected → **STOP** or record `not_run` explicitly in summary
+- If `phases.healing.status in [exhausted, failed]` → **STOP**
+- If `inspect/failure-analysis.json` contains unresolved `fix_proposal_eligible` failures → **STOP**
+
+If `phases.execution.status == PASS_WITH_WARNINGS` or known product issues exist:
+
+- Require `phases.inspect.status in [done, partial]` — otherwise **STOP**, run `aws-inspect` first
+
 ### Step 2: Merge Case Delta
 
 Source delta file:
@@ -129,15 +164,16 @@ If required test files are missing: **STOP**. Test code must exist before archiv
 Before writing the archive summary, check for known product issue files:
 
 ```text
-qa/changes/<change-id>/execution/known-product-issues.md
-qa/changes/<change-id>/inspect/known-product-issues.md
+qa/changes/<change-id>/known-product-issues.md          ← source of truth (written by codegen)
+qa/changes/<change-id>/execution/known-product-issues.md ← execution snapshot
+qa/changes/<change-id>/inspect/known-product-issues.md   ← inspect snapshot (if present)
 qa/changes/<change-id>/inspect/failure-analysis.json
 ```
 
-If any of these files exist:
+If any known product issue record exists:
 
-- Archive is still allowed, provided all review gates pass and tests pass or pass_with_known_issues.
-- Archive summary **must** use `archive_status: archived_with_known_issues`.
+- Archive is still allowed, provided all review gates pass and execution is `PASS` or `PASS_WITH_WARNINGS`.
+- Archive summary **must** use `archive_status: archived_with_warnings`.
 - Do **not** write `clean`, `no risk`, or `fully passed without issues` anywhere in the archive summary.
 
 ### Step 3b: Record Execution Status
@@ -147,11 +183,13 @@ Check whether execution summaries exist:
 - `qa/changes/<change-id>/execution/summary.md` (latest run; also at `execution/runs/<batch-id>/summary.md`)
 - `qa/changes/<change-id>/execution/api-result.json`
 - `qa/changes/<change-id>/execution/e2e-result.json`
+- `qa/changes/<change-id>/execution/execution-manifest.yaml`
 
-**Execution failure does not block archive.** Record the execution status in `archive-summary.md` (see Step 5). This is consistent with Context Contract — all execution status values are accepted.
+Use unified execution status values: `PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | not_run`
 
-If execution result files exist: copy them into the archive (already covered by Step 4).
-If execution result files are missing: note that execution was not performed.
+Read `final_status` from result JSON when present; otherwise derive from `workflow-state.yaml` `phases.execution.status`.
+
+**Execution failure (`FAIL`) blocks archive by default.** Record status in `archive-summary.md` only when archive is explicitly allowed by workflow policy.
 
 ### Step 4: Archive Process Artifacts
 
@@ -162,9 +200,11 @@ Copy (do not move) the following to `qa/archive/<change-id>/`:
 | `qa/changes/<change-id>/plans/` | `qa/archive/<change-id>/plans/` |
 | `qa/changes/<change-id>/review/` | `qa/archive/<change-id>/review/` |
 | `qa/changes/<change-id>/execution/` | `qa/archive/<change-id>/execution/` |
+| `qa/changes/<change-id>/inspect/` | `qa/archive/<change-id>/inspect/` |
 | `qa/changes/<change-id>/trace/` | `qa/archive/<change-id>/trace/` |
 | `qa/changes/<change-id>/proposal.md` | `qa/archive/<change-id>/proposal.md` |
 | `qa/changes/<change-id>/.qa.yaml` | `qa/archive/<change-id>/.qa.yaml` |
+| `qa/changes/<change-id>/known-product-issues.md` | `qa/archive/<change-id>/known-product-issues.md` (if present) |
 | `qa/changes/<change-id>/workflow-state.yaml` | `qa/archive/<change-id>/workflow-state.yaml` |
 
 Do **not** delete `qa/changes/<change-id>/` after archiving. The change directory is preserved as a reference. Deletion, if desired, must be performed manually by a human.
@@ -183,14 +223,15 @@ Must include:
 - API plan review decision and risk level (if applicable, from `api-plan-review.json`)
 - E2E plan review decision and risk level (if applicable, from `plan-review.json`)
 - Execution status section:
-  - API execution: `passed | passed_with_known_issues | failed | skipped | not_run` + counts
-  - E2E execution: `passed | passed_with_known_issues | failed | skipped | not_run` + counts
-  - Note: execution failures do not block archive but must be recorded here
-- Archive status: `archived` | `archived_with_known_issues`
+  - API execution: `PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | not_run` + counts
+  - E2E execution: `PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | not_run` + counts
+  - Workflow execution: `phases.execution.status`
+  - Note: `FAIL` blocks archive by default; `PASS_WITH_WARNINGS` requires inspect acknowledgment
+- Archive status: `archived` | `archived_with_warnings`
 - Known product issues section (if applicable):
 
 ```yaml
-archive_status: archived_with_known_issues
+archive_status: archived_with_warnings
 known_product_issues:
   - id: KPI-001
     endpoint: GET /api/v1/menu/get
@@ -206,6 +247,7 @@ known_product_issues:
 - Plan files (`plans/*.md`) — process artifacts
 - Review files (`review/*.json`, `review/*.md`) — process artifacts
 - Execution results (`execution/*.json`) — historical records
+- Inspect results (`inspect/*`) — historical records
 - `proposal.md` — process asset
 
 ## File Path Reference
@@ -215,8 +257,10 @@ known_product_issues:
 | `qa/changes/<id>/case-delta/` | `qa/changes/<id>/cases/<module>/case.yaml` |
 | `qa/cases/<module>.md` | `qa/cases/<module>/case.yaml` |
 | `case.review.yaml` | `review/case-review.json` |
-| `code.review.yaml` | `review/plan-review.json` |
+| `code.review.yaml` | `review/plan-review.json` or `review/api-plan-review.json` |
 | `execution.review.yaml` | `execution/e2e-result.json` or `execution/api-result.json` |
+| `passed` / `passed_with_known_issues` | `PASS` / `PASS_WITH_WARNINGS` |
+| `archived_with_known_issues` | `archived_with_warnings` |
 
 ## Red Flags
 
@@ -225,12 +269,14 @@ known_product_issues:
 | "I'll merge plan files into qa/cases/" | Plans are NEVER merged into cases. |
 | "I'll archive without checking case-review.json" | Case review gate is mandatory — must be `decision: pass`. |
 | "User approved in chat, I'll archive without the JSON" | Pragmatic archive without review JSON is forbidden. Only a valid `decision: pass` JSON releases the gate. |
-| "Tests failed so I'll skip archiving" | Execution failures do not block archive. Record status in archive-summary.md and proceed. |
+| "Tests failed so I'll skip archiving" | Correct — `FAIL` blocks archive by default. Record status and STOP. |
 | "API plan review is not pass but I'll archive anyway" | API/E2E plan reviews must also pass if the corresponding plan files exist. |
 | "The test code is already there, skip step 3" | Confirm explicitly — step 3 is a safety check. |
 | "I'll skip the archive summary" | Archive summary is the audit trail. |
-| "Tests passed so archive is clean" | If `known-product-issues.md` exists, archive must use `archived_with_known_issues`. Clean archive with unresolved known product issues is forbidden. |
+| "Tests passed so archive is clean" | If `known-product-issues.md` exists or execution is `PASS_WITH_WARNINGS`, archive must use `archived_with_warnings`. |
 | "I'll write to qa/cases/<module>.md" | Cases are YAML, not Markdown: `qa/cases/<module>/case.yaml`. |
+| "Execution FAIL but I'll archive anyway" | Default workflow forbids archive on FAIL. |
+| "PASS_WITH_WARNINGS without inspect is fine" | Run `aws-inspect` first; require `phases.inspect.status in [done, partial]`. |
 
 ## Post-Archive State
 
@@ -240,3 +286,4 @@ Change cycle is complete:
 - `tests/` contains test code (primary assets)
 - `qa/archive/<change-id>/` holds all process artifacts for audit
 - `qa/changes/<change-id>/` is preserved (not deleted — manual cleanup only)
+- `phases.archive.status` is `archived` or `archived_with_warnings`

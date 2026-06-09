@@ -1,6 +1,6 @@
 ---
-name: aws-api-plan-fixer
-description: "Apply safe, automatic fixes to AWS API plan artifacts based on api-plan-review.json. Use after aws-api-plan-reviewer returns decision=needs_fix with auto_fix_allowed=true and human_review_required=false. Never invents endpoints, auth, fixtures, or expected response schema."
+name: aws-e2e-plan-fixer
+description: "Apply safe, automatic fixes to AWS E2E plan artifacts based on plan-review.json. Use after aws-e2e-plan-reviewer returns decision=needs_fix with auto_fix_allowed=true and human_review_required=false. Never invents routes, selectors, auth, or data factories."
 ---
 
 ## Context Contract
@@ -10,13 +10,13 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify `phases.api_plan_review.status == needs_fix`.
-3. Read input files from disk: `review/api-plan-review.json`, `plans/api-plan.md`, `plans/api-test-data-plan.md`, `plans/api-codegen-plan.md`, `plans/m3-review-summary.md`.
-4. Verify all gate fields in `api-plan-review.json`:
-   - `review_type == "api-plan"` — if not, stop.
+2. Verify `phases.e2e_plan_review.status == needs_fix`.
+3. Read input files from disk: `review/plan-review.json`, `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`, `plans/m4-review-summary.md`.
+4. Verify all gate fields in `plan-review.json` in order — **STOP** on first failure:
+   - `review_type == "e2e-plan"` — if not, stop.
    - `change_id == <change-id>` — if mismatch, stop as reviewer contract error.
    - `decision == "needs_fix"` — if not, stop.
-   - `next_action == "run_api_plan_fixer"` — if not, stop as reviewer contract error.
+   - `next_action == "run_e2e_plan_fixer"` — if not, stop as reviewer contract error.
    - `human_review_required == false` — if not, stop.
    - `auto_fix_allowed == true` — if not, stop.
    - `auto_fix_plan` exists and is non-empty — if missing or empty, stop as reviewer contract error.
@@ -26,43 +26,47 @@ Do not rely on prior conversation context.
 **After completing work:**
 
 1. Write updated files (only those actually modified):
-   - `qa/changes/<change-id>/plans/api-plan.md`
-   - `qa/changes/<change-id>/plans/api-test-data-plan.md`
-   - `qa/changes/<change-id>/plans/api-codegen-plan.md`
-   - `qa/changes/<change-id>/plans/m3-review-summary.md`
+   - `qa/changes/<change-id>/plans/e2e-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-test-data-plan.md`
+   - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
+   - `qa/changes/<change-id>/plans/m4-review-summary.md`
    - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (only if changed per authorized `auto_fix_plan` entry — see **data-knowledge.proposal.yaml** rules)
-   - `qa/changes/<change-id>/review/api-plan-review-apply-summary.md`
+   - `qa/changes/<change-id>/review/plan-review-apply-summary.md`
 2. Update `workflow-state.yaml`:
-   - Append to `phases.api_plan_review.fix_attempts`:
+   - Append to `phases.e2e_plan_review.fix_attempts` — on **success** or **reviewer contract error** (always record the attempt; orchestrator must not rely on chat context alone):
      ```yaml
      - attempt: <n>
-       source_review: review/api-plan-review.json
-       apply_summary: review/api-plan-review-apply-summary.md
-       fixed: [<finding-id>, ...]
-       skipped: [<finding-id>, ...]
-       files_modified: [<path>, ...]
+       source_review: review/plan-review.json
+       apply_summary: review/plan-review-apply-summary.md
+       fixed: [<finding-id>, ...]          # [] on contract error
+       skipped: [<finding-id>, ...]        # [] on contract error
+       contract_errors: [<error>, ...]     # non-empty on contract error
+       files_modified: [<path>, ...]       # [] on contract error — no plan files modified
        timestamp: <now>
      ```
-   - **Do NOT** create or update `phases.api_plan_fixer.status` unless the workflow schema explicitly defines it.
-   - **Do NOT** modify `phases.api_plan_review.status` — only `aws-api-plan-reviewer` updates gate status.
+   - **Do NOT** modify `phases.e2e_plan_review.status` — only `aws-e2e-plan-reviewer` updates gate status.
+   - **Do NOT** create or update `phases.e2e_plan_fixer.status` unless the workflow schema explicitly defines it.
+
+On reviewer contract error: write `plan-review-apply-summary.md` with **Reviewer Contract Errors**, set `fixed: []`, `skipped: []`, `files_modified: []`, populate `contract_errors`, then **STOP** — do not modify plan files.
 
 ---
 
-# AWS API Plan Fixer
+# AWS E2E Plan Fixer
 
 ## Purpose
 
-Apply safe, automatic fixes to AWS API plan artifacts based on `api-plan-review.json`.
+Apply safe, automatic fixes to AWS E2E plan artifacts based on `plan-review.json`.
 
-Use this skill after `aws-api-plan-reviewer` returns:
+Use this skill after `aws-e2e-plan-reviewer` returns:
 
 ```text
 decision = needs_fix
 auto_fix_allowed = true
 human_review_required = false
+next_action = run_e2e_plan_fixer
 ```
 
-This skill must only apply safe, mechanical plan fixes. It must not invent unknown endpoints, auth mechanisms, request/response schema, or data factories.
+This skill must only apply safe, mechanical plan fixes. It must not invent unknown product behavior, routes, auth, selectors, or data factories.
 
 ---
 
@@ -70,10 +74,10 @@ This skill must only apply safe, mechanical plan fixes. It must not invent unkno
 
 Use this skill when:
 
-- `api-plan-review.json` exists.
-- The API plan reviewer found auto-fixable issues.
+- `plan-review.json` exists.
+- The E2E plan reviewer found auto-fixable issues.
 - No human review is required.
-- The orchestrator wants to re-run API plan review after applying fixes.
+- The orchestrator wants to re-run plan review after applying fixes.
 
 ---
 
@@ -82,11 +86,11 @@ Use this skill when:
 Required:
 
 ```text
-qa/changes/<change-id>/review/api-plan-review.json
-qa/changes/<change-id>/plans/api-plan.md
-qa/changes/<change-id>/plans/api-test-data-plan.md
-qa/changes/<change-id>/plans/api-codegen-plan.md
-qa/changes/<change-id>/plans/m3-review-summary.md
+qa/changes/<change-id>/review/plan-review.json
+qa/changes/<change-id>/plans/e2e-plan.md
+qa/changes/<change-id>/plans/e2e-test-data-plan.md
+qa/changes/<change-id>/plans/e2e-codegen-plan.md
+qa/changes/<change-id>/plans/m4-review-summary.md
 ```
 
 Optional (only present when `.aws/data-knowledge.yaml` was missing during planning):
@@ -108,29 +112,31 @@ qa/changes/<change-id>/cases/**/*.yaml
 Update only allowed plan files:
 
 ```text
-qa/changes/<change-id>/plans/*.md
+qa/changes/<change-id>/plans/e2e-plan.md
+qa/changes/<change-id>/plans/e2e-test-data-plan.md
+qa/changes/<change-id>/plans/e2e-codegen-plan.md
+qa/changes/<change-id>/plans/m4-review-summary.md
 qa/changes/<change-id>/plans/data-knowledge.proposal.yaml
 ```
 
 Write:
 
 ```text
-qa/changes/<change-id>/review/api-plan-review-apply-summary.md
+qa/changes/<change-id>/review/plan-review-apply-summary.md
 ```
 
 Do not edit:
 
 ```text
-qa/changes/<change-id>/review/api-plan-review.json
-qa/changes/<change-id>/review/api-plan-review-summary.md
+qa/changes/<change-id>/review/plan-review.json
+qa/changes/<change-id>/review/plan-review-summary.md
 tests/**
 qa/changes/<change-id>/cases/**
 qa/changes/<change-id>/proposal.md
-qa/changes/<change-id>/known-product-issues.md
 .aws/data-knowledge.yaml
 ```
 
-Do not edit `known-product-issues.md` — see **Forbidden Fixes**.
+Do not directly update `.aws/data-knowledge.yaml`. Only propose updates in `data-knowledge.proposal.yaml` when authorized by a validated `auto_fix_plan` entry.
 
 ---
 
@@ -139,12 +145,12 @@ Do not edit `known-product-issues.md` — see **Forbidden Fixes**.
 This fixer must never bypass the reviewer. It is **not** a gate producer.
 
 - Only apply findings where `auto_fix_allowed == true` and `human_review_required == false`.
-- **Never** write or modify `api-plan-review.json` or any review JSON file.
+- **Never** write or modify `plan-review.json` or any review JSON file.
 - **Never** set or change `decision` to `pass` or `codegen_readiness` to `ready` — the fixer has no authority to pass the gate.
-- **Never** modify `phases.api_plan_review.status` — only the reviewer updates gate status.
-- **Do NOT** create or update `phases.api_plan_fixer.status` unless the workflow schema explicitly defines it.
-- Fix attempt records belong under `phases.api_plan_review.fix_attempts` — same pattern as `phases.case_review.fix_attempts`.
-- After applying fixes, you **must** request a fresh run of `aws-api-plan-reviewer`. The workflow only continues to `aws-api-codegen` when a **new** `api-plan-review.json` has `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]`.
+- **Never** modify `phases.e2e_plan_review.status` — only the reviewer updates gate status.
+- **Do NOT** create or update `phases.e2e_plan_fixer.status` unless the workflow schema explicitly defines it.
+- Fix attempt records belong under `phases.e2e_plan_review.fix_attempts` — same pattern as `phases.case_review.fix_attempts`.
+- After applying fixes, you **must** request a fresh run of `aws-e2e-plan-reviewer`. The workflow only continues to `aws-e2e-codegen` when a **new** `plan-review.json` has `decision == "pass"` and `codegen_readiness in ["ready","ready_with_warnings"]`.
 - A fixer's claim that it "fixed everything" does not release the gate. Only the reviewer's new JSON does.
 
 ---
@@ -172,7 +178,7 @@ Allowed operations:
 - Clarify fixture reuse if present in `.aws/data-knowledge.yaml`
 - Add codegen constraints such as "append only, do not overwrite existing tests"
 
-**TODO marker rule:** Do not convert blockers into TODO-only warnings. Unknown endpoint path, unknown method, unknown auth mechanism, missing required fixture, unknown expected response schema, or unsafe cleanup must remain blockers or human-review items. Adding a TODO marker to a genuine blocker does not resolve it and must not change the finding's severity or status.
+**TODO marker rule:** Do not convert blockers into TODO-only warnings. Unknown route, unknown selector, unknown auth state, missing required fixture/factory, unknown expected UI copy, or unsafe cleanup must remain blockers or human-review items. Adding a TODO marker to a genuine blocker does not resolve it and must not change the finding's severity or status.
 
 ---
 
@@ -180,23 +186,20 @@ Allowed operations:
 
 Do not invent:
 
-- HTTP method or endpoint path
-- Auth mechanism or token format
-- Request body schema
-- Expected response body or status code
-- Fixture or factory name
-- Data setup or cleanup endpoint
+- Route path
+- UI selector
+- `data-testid`
+- Button text
+- Page title
+- Auth mechanism
+- Test credential
+- Fixture name
+- Factory name
+- API endpoint
+- Request/response schema
 - Business state transition
+- Cleanup endpoint
 - Product behavior
-- Endpoint coverage-gap documentation (`known-product-issues.md`)
-
-Do not create or modify:
-
-```text
-qa/changes/<change-id>/known-product-issues.md
-```
-
-Endpoint coverage-gap documentation requires human action and cannot be fixed by `aws-api-plan-fixer`. This aligns with `aws-api-plan-reviewer` coverage-gap rules.
 
 Do not change:
 
@@ -214,7 +217,7 @@ Do not directly update `.aws/data-knowledge.yaml`. Only propose updates in `data
 
 ## Fix Source Rule
 
-Only apply fixes explicitly listed in `api-plan-review.json` under `auto_fix_plan`.
+Only apply fixes explicitly listed in `plan-review.json` under `auto_fix_plan`.
 
 Do not infer or expand fixes from the `findings` array alone.
 
@@ -239,7 +242,7 @@ For **every** `auto_fix_plan` item, before applying any edit:
 
 **Rationale:** `auto_fix_plan` is produced by the gate reviewer. If any item violates the contract, the review JSON is not trustworthy. The fixer must **STOP** before applying partial fixes — do not skip invalid items and continue with the rest.
 
-These failures mean the reviewer JSON contract is untrustworthy. **Do not skip and continue.** Record the error in **Reviewer Contract Errors** in the apply summary, then stop.
+These failures mean the reviewer JSON contract is untrustworthy. **Do not skip and continue.** Record the error in **Reviewer Contract Errors** in the apply summary, append a `fix_attempts` entry with `files_modified: []`, then stop.
 
 If a finding in `findings[]` has no matching `auto_fix_plan` entry, add it to **Skipped Findings** in the apply summary (reviewer chose not to auto-fix it). Do not improvise a fix.
 
@@ -250,10 +253,10 @@ If a finding in `findings[]` has no matching `auto_fix_plan` entry, add it to **
 `auto_fix_plan.target_file` must be one of:
 
 ```text
-qa/changes/<change-id>/plans/api-plan.md
-qa/changes/<change-id>/plans/api-test-data-plan.md
-qa/changes/<change-id>/plans/api-codegen-plan.md
-qa/changes/<change-id>/plans/m3-review-summary.md
+qa/changes/<change-id>/plans/e2e-plan.md
+qa/changes/<change-id>/plans/e2e-test-data-plan.md
+qa/changes/<change-id>/plans/e2e-codegen-plan.md
+qa/changes/<change-id>/plans/m4-review-summary.md
 qa/changes/<change-id>/plans/data-knowledge.proposal.yaml
 ```
 
@@ -266,46 +269,48 @@ May create or modify `data-knowledge.proposal.yaml` **only when**:
 - `auto_fix_plan.target_file` is exactly `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`
 - The referenced finding is `severity in ["low", "medium"]` with `auto_fix_allowed == true` and `human_review_required == false`
 - Content is limited to missing capability descriptions or `discovered_candidates` already evidenced in files on disk
+- Do **not** write confirmed capabilities — proposals only
 - Do **not** create the file proactively outside an authorized `auto_fix_plan` entry
 
 ---
 
 ## Fix Strategy
 
-1. Read `api-plan-review.json`.
+1. Read `plan-review.json`.
 2. Validate top-level gate fields (Context Contract step 4):
-   - `review_type == "api-plan"`
+   - `review_type == "e2e-plan"`
    - `change_id == <change-id>`
    - `decision == "needs_fix"`
-   - `next_action == "run_api_plan_fixer"`
+   - `next_action == "run_e2e_plan_fixer"`
    - `human_review_required == false`
    - `auto_fix_allowed == true`
    - `auto_fix_plan` non-empty
-3. For each `auto_fix_plan` item, run **Per-Item Validation** (Fix Source Rule). Any failure → write apply summary with **Reviewer Contract Errors** and **STOP**.
+3. For each `auto_fix_plan` item, run **Per-Item Validation** (Fix Source Rule). Any failure → write apply summary with **Reviewer Contract Errors**, append `fix_attempts` entry with `files_modified: []`, and **STOP**.
 4. Apply minimal edits to target plan files per validated `auto_fix_plan` instructions only.
 5. Preserve existing style and ordering.
 6. Add unknowns to plan TODO sections or `data-knowledge.proposal.yaml` — only when authorized by a validated `auto_fix_plan` entry and the unknown is already a non-blocking reviewer warning. Never downgrade blockers.
-7. Write `api-plan-review-apply-summary.md`.
-8. Update `workflow-state.yaml`: append to `phases.api_plan_review.fix_attempts` (do **not** modify `phases.api_plan_review.status`).
-9. Tell the orchestrator to re-run `aws-api-plan-reviewer`.
+7. Write `plan-review-apply-summary.md`.
+8. Update `workflow-state.yaml`: append to `phases.e2e_plan_review.fix_attempts` (do **not** modify `phases.e2e_plan_review.status`).
+9. Tell the orchestrator to re-run `aws-e2e-plan-reviewer`.
 
 ---
 
 ## File-Specific Rules
 
-### `api-plan.md`
+### `e2e-plan.md`
 
 May update:
 
 - Scenario mapping
-- Endpoint / method clarity (only when already known from case YAML or backend source)
-- Request / assertion mapping
-- Auth notes (only when auth details are already known from case YAML or `.aws/data-knowledge.yaml`)
-- TODO markers only for items the reviewer already documented as non-blocking warnings — **must not** add TODOs for unknown endpoint / auth that are blockers, human-review items, or codegen-blocking unknowns
+- Step clarity
+- Assertion mapping
+- Flow ordering
+- Known route notes (only when route is already known from case YAML or frontend source)
+- TODO markers only for items the reviewer already documented as non-blocking warnings — **must not** add TODOs for unknown route, selector, auth state, setup capability, cleanup, or expected UI copy when they are blockers, human-review items, or codegen-blocking unknowns
 
 Do not invent executable details.
 
-### `api-test-data-plan.md`
+### `e2e-test-data-plan.md`
 
 May update:
 
@@ -317,7 +322,7 @@ May update:
 
 Do not invent factories or cleanup endpoints.
 
-### `api-codegen-plan.md`
+### `e2e-codegen-plan.md`
 
 May update:
 
@@ -328,7 +333,7 @@ May update:
 - Codegen constraints
 - TODO markers only for items the reviewer already documented as non-blocking warnings
 
-### `m3-review-summary.md`
+### `m4-review-summary.md`
 
 May update:
 
@@ -338,11 +343,22 @@ May update:
 
 **Readiness rules** (enum values: `ready` | `ready_with_warnings` | `not_ready` only):
 
-- Only `aws-api-plan-reviewer` may **upgrade** readiness.
-- The fixer may **preserve** existing **Plan Readiness** and **Codegen Readiness** enum values, or **downgrade** to `not_ready` if the existing value is unsafe after the edit.
-- The fixer **must never** set readiness to `ready` or `ready_with_warnings`.
+- Only `aws-e2e-plan-reviewer` may **upgrade** readiness.
+- The fixer **must never upgrade** readiness.
+
+**Allowed:**
+
+- Preserve existing **Plan Readiness** and **Codegen Readiness** enum values
+- Downgrade readiness to `not_ready` if the existing value is unsafe after the edit
+
+**Forbidden:**
+
+- Change `not_ready` → `ready_with_warnings`
+- Change `not_ready` → `ready`
+- Change `ready_with_warnings` → `ready`
+
 - Do **not** replace enum readiness values with `pending re-review` or any non-enum string.
-- If `m3-review-summary.md` is updated, add a separate note (outside the enum fields): `Pending re-review after fixes.`
+- If `m4-review-summary.md` is updated, add a separate note (outside the enum fields): `Pending re-review after fixes.`
 
 ### `data-knowledge.proposal.yaml`
 
@@ -352,6 +368,8 @@ Do not create or expand the file outside an authorized `auto_fix_plan` entry.
 
 Do not promote proposals into `.aws/data-knowledge.yaml`.
 
+Do not write confirmed capabilities — proposals only.
+
 ---
 
 ## Apply Summary Format
@@ -359,13 +377,13 @@ Do not promote proposals into `.aws/data-knowledge.yaml`.
 Write:
 
 ```text
-qa/changes/<change-id>/review/api-plan-review-apply-summary.md
+qa/changes/<change-id>/review/plan-review-apply-summary.md
 ```
 
 Use this structure:
 
 ```markdown
-# API Plan Review Apply Summary
+# Plan Review Apply Summary
 
 ## Change ID
 
@@ -400,7 +418,7 @@ Use only for findings present in `findings[]` but absent from `auto_fix_plan` (r
 
 ## Next Step
 
-Re-run `aws-api-plan-reviewer`.
+Re-run `aws-e2e-plan-reviewer`.
 ```
 
 ---
@@ -410,7 +428,7 @@ Re-run `aws-api-plan-reviewer`.
 After applying fixes, respond with:
 
 ```
-API plan review fixes applied.
+Plan review fixes applied.
 
 Modified files:
 - ...
@@ -425,13 +443,13 @@ Remaining unknowns:
 - ...
 
 Next step:
-Re-run aws-api-plan-reviewer.
+Re-run aws-e2e-plan-reviewer.
 ```
 
 If reviewer contract errors occurred, respond with:
 
 ```
-API plan fixer STOPped — reviewer contract error.
+Plan fixer STOPped — reviewer contract error.
 
 Errors:
 - ...
@@ -439,9 +457,9 @@ Errors:
 No plan files were modified.
 
 Next step:
-Fix api-plan-review.json or re-run aws-api-plan-reviewer.
+Fix plan-review.json or re-run aws-e2e-plan-reviewer.
 ```
 
 If no fixes were applied, say so clearly and explain why.
 
-Do not claim the API plan review passed. Only the reviewer can pass the gate.
+Do not claim the plan review passed. Only the reviewer can pass the gate.

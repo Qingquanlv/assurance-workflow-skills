@@ -69,8 +69,8 @@ The main entry agent is `@aws-orchestrator`. It delegates work to specialized su
 @aws-api-codegen       — Generate pytest API test code
 
 @aws-e2e-plan          — E2E test planning
-@aws-plan-reviewer     — Review E2E plan artifacts (E2E only)
-@aws-plan-fixer        — Apply safe auto-fixes to E2E plan
+@aws-e2e-plan-reviewer     — Review E2E plan artifacts (E2E only)
+@aws-e2e-plan-fixer        — Apply safe auto-fixes to E2E plan
 @aws-e2e-codegen       — Generate Python Playwright E2E test code
 
 @aws-run               — Run tests via aws CLI
@@ -158,8 +158,8 @@ use skill aws/aws-case-design
 | `aws-api-plan-fixer` | Apply safe auto-fixes to API plan |
 | `aws-api-codegen` | Generate pytest test code from API plan |
 | `aws-e2e-plan` | E2E test planning |
-| `aws-plan-reviewer` | Review E2E plan, write `plan-review.json` (E2E only) |
-| `aws-plan-fixer` | Apply safe auto-fixes to E2E plan |
+| `aws-e2e-plan-reviewer` | Review E2E plan, write `plan-review.json` (E2E only) |
+| `aws-e2e-plan-fixer` | Apply safe auto-fixes to E2E plan |
 | `aws-e2e-codegen` | Generate Python Playwright test code from E2E plan |
 | `aws-run` | Run tests: `aws run --change <id>` |
 | `aws-inspect` | Inspect test results: `aws report inspect --change <id>` |

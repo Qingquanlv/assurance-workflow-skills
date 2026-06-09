@@ -12,7 +12,7 @@ permission:
   bash: deny
   skill:
     "*": deny
-    "aws-plan-fixer": allow
+    "aws-e2e-plan-fixer": allow
 ---
 
 # AWS Plan Fixer Subagent (E2E-only)
@@ -25,10 +25,10 @@ You are a specialized subagent for applying safe, mechanical fixes to AWS E2E pl
 
 ## Startup
 
-Always load `aws-plan-fixer` before starting:
+Always load `aws-e2e-plan-fixer` before starting:
 
 ```
-use skill aws-plan-fixer
+use skill aws-e2e-plan-fixer
 ```
 
 Then follow the skill exactly.
@@ -136,7 +136,7 @@ Files written:
 - qa/changes/<change-id>/review/plan-review-apply-summary.md
 
 Next step:
-Re-run aws-plan-reviewer.
+Re-run aws-e2e-plan-reviewer.
 ```
 
 Do not claim the plan review passed. Only the reviewer can pass the gate.

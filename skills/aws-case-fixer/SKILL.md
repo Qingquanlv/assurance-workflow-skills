@@ -12,7 +12,15 @@ Do not rely on prior conversation context.
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
 2. Verify `phases.case_review.status == needs_fix`.
 3. Read input files from disk: `review/case-review.json`, `cases/<module>/case.yaml`, `proposal.md`.
-4. Verify `case-review.json` has `auto_fix_allowed == true` and `human_review_required == false`. If not, stop.
+4. Verify `case-review.json` gate fields in order — stop on first failure:
+   - `review_type == "case"`.
+   - `change_id` matches the current `<change-id>`.
+   - `decision == "needs_fix"`.
+   - `human_review_required == false`.
+   - `auto_fix_allowed == true`.
+   - `auto_fix_plan` is non-empty.
+   - `next_action == "run_case_fixer"`.
+   - No `auto_fix_plan` item references a `high` or `critical` severity finding.
 5. Use files as the sole source of truth.
 
 **After completing work:**
@@ -102,6 +110,23 @@ The orchestrator may delete or regenerate `case-review.json` after this skill co
 
 ---
 
+## Target File Allowlist
+
+Only modify files under these paths:
+
+```text
+qa/changes/<change-id>/cases/**/*.yaml
+qa/changes/<change-id>/proposal.md
+```
+
+**Rules:**
+
+- Reject or skip any `auto_fix_plan` item whose `target_file` is outside these paths.
+- Never modify `qa/cases/**` — these are stable main assets; only `aws-archive` may merge into them.
+- Never modify `tests/**`, `plans/**`, `src/**`, or any path outside `qa/changes/<change-id>/`.
+
+---
+
 ## Gate Boundaries
 
 This fixer must never bypass the reviewer. It is **not** a gate producer.
@@ -121,9 +146,7 @@ You may apply fixes for findings where **all** of the following are true:
 - `auto_fix_allowed = true`
 - `human_review_required = false`
 
-For `severity = "high"`: apply only if the finding is purely structural/formatting (e.g., normalize a field value, fix YAML indentation). If the fix requires any judgment about product behavior, stop and require human review.
-
-For `severity = "critical"`: **always stop and require human review** regardless of `auto_fix_allowed`.
+For `severity in ["high", "critical"]`: **STOP the entire fixer immediately** — do not skip individual items, do not apply any other fixes. A valid `case-review.json` produced by `aws-case-reviewer` must never reference `high` or `critical` findings in `auto_fix_plan`. If one does, it is a reviewer safety error; require `aws-case-reviewer` to regenerate a valid JSON before retrying.
 
 Allowed operations:
 
@@ -169,18 +192,30 @@ Do not overwrite existing case files wholesale. Prefer minimal diffs.
 ## Fix Strategy
 
 1. Read `case-review.json`.
-2. Validate it is for `review_type = case`.
-3. Check gate fields (check in this order — stop on the first failed condition):
-   - If `decision != "needs_fix"`, stop. (`pass`, `needs_human_review`, `reject` all mean fixer must not run.)
-   - If `decision == "reject"`, stop.
-   - If `human_review_required == true`, stop.
-   - If `auto_fix_allowed == false`, stop.
-4. Collect fixable items — **only from `case-review.json`.`auto_fix_plan`**:
+2. Check all gate fields in this order — **STOP on the first failed condition**:
+   - `review_type == "case"` — if not, stop.
+   - `case-review.json.change_id == <change-id>` — if mismatch, STOP (wrong review JSON for this change).
+   - `decision == "needs_fix"` — if not (`pass`, `needs_human_review`, `reject`), stop.
+   - `human_review_required == false` — if not, stop.
+   - `auto_fix_allowed == true` — if not, stop.
+   - `auto_fix_plan` exists and is non-empty — if empty, stop (no safe plan to execute).
+   - `next_action == "run_case_fixer"` — if not, stop (inconsistent reviewer output).
+3. Pre-flight severity check — **STOP immediately if any `auto_fix_plan` item references a finding with `severity in ["high", "critical"]`**:
+   - Do not apply any fixes.
+   - Record the reviewer error in `case-review-apply-summary.md` if possible.
+   - Require `aws-case-reviewer` to regenerate a valid `case-review.json` without high/critical findings in `auto_fix_plan`.
+4. Collect and validate fixable items — **only from `case-review.json`.`auto_fix_plan`**:
    - Only apply fixes that have an explicit entry in `auto_fix_plan`.
    - Findings without an `auto_fix_plan` entry must **not** be changed, even if `auto_fix_allowed == true`.
    - Do **not** infer fixes from vague `findings` messages.
-   - **Allowed sources:** `auto_fix_plan` entries; findings where `auto_fix_allowed == true` **and** `auto_fix_plan` provides the exact operation.
-   - **Forbidden:** inferring fix operations from finding descriptions alone.
+   - For every `auto_fix_plan` item, perform these validation steps before applying — skip and record in **Skipped Findings** if any individual check fails:
+     a. Resolve `finding_id` to an existing finding in `findings[]`. If no match, skip.
+     b. Verify the referenced finding has `auto_fix_allowed == true`. If not, skip.
+     c. Verify the referenced finding has `human_review_required == false`. If not, skip.
+     d. Verify the referenced finding has `severity in ["low", "medium"]`. (Severity `high`/`critical` triggers a full STOP at step 3; this is a safety-net re-check.)
+     e. Verify `target_file` is under an allowed path (see **Target File Allowlist**). If not, skip.
+     f. Verify `operation` is one of `edit`, `append`, `normalize`, `rename`. If unsupported, skip and record the reason.
+   - If all `auto_fix_plan` items are invalid or skipped, apply no changes and stop.
 5. Apply minimal edits to target files.
 6. Preserve existing style and ordering where possible.
 7. Write `case-review-apply-summary.md`.

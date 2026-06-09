@@ -12,10 +12,10 @@ permission:
   bash: deny
   skill:
     "*": deny
-    "aws-plan-reviewer": allow
+    "aws-e2e-plan-reviewer": allow
 ---
 
-# AWS Plan Reviewer Subagent (E2E-only)
+# AWS E2E Plan Reviewer Subagent
 
 > **Scope: E2E plans only.** This agent reviews `e2e-plan.md`, `e2e-test-data-plan.md`, `e2e-codegen-plan.md`, and `m4-review-summary.md`. Do not use it for API plan review — use `aws-api-plan-reviewer` instead.
 
@@ -25,10 +25,10 @@ You are a specialized read-only subagent for reviewing AWS E2E plan artifacts be
 
 ## Startup
 
-Always load `aws-plan-reviewer` before starting:
+Always load `aws-e2e-plan-reviewer` before starting:
 
 ```
-use skill aws-plan-reviewer
+use skill aws-e2e-plan-reviewer
 ```
 
 Then follow the skill exactly.
@@ -92,7 +92,7 @@ Do not mark `codegen_readiness = "ready"` unless flows, data, assertions, and se
 
 ## Review Conduct
 
-Apply all review criteria from the `aws-plan-reviewer` skill.
+Apply all review criteria from the `aws-e2e-plan-reviewer` skill.
 
 Do not invent routes, selectors, data-testids, auth state, or fixture names.
 

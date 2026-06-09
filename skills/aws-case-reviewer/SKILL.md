@@ -12,7 +12,7 @@ Do not rely on prior conversation context.
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
 2. Verify `phases.case_design.status == done`.
 3. Read input files from disk: `.qa.yaml`, `proposal.md`, `cases/<module>/case.yaml`.
-4. If any required file is missing, stop and report what is missing.
+4. If any required file is missing, **STOP** before normal review. Do not produce a normal review verdict. If the orchestrator requires a JSON artifact for diagnostics, write a `reject` record (see Decision Rules — Missing Inputs) and stop.
 5. Use files as the sole source of truth.
 
 **After completing work:**
@@ -93,7 +93,7 @@ This skill is a **gate producer**. The workflow cannot advance past case review 
 - You **must** write `qa/changes/<change-id>/review/case-review.json` as valid JSON with all required fields.
 - You **must** write `qa/changes/<change-id>/review/case-review-summary.md`.
 - A natural language conclusion in chat is **not** a substitute for the JSON file. Never end with only a textual verdict.
-- If the user said "approved" / "looks good", you must still encode that as a JSON review with `decision == "pass"` (and appropriate fields). Approval in chat does not release the gate; the JSON does.
+- User approval in chat does not release the gate; only a valid `case-review.json` does. If the user says "approved", "looks good", or "continue", treat it only as review context — still validate every review criterion independently. Only write `decision == "pass"` when the artifacts satisfy all review criteria.
 - If you cannot write the JSON file for any reason, treat the review as **failed** and report it — the workflow must treat a missing or invalid `case-review.json` as a STOP condition.
 
 ---
@@ -157,53 +157,74 @@ The case should be understandable by a QA engineer without reading hidden contex
 
 ### 3. YAML Structure
 
-Check that case files are valid YAML and follow the project convention.
+Check that case files are valid YAML and follow the delta format produced by `aws-case-design`.
 
-Cases produced by `aws-case-design` use an `automation:` block (not a flat `automation_targets:` field). Accept either form for legacy compatibility, but prefer the block form:
+**Change delta files** (`qa/changes/<change-id>/cases/**/case.yaml`) must use the delta top-level structure:
 
 ```yaml
 schema_version: "1.0"
-case_id: "TC-<MODULE>-<TYPE>-<NNN>"
+
+added:
+  - case_id: "TC-USER-AUTH-001"
+    title: "..."
+    # ... all required case fields
+modified:
+  - case_id: "TC-USER-AUTH-002"
+    title: "..."
+    # ... all required case fields
+removed:
+  - case_id: "TC-USER-AUTH-003"
+    reason: "..."
+```
+
+Review every case under `added` and `modified`. Review every entry under `removed`.
+
+Do not expect a top-level `case_id` in the change delta file — cases are always nested inside `added`, `modified`, or `removed`.
+
+**Required fields per case under `added` / `modified`:**
+
+```yaml
+case_id: "TC-[A-Z]+(-[A-Z]+)*-[0-9]{3}"  # e.g. TC-USER-001, TC-USER-AUTH-002
 title: "..."
-status: "draft"
-priority: "P1"                         # P0|P1|P2|P3
-severity: "major"                      # blocker|critical|major|minor
-type: "e2e"                            # e2e|api|unit|manual
+status: draft|active|deprecated
+priority: P0|P1|P2|P3
+severity: blocker|critical|major|minor
+type: API|E2E|Unit|Visual|Mixed
 module: "..."
 requirement_id: "..."
 feature_name: "..."
 test_condition_id: "..."               # required (TBD acceptable with rationale)
-design_technique: "use_case"          # use_case|equivalence_partitioning|boundary_value_analysis|...
-objective: "..."                       # why this case exists
+design_technique: use_case|equivalence_partitioning|boundary_value_analysis|...
+objective: "..."
 tags: []
 summary: "..."
 preconditions: []
 test_data: []
 steps: []
 assertions: []
-postconditions: []                     # required (may be empty)
-edge_cases: []                         # required (may be empty)
-related_cases: []                      # required (may be empty)
+postconditions: []
+edge_cases: []
+related_cases: []
 risk:
-  likelihood: 3                        # integer 1-5
-  impact: 4                            # integer 1-5
-  level: "high"                        # low|medium|high|critical
+  likelihood: 1–5
+  impact: 1–5
+  level: low|medium|high|critical
   rationale: "..."
 regression:
-  candidate: true
-  tier: "smoke"                        # smoke|sanity|regression|full|none
+  candidate: true|false
+  tier: smoke|sanity|regression|full|none
   selection_reason: []
   maintenance_rule: "..."
   rationale: "..."
 automation:
-  required: true
-  target: "..."
-  framework: "pytest|pytest-playwright"
-  status: "planned"                    # not_automated|planned|automated|flaky|deprecated
+  required: true|false
+  target: API|E2E|Unit|Visual|Mixed
+  framework: pytest|pytest-playwright|null
+  status: not_automated|planned|automated|flaky|deprecated
 trace: {}
 ```
 
-Do not require every project to use exactly the same fields if the existing project convention differs. Prefer consistency with nearby case files.
+**`automation_targets` field:** For change delta files produced by `aws-case-design`, `automation_targets` is **forbidden** and must be flagged as a blocker. Legacy stable case files in `qa/cases/**` may use it for reference, but the change delta under `qa/changes/<change-id>/cases/**/case.yaml` must use the `automation` block.
 
 ### 4. Testability
 
@@ -298,14 +319,26 @@ Case YAML must NOT contain any of the following. Flag as a blocker if found:
 
 These details belong in API plan, test code, or data-knowledge.yaml — not in case.yaml.
 
-### 10. Duplicate and Conflicting Cases
+### 10. Delta Operation Correctness
+
+For every change delta file (`qa/changes/<change-id>/cases/**/case.yaml`), verify:
+
+- `added[].case_id` **MUST NOT** already exist in the target stable case file (`qa/cases/<module>/case.yaml`). Violation = blocker.
+- `modified[].case_id` **MUST** already exist in the target stable case file. Violation = blocker.
+- `removed[].case_id` **MUST** already exist in the target stable case file. Violation = blocker.
+- A `case_id` **MUST** appear in exactly one of `added`, `modified`, or `removed`. Duplication across lists = blocker.
+- If the target stable case file does not exist yet, all cases **MUST** be under `added`. Any `modified` or `removed` entries are blockers.
+
+If the target stable case file cannot be found, record as a warning (not a blocker) — it may not yet exist for a new module.
+
+### 11. Duplicate and Conflicting Cases
 
 - Check for cases with the same functional scenario (different IDs but identical intent).
 - Check for cases whose assertions contradict each other.
 - Check for cases that overlap with existing stable cases in `qa/cases/<module>/case.yaml`.
 - Flag duplicates as auto-fixable (rename/merge) if safe; flag contradictions as `needs_human_review`.
 
-### 11. Risk and Ambiguity
+### 12. Risk and Ambiguity
 
 - Check whether `risk.level` is consistent with `priority` (P0/P1 → high/critical).
 - Check whether high/critical risk cases have `automation.required = true`.
@@ -347,9 +380,25 @@ Return one of these decisions:
 
 - Case artifacts are fundamentally wrong.
 - The cases test the wrong feature.
-- Required files are missing.
 - YAML is invalid and cannot be safely repaired.
 - Generated cases conflict with explicit requirement.
+
+**Missing Inputs (special case):**
+
+If required input files are missing, STOP before normal review — do not produce a normal review verdict. If the orchestrator requires a JSON artifact for diagnostics, write a minimal `reject` record:
+
+```json
+{
+  "decision": "reject",
+  "risk_level": "critical",
+  "human_review_required": true,
+  "auto_fix_allowed": false,
+  "next_action": "stop",
+  "blockers": [{ "id": "CASE-BLOCKER-MISSING", "severity": "critical", "message": "Required file missing: <path>", "required_action": "Provide the missing file and re-run aws-case-reviewer." }]
+}
+```
+
+Default behaviour is STOP; the JSON artifact is written only to enable orchestrator diagnostics, not to trigger a fix loop.
 
 ### Decision ↔ JSON Field Constraints
 
@@ -364,7 +413,29 @@ These field values **must always be consistent**. Violating them creates gate by
 
 **Rule**: `human_review_required` MUST be `true` whenever `decision` is `needs_human_review` or `reject`.
 **Rule**: `auto_fix_allowed` MUST be `false` whenever `human_review_required` is `true`.
+**Rule**: `next_action` MUST match `decision`:
+
+| decision | next_action |
+|---|---|
+| `pass` | `continue` |
+| `needs_fix` | `run_case_fixer` |
+| `needs_human_review` | `human_review` |
+| `reject` | `stop` |
+
 A reviewer that writes `decision = "needs_human_review"` with `human_review_required: false` produces an invalid review that enables fixer gate bypass.
+A reviewer that writes `decision = "needs_fix"` with `next_action = "continue"` produces a contradictory gate that would skip required fixes.
+
+### needs_fix Hard Rules
+
+When `decision == "needs_fix"`, ALL of the following MUST hold — violating any is an invalid review:
+
+- `auto_fix_allowed` MUST be `true`.
+- `human_review_required` MUST be `false`.
+- `auto_fix_plan` MUST contain at least one item.
+- Every `auto_fix_plan[].finding_id` MUST reference an existing entry in `findings`.
+- Every referenced finding MUST have `auto_fix_allowed == true`.
+- Every referenced finding MUST have `human_review_required == false`.
+- Findings with `severity in ["high", "critical"]` MUST NOT be referenced in `auto_fix_plan`.
 
 ---
 
@@ -423,7 +494,11 @@ Use this exact top-level structure:
   "auto_fix_allowed": false,
   "human_review_required": false,
   "summary": "Short review summary.",
-  "reviewed_files": [],
+  "reviewed_files": [
+    "qa/changes/<change-id>/proposal.md",
+    "qa/changes/<change-id>/.qa.yaml",
+    "qa/changes/<change-id>/cases/<module>/case.yaml"
+  ],
   "blockers": [],
   "findings": [],
   "needs_review": [],
@@ -432,6 +507,22 @@ Use this exact top-level structure:
   "created_at": "YYYY-MM-DDTHH:mm:ssZ"
 }
 ```
+
+`next_action` mapping:
+
+| decision | next_action |
+|---|---|
+| `pass` | `continue` |
+| `needs_fix` | `run_case_fixer` |
+| `needs_human_review` | `human_review` |
+| `reject` | `stop` |
+
+`reviewed_files` MUST include:
+- `qa/changes/<change-id>/proposal.md`
+- `qa/changes/<change-id>/.qa.yaml`
+- every `qa/changes/<change-id>/cases/**/case.yaml` reviewed
+
+`reviewed_files` MUST NOT be empty.
 
 Each finding must use:
 
@@ -447,6 +538,29 @@ Each finding must use:
   "human_review_required": false
 }
 ```
+
+Each `needs_review` item must use:
+
+```json
+{
+  "id": "CASE-REVIEW-001",
+  "severity": "medium|high|critical",
+  "category": "scope|requirement|product_behavior|auth|role|data|risk",
+  "file": "qa/changes/<change-id>/cases/...",
+  "question": "What needs human clarification?",
+  "reason": "Why this cannot be decided from files.",
+  "blocking": true
+}
+```
+
+**`needs_review` hard rules:**
+
+- If `needs_review` is non-empty and any item has `blocking == true`:
+  - `decision` MUST be `needs_human_review`.
+  - `human_review_required` MUST be `true`.
+  - `auto_fix_allowed` MUST be `false`.
+  - `next_action` MUST be `human_review`.
+- If all items have `blocking == false`, a `pass` or `needs_fix` decision is still allowed, but the items must remain in `needs_review` so the reviewer record is transparent.
 
 Each blocker must use:
 

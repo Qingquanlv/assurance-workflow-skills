@@ -91,16 +91,16 @@ Load skills in the primary agent and execute inline. No subagent task dispatchin
 | Phase 4A: API Plan | `aws-api-plan` |
 | Phase 4B: E2E Plan | `aws-e2e-plan` |
 | Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
-| Phase 5B: E2E Plan Review | `aws-plan-reviewer` |
+| Phase 5B: E2E Plan Review | `aws-e2e-plan-reviewer` |
 | Phase 6A: API Plan Fix | `aws-api-plan-fixer` |
-| Phase 6B: E2E Plan Fix | `aws-plan-fixer` |
+| Phase 6B: E2E Plan Fix | `aws-e2e-plan-fixer` |
 | Phase 7A: API Codegen | `aws-api-codegen` |
 | Phase 7B: E2E Codegen | `aws-e2e-codegen` |
 | Phase 8: Execution | `aws-run` |
 | Phase 9: Inspect | `aws-inspect` |
 | Phase 10: Archive | `aws-archive` |
 
-`aws-plan-reviewer` and `aws-plan-fixer` are **E2E-only**. For API plan review use `aws-api-plan-reviewer` / `aws-api-plan-fixer`.
+`aws-e2e-plan-reviewer` and `aws-e2e-plan-fixer` are **E2E-only**. For API plan review use `aws-api-plan-reviewer` / `aws-api-plan-fixer`.
 
 **Parallel execution is disabled for skill-based phases.**
 If parallelism is ever needed, only document-driven subagents are permitted (subagent receives a plan.md, executes it directly, must NOT load a skill).
@@ -154,7 +154,7 @@ Gate rules (per `aws-workflow` "Mandatory Review JSON Gate"):
 - `decision != "pass"` and not an auto-fixable state → **STOP**.
 - Plan gates additionally require `codegen_readiness in ["ready","ready_with_warnings"]`.
 
-If the user manually approves a plan, invoke the corresponding reviewer (`aws-case-reviewer` / `aws-api-plan-reviewer` / `aws-plan-reviewer`) to write the JSON gate that records the approval. **Never skip the review JSON gate.**
+If the user manually approves a plan, invoke the corresponding reviewer (`aws-case-reviewer` / `aws-api-plan-reviewer` / `aws-e2e-plan-reviewer`) to write the JSON gate that records the approval. **Never skip the review JSON gate.**
 
 A fixer never releases a gate. After any fixer runs, re-run the matching reviewer and only continue when a **new** review JSON has `decision == "pass"`.
 
