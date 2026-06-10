@@ -129,7 +129,7 @@ def main():
         set_output("has_issues", "false")
         return
 
-    prompt = REVIEW_PROMPT.format(diffs=diffs_section)
+    prompt = REVIEW_PROMPT.replace("{diffs}", diffs_section)
 
     # Call AI API
     try:
