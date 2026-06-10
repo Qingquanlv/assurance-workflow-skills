@@ -201,6 +201,7 @@ Primary inspect output written by the CLI (skill verifies; does not fabricate). 
   "schema_version": "1.0",
   "change_id": "<change-id>",
   "batch_id": "<batch-id>",
+  "source_batch_id": "<batch-id>",
   "source_manifest": "qa/changes/<change-id>/execution/execution-manifest.yaml",
   "inspect_mode": "primary",
   "classification_performed": true,

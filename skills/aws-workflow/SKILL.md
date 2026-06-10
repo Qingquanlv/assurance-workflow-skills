@@ -177,10 +177,13 @@ required_skills:
   - aws-inspect
   - aws-archive
 
-optional_healing_skills:
-  - aws-fix-proposal        # healing: generate fix proposals from failure-analysis.json
-  - aws-api-codegen-fixer   # healing: apply API test code fixes
-  - aws-e2e-codegen-fixer   # healing: apply E2E test code fixes
+healing_skills:
+  - aws-fix-proposal        # Phase 10: generate fix proposals from failure-analysis.json
+  - aws-api-codegen-fixer   # Phase 11A: apply API test code fixes
+  - aws-e2e-codegen-fixer   # Phase 11B: apply E2E test code fixes
+  # Required for healing loop when max_healing_attempts > 0.
+  # Missing healing skills do NOT block Phases 1–9, but set gates.healing_available = false.
+  # If execution later FAIL and eligible failures exist: STOP after Phase 9 — cannot heal.
 ```
 
 After verifying required skills, **write `workflow-state.yaml`** with the initial `subagents` block:
@@ -245,24 +248,26 @@ Only **STOP** if the skill cannot be loaded **and** its `SKILL.md` does not exis
   status: acknowledged
 ```
 
-If any **optional_healing_skills** fail to load:
+If any **healing_skills** fail to load:
 
-- Do **not** stop.
-- Record warnings in `workflow-state.yaml` under `agent_warnings`:
-  - `OPENCODE-SKILL-RESOLUTION-001` (if applicable — inline orchestration)
+- Do **not** stop at Phase 0 — phases 1–9 are unaffected.
+- Record warning in `workflow-state.yaml` under `agent_warnings`:
   - `AWS-HEALING-SKILLS-UNAVAILABLE` (fixed ID — see below)
 - Set `gates.healing_available = false` in `workflow-state.yaml`.
 - If `phases.execution.status == FAIL` and `inspect/failure-analysis.json` contains `fix_proposal_eligible` failures, **STOP** after Phase 9 and report that healing skills are unavailable — do not proceed to archive.
-- If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`, healing may be skipped safely.
+- If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`, healing is not needed and can be skipped safely.
 
-**Fixed warning — optional healing skills unavailable:**
+**When `max_healing_attempts == 0`:** treat healing as disabled regardless of whether healing skills loaded. Set `gates.healing_available = false` and `phases.healing.status = skipped`.
+
+**Fixed warning — healing skills unavailable:**
 
 ```yaml
 - id: AWS-HEALING-SKILLS-UNAVAILABLE
   severity: medium
-  title: Optional healing skills are unavailable
+  title: Healing skills are unavailable or disabled
   impact:
     - healing loop cannot run if execution fails with eligible failures
+    - STOP after Phase 9 if FAIL with eligible failures
   status: acknowledged
 ```
 
@@ -457,7 +462,16 @@ phases:
       # execution/ copies are optional pointers for downstream consumers
 
   healing:
-    status: pending | not_needed | proposal_created | applied | rerun_required | exhausted | skipped | failed
+    status: pending | not_needed | proposal_created | applied | resolved | exhausted | skipped | failed
+    # Status transitions:
+    #   pending          → initial value
+    #   not_needed       → no eligible failures after inspect, or eligible_count == 0 from fix-proposal
+    #   proposal_created → Phase 10 wrote fix-proposal.json with eligible_count > 0
+    #   applied          → Phase 11 fixers ran and Fixer Safety Gate passed (set by orchestrator)
+    #   resolved         → Phase 13 re-inspect shows PASS or PASS_WITH_WARNINGS (healing succeeded)
+    #   exhausted        → max_healing_attempts reached, still FAIL (set at end of Phase 13 loop)
+    #   skipped          → healing disabled (gates.healing_available == false or max_healing_attempts == 0)
+    #   failed           → fixer hard error (forbidden file, patch mismatch, fixer-error.json written)
     attempts: []
     # Each attempt:
     # - attempt: <n>
@@ -484,7 +498,7 @@ gates:
   data_knowledge:
     status: present | missing
     decision: pass | stop   # force_continue MUST NOT bypass this gate before codegen
-  healing_available: true | false   # default: true if all optional_healing_skills load; false if any fail to load
+  healing_available: true | false   # true if all healing_skills loaded AND max_healing_attempts > 0; false otherwise
 
 known_product_issues: []
 
@@ -845,16 +859,22 @@ outputs:
 ```yaml
 inputs:
   - workflow-state.yaml
-  - execution/execution-manifest.yaml
+  - execution/execution-manifest.yaml  (updated by Phase 12 — must have new batch_id)
   - selected result files (per manifest.selected_targets)
 outputs:
-  - inspect/failure-analysis.json   (updated, source of truth)
+  - inspect/failure-analysis.json   (updated, source of truth; must include source_batch_id)
   - inspect/failure-summary.md      (updated)
-  - workflow-state.yaml (updated: phases.inspect.status, phases.healing.attempts[n].result)
+  - inspect/inspect-safety-check.json  (evidence file from Inspect Safety Gate)
+  - workflow-state.yaml (updated: phases.inspect.status, phases.healing.attempts[n].result,
+                         phases.healing.attempts[n].reinspect_batch_id)
 gate:
-  - if final_status == PASS or PASS_WITH_WARNINGS → exit healing loop → advance to Phase 14
-  - if final_status == FAIL and healing.attempts < max_healing_attempts → loop to Phase 10
-  - if healing.attempts exhausted → STOP, require human intervention
+  - inspect/failure-analysis.json.source_batch_id MUST equal phases.execution.batch_id
+    (re-inspect must be based on the Phase 12 re-run batch, not a prior batch)
+  - if final_status in [PASS, PASS_WITH_WARNINGS]:
+      phases.healing.status = resolved → exit healing loop → advance to Phase 14
+  - if final_status == FAIL and healing.attempts < max_healing_attempts and eligible failures remain:
+      → loop to Phase 10
+  - if healing.attempts exhausted → phases.healing.status = exhausted → STOP
 ```
 
 ### Phase 14 — Archive
@@ -879,7 +899,11 @@ gate:
   - user explicitly requests archive, or auto_archive == true
   - all applicable review JSON files have decision == "pass"
   - phases.execution.status in [PASS, PASS_WITH_WARNINGS]  — NEVER archive when FAIL
-  - phases.healing.status in [not_needed, applied, skipped] — NEVER archive when exhausted or failed
+  - phases.healing.status in [not_needed, resolved, skipped] — NEVER archive when applied/exhausted/failed
+    NOTE: "applied" alone is NOT sufficient — rerun + re-inspect (Phase 12+13) must have completed (→ resolved)
+  - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id
+    (latest inspect must be based on latest execution batch, not a stale earlier run)
+  - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
   - if phases.execution.status == PASS_WITH_WARNINGS caused by known product issues:
       require phases.inspect.status in [done, partial]
       known product issues must be explicitly listed and acknowledged
@@ -889,8 +913,10 @@ gate:
   - if known product issues exist, require phases.inspect.status in [done, partial]
 never_archive_when:
   - phases.execution.status == FAIL
+  - phases.healing.status == applied    # applied means fixer ran but rerun/re-inspect not yet done
   - phases.healing.status == exhausted
   - phases.healing.status == failed
+  - inspect/failure-analysis.json.source_batch_id != phases.execution.batch_id  (stale inspect)
   - inspect/failure-analysis.json contains unresolved fix_proposal_eligible failures
 ```
 
@@ -1124,10 +1150,19 @@ Phase 11 — Apply Fixes
   → Orchestrator sets global apply status (after BOTH fixers complete and safety gate passes):
       Read api_apply_status from attempt entry (applied | no_op | failed)
       Read e2e_apply_status from attempt entry (applied | no_op | failed)
-      If any status == failed: phases.healing.status = failed; STOP
-      If all statuses are in [applied, no_op] (at least one applied):
-        phases.healing.status = applied
-      Update workflow-state.yaml: phases.healing.attempts[n].applied_files (aggregate from both fixers)
+
+      If any status == failed:
+        → phases.healing.status = failed; STOP
+
+      If ALL statuses == no_op (no fixer applied any change):
+        → STOP: eligible proposals existed in fix-proposal.json but no fixer applied any change
+        → reason: "eligible proposals listed but all fixers returned no_op — likely a proposal/file authorization mismatch"
+        → phases.healing.status = failed
+        → Do NOT proceed to Phase 12 rerun (running unchanged code again is meaningless)
+
+      If all statuses are in [applied, no_op] AND at least one status == applied:
+        → phases.healing.status = applied
+        → Update workflow-state.yaml: phases.healing.attempts[n].applied_files (aggregate from both fixers)
 
 Phase 12 — Re-run
   → Load skill aws-run in primary agent   ← MUST be inline in primary agent
@@ -1145,30 +1180,40 @@ Phase 13 — Re-inspect
   → Load skill aws-inspect in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, execution/execution-manifest.yaml (updated in Phase 12)
   → Execute inline
-  → Verify inspect/failure-analysis.json was updated (new inspection based on Phase 12 results)
+  → Verify inspect/failure-analysis.json was updated:
+      - Read inspect/failure-analysis.json.source_batch_id
+      - Verify source_batch_id == phases.execution.batch_id (from latest execution-manifest.yaml)
+      - If mismatch: STOP — re-inspect analyzed a stale batch, not the Phase 12 re-run
   → Verify inspect/failure-summary.md was updated
   → Update workflow-state.yaml:
       phases.inspect.status
       phases.healing.attempts[n].result = final_status
+      phases.healing.attempts[n].reinspect_batch_id = source_batch_id from failure-analysis.json
 
   → Apply Inspect Safety Gate (same rules as Phase 9 safety gate)
 
   → Apply healing loop gate:
       If phases.execution.status in [PASS, PASS_WITH_WARNINGS]:
+        → Set phases.healing.status = resolved
+        → Update attempt entry: phases.healing.attempts[n].result = PASS or PASS_WITH_WARNINGS
         → Exit healing loop — proceed to Phase 14 archive gate
       If phases.execution.status == FAIL AND healing.attempts < max_healing_attempts AND fix_proposal_eligible failures remain:
+        → Update attempt entry: phases.healing.attempts[n].result = FAIL
         → Increment healing attempt counter
         → Loop back to Phase 10 (re-read files from disk first)
-      If healing.attempts exhausted (== max_healing_attempts):
+      If healing.attempts exhausted (count == max_healing_attempts):
         → Set phases.healing.status = exhausted
+        → Update attempt entry: phases.healing.attempts[n].result = FAIL
         → STOP: healing attempts exhausted; require human intervention
         → Do NOT proceed to archive
 
 Phase 14 — Archive (only when user explicitly requests OR auto_archive == true)
   → Verify archive gate before loading skill:
       - phases.execution.status in [PASS, PASS_WITH_WARNINGS] — if FAIL: STOP
-      - phases.healing.status in [not_needed, applied, skipped] — if exhausted or failed: STOP
-      - no unresolved fix_proposal_eligible failures in inspect/failure-analysis.json
+      - phases.healing.status in [not_needed, resolved, skipped] — if applied/exhausted/failed: STOP
+        ("applied" alone is NOT sufficient — healing must have completed Phase 12+13 to reach "resolved")
+      - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id — if stale: STOP
+      - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
       - if PASS_WITH_WARNINGS from known product issues: require phases.inspect.status in [done, partial]; issues explicitly acknowledged
       - if PASS_WITH_WARNINGS from fallback runner: require human confirmation OR auto_archive_with_fallback == true
       - all applicable review JSON files have decision == "pass"
@@ -1779,6 +1824,36 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
   - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`: healing may be skipped; proceed to Phase 14.
 - Max healing attempts: controlled by `max_healing_attempts` (default: `2`).
 
+**Healing attempt counting rules:**
+
+```text
+An attempt is STARTED when Phase 10 produces fix-proposal.json with eligible_count > 0.
+  → Increment attempt counter at this point.
+  → Record attempt entry in phases.healing.attempts[n].
+
+An attempt is COMPLETED only after Phase 13 (re-inspect) runs and sets attempt.result.
+
+Attempt result values:
+  - PASS | PASS_WITH_WARNINGS  → healed; exit loop; set phases.healing.status = resolved
+  - FAIL                        → not healed; check if more attempts remain
+  - failed                      → hard error (fixer error, safety gate violation, no new batch)
+                                  stop immediately regardless of remaining attempts
+
+If Phase 11 produces a fixer hard error (api-fixer-error.json or e2e-fixer-error.json):
+  → attempt.result = failed
+  → phases.healing.status = failed
+  → STOP — do not rerun (no attempt consumed for retry purposes)
+
+If Phase 12 does not produce a new batch:
+  → attempt.result = failed
+  → phases.healing.status = failed
+  → STOP
+
+max_healing_attempts counts complete cycles (Phase 10 → 11 → 12 → 13).
+A cycle where Phase 11 errors before applying does NOT count as an attempt for loop purposes
+but DOES set status = failed and stops immediately.
+```
+
 ---
 
 ## Inspect Safety Gate
@@ -1788,16 +1863,25 @@ Apply this gate **after Phase 9 (initial inspect)** and **after Phase 13 (re-ins
 ```text
 Inspect Safety Gate:
 
-After aws-inspect completes, verify inspect did not modify forbidden files.
+BEFORE aws-inspect runs (Phase 9 and Phase 13):
+  Record a filesystem baseline — either:
+  a) Run: git diff --name-only HEAD  (if repo is git-tracked)
+  b) Or: snapshot mtime/hash of all files under tests/, app/, web/, src/, .aws/,
+         qa/changes/<change-id>/cases/, plans/, review/, healing/,
+         qa/changes/<change-id>/execution/execution-manifest.yaml,
+         qa/changes/<change-id>/execution/known-product-issues.md
 
-Check that no files outside these paths were modified during the inspect phase:
-  ALLOWED:
+AFTER aws-inspect completes:
+  Compare against baseline to detect any file changes.
+
+  ALLOWED changes:
     qa/changes/<change-id>/inspect/**
     qa/changes/<change-id>/execution/failure-analysis.json   (optional copy)
     qa/changes/<change-id>/execution/failure-summary.md      (optional copy)
     qa/changes/<change-id>/inspect/diagnostic-probes.json
+    qa/changes/<change-id>/inspect/inspect-safety-check.json  (this file itself)
 
-  FORBIDDEN:
+  FORBIDDEN changes:
     tests/**
     app/**
     web/**
@@ -1808,9 +1892,24 @@ Check that no files outside these paths were modified during the inspect phase:
     qa/changes/<change-id>/review/**
     qa/changes/<change-id>/healing/**
     qa/changes/<change-id>/execution/execution-manifest.yaml
-    qa/changes/<change-id>/execution/known-product-issues.md  (must not overwrite snapshot)
+    qa/changes/<change-id>/execution/known-product-issues.md
 
-IF any forbidden path was modified during inspect:
+WRITE evidence file regardless of outcome:
+
+  qa/changes/<change-id>/inspect/inspect-safety-check.json:
+  {
+    "schema_version": "1.0",
+    "phase": "phase-9 | phase-13",
+    "change_id": "<change-id>",
+    "checked_at": "YYYY-MM-DDTHH:mm:ssZ",
+    "forbidden_modified_files": [],
+    "allowed_modified_files": [
+      "qa/changes/<change-id>/inspect/failure-analysis.json"
+    ],
+    "passed": true
+  }
+
+IF passed == false:
   → Set phases.inspect.status = failed
   → Set workflow_status = stopped
   → STOP immediately
@@ -1832,35 +1931,56 @@ After aws-api-codegen-fixer and/or aws-e2e-codegen-fixer complete, verify:
 1. patch_plan/files_to_modify consistency:
    Every modified file is listed in fix-proposal.json.proposals[].files_to_modify.
    Every patch_plan[].file is also in files_to_modify.
-   → If mismatch: STOP
+   → If mismatch: violation = true
 
 2. Trusted source authorization:
    Every modified file appears in at least one trusted source:
    - workflow-state.yaml phases.api_codegen.generated_tests.files (API)
    - workflow-state.yaml phases.e2e_codegen.generated_tests.files (E2E)
    - codegen/api-codegen-summary.md or e2e-codegen-summary.md generated/reused files
-   → If not authorized: STOP
+   → If not authorized: violation = true
 
 3. No product code was modified:
    FORBIDDEN modified paths: app/**, web/**, src/**
-   → If found: STOP, do NOT proceed to Phase 12 re-run
+   → If found: violation = true
 
 4. No assertion expected values were changed:
-   → If found: STOP, do NOT proceed to Phase 12 re-run
+   → If found: violation = true
 
 5. No tests were deleted:
-   → If found: STOP, do NOT proceed to Phase 12 re-run
+   → If found: violation = true
 
 6. No pytest.mark.skip, xfail, or equivalent was added:
-   → If found: STOP, do NOT proceed to Phase 12 re-run
+   → If found: violation = true
 
 7. No unrelated test files (outside change scope) were modified:
-   → If found: STOP, do NOT proceed to Phase 12 re-run
+   → If found: violation = true
 
 8. No high-risk proposal was applied (high risk → must appear in skipped_proposals, not applied_proposals):
-   → If found in applied_proposals: STOP
+   → If found in applied_proposals: violation = true
 
-IF any violation is found:
+WRITE evidence file regardless of outcome:
+
+  qa/changes/<change-id>/healing/fixer-safety-check.json:
+  {
+    "schema_version": "1.0",
+    "attempt": <n>,
+    "change_id": "<change-id>",
+    "checked_at": "YYYY-MM-DDTHH:mm:ssZ",
+    "modified_files": [],
+    "forbidden_modified_files": [],
+    "unauthorized_files": [],
+    "patch_plan_mismatch": false,
+    "assertion_expected_value_changes_detected": false,
+    "tests_deleted": false,
+    "skip_or_xfail_added": false,
+    "unrelated_tests_modified": false,
+    "high_risk_proposal_applied": false,
+    "passed": true,
+    "violations": []
+  }
+
+IF passed == false:
   → Set phases.healing.status = failed
   → Set workflow_status = stopped
   → STOP immediately
@@ -1888,7 +2008,8 @@ Stop the workflow immediately when any of the following is true:
 - Fix attempt count exceeds `max_case_fix_attempts` or `max_plan_fix_attempts`
 - Healing attempt count exceeds `max_healing_attempts` (`phases.healing.status == exhausted`)
 - `phases.execution.status == FAIL` and healing skills are unavailable (`gates.healing_available == false`) and `fix_proposal_eligible` failures exist
-- Archive attempted when `phases.execution.status == FAIL` or `phases.healing.status in [exhausted, failed]`
+- Archive attempted when `phases.execution.status == FAIL` or `phases.healing.status in [applied, exhausted, failed]`
+- Archive attempted when `inspect/failure-analysis.json.source_batch_id != phases.execution.batch_id` (stale inspect)
 - Codegen requires guessing unknown product behavior (route, auth, selector, factory)
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A document-driven optional subagent returns an unrecoverable error (inline orchestration does not use skill-loading subagents)
@@ -1983,11 +2104,12 @@ Known product issues:
     - qa/changes/<change-id>/inspect/known-product-issues.md    (inspect-confirmed)
 
 Healing:
-  status: <not_needed | proposal_created | applied | exhausted | failed | skipped | —>
+  status: <not_needed | proposal_created | applied | resolved | exhausted | failed | skipped | —>
   attempts: <N>
   healing_available: <true | false>
   eligible_failures: <N>
   applied_files: <list or —>
+  latest_inspect_batch_id: <batch_id or —>   # must match phases.execution.batch_id before archive
 
 Execution mode: inline
 Subagent usage: <none | exploration_only>
