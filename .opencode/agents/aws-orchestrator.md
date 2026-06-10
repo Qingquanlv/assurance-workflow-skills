@@ -17,7 +17,24 @@ permission:
     "git status*": allow
   skill:
     "*": deny
-    "aws-*": allow
+    "aws-workflow": allow
+    "aws-case-design": allow
+    "aws-case-reviewer": allow
+    "aws-case-fixer": allow
+    "aws-api-plan": allow
+    "aws-e2e-plan": allow
+    "aws-api-plan-reviewer": allow
+    "aws-e2e-plan-reviewer": allow
+    "aws-api-plan-fixer": allow
+    "aws-e2e-plan-fixer": allow
+    "aws-api-codegen": allow
+    "aws-e2e-codegen": allow
+    "aws-run": allow
+    "aws-inspect": allow
+    "aws-fix-proposal": allow
+    "aws-api-codegen-fixer": allow
+    "aws-e2e-codegen-fixer": allow
+    "aws-archive": allow
   task:
     "*": deny
 ---
@@ -98,7 +115,12 @@ Load skills in the primary agent and execute inline. No subagent task dispatchin
 | Phase 7B: E2E Codegen | `aws-e2e-codegen` |
 | Phase 8: Execution | `aws-run` |
 | Phase 9: Inspect | `aws-inspect` |
-| Phase 10: Archive | `aws-archive` |
+| Phase 10: Fix Proposal *(healing, when eligible failures exist)* | `aws-fix-proposal` |
+| Phase 11A: API Codegen Fix *(healing)* | `aws-api-codegen-fixer` |
+| Phase 11B: E2E Codegen Fix *(healing)* | `aws-e2e-codegen-fixer` |
+| Phase 12: Re-run *(healing)* | `aws-run` |
+| Phase 13: Re-inspect *(healing)* | `aws-inspect` |
+| Phase 14: Archive | `aws-archive` |
 
 `aws-e2e-plan-reviewer` and `aws-e2e-plan-fixer` are **E2E-only**. For API plan review use `aws-api-plan-reviewer` / `aws-api-plan-fixer`.
 
