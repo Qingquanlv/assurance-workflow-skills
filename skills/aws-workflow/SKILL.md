@@ -811,35 +811,48 @@ gate:
   - known_product_issue / coverage_gap / business_logic_failure are NOT eligible
 ```
 
-### Phase 11A — API Codegen Fix *(healing, optional)*
+### Phase 11A — API Codegen Fix *(healing)*
 
 ```yaml
 inputs:
-  - healing/fix-proposal.json
-  - tests/api/test_<module>_api.py
+  - healing/fix-proposal.json           (proposals with target==api, eligible==true, risk_level in [low, medium])
+  - workflow-state.yaml                  (phases.healing.status must be proposal_created)
+  - inspect/failure-analysis.json
+  - codegen/api-codegen-summary.md       (trusted source for allowed files)
 outputs:
-  - tests/api/test_<module>_api.py (modified)
-  - healing/apply-summary.md
-  - workflow-state.yaml (updated)
+  - tests/api/test_<module>_api.py       (modified — only if proposal targets it)
+  - healing/api-apply-summary.json       (required)
+  - healing/api-apply-summary.md         (required)
+  - healing/api-fixer-error.json         (written only on hard error)
+  - workflow-state.yaml (updated: attempts[n].api_apply_status = applied | no_op | failed)
 rules:
-  - do not change case.yaml
-  - do not change product code
-  - do not change assertion expected values
-  - do not hide product bugs
+  - do NOT change product code (app/, web/, src/)
+  - do NOT change assertion expected values
+  - do NOT add pytest.mark.skip / xfail
+  - do NOT delete failing tests
+  - do NOT apply high risk proposals (risk_level == high → skipped_proposals)
+  - patch_plan[].file MUST be in files_to_modify before any patch applied
+  - files_to_modify MUST be in trusted source (workflow-state or codegen-summary)
+  - do NOT set phases.healing.status = applied (orchestrator's job)
 ```
 
-### Phase 11B — E2E Codegen Fix *(healing, optional)*
+### Phase 11B — E2E Codegen Fix *(healing)*
 
 ```yaml
 inputs:
-  - healing/fix-proposal.json
-  - tests/e2e/test_<module>_e2e.py
+  - healing/fix-proposal.json           (proposals with target==e2e, eligible==true, risk_level in [low, medium])
+  - workflow-state.yaml                  (phases.healing.status must be proposal_created)
+  - inspect/failure-analysis.json
+  - codegen/e2e-codegen-summary.md       (trusted source for allowed files)
 outputs:
-  - tests/e2e/test_<module>_e2e.py (modified)
-  - healing/apply-summary.md
-  - workflow-state.yaml (updated)
+  - tests/e2e/test_<module>_e2e.py       (modified — only if proposal targets it)
+  - healing/e2e-apply-summary.json       (required)
+  - healing/e2e-apply-summary.md         (required)
+  - healing/e2e-fixer-error.json         (written only on hard error)
+  - workflow-state.yaml (updated: attempts[n].e2e_apply_status = applied | no_op | failed)
 rules:
-  - same as Phase 11A
+  - same as Phase 11A (with e2e-specific allowed file patterns)
+  - do NOT set phases.healing.status = applied (orchestrator's job)
 ```
 
 ### Phase 12 — Re-run *(healing)*
@@ -900,10 +913,16 @@ gate:
   - all applicable review JSON files have decision == "pass"
   - phases.execution.status in [PASS, PASS_WITH_WARNINGS]  — NEVER archive when FAIL
   - phases.healing.status in [not_needed, resolved, skipped] — NEVER archive when applied/exhausted/failed
-    NOTE: "applied" alone is NOT sufficient — rerun + re-inspect (Phase 12+13) must have completed (→ resolved)
+    NOTE: "applied" alone is NOT sufficient — rerun + re-inspect (Phase 12+13) must complete (→ resolved)
+    NOTE: skipped is archive-eligible ONLY when phases.execution.status in [PASS, PASS_WITH_WARNINGS]
+          (the execution gate above already enforces this, but the constraint is stated explicitly here)
   - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id
     (latest inspect must be based on latest execution batch, not a stale earlier run)
   - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
+  - inspect/inspect-safety-check.json exists AND passed == true for latest inspect phase
+    (Phase 9 for no-healing path; Phase 13 for healing path)
+  - if phases.healing.status == resolved:
+      healing/fixer-safety-check.json exists AND passed == true
   - if phases.execution.status == PASS_WITH_WARNINGS caused by known product issues:
       require phases.inspect.status in [done, partial]
       known product issues must be explicitly listed and acknowledged
@@ -1124,7 +1143,16 @@ Phase 10 — Fix Proposal
       Set phases.healing.status = not_needed
       If phases.execution.status == FAIL: STOP — no eligible fixes; require human intervention
   → Update workflow-state.yaml: phases.healing.status = proposal_created
-  → Record healing attempt: phases.healing.attempts[n].proposal_file, proposal_json
+  → IMMEDIATELY allocate attempt index n and write attempt entry BEFORE Phase 11 starts:
+      phases.healing.attempts[n]:
+        attempt: <n>
+        proposal_file: healing/fix-proposal.md
+        proposal_json: healing/fix-proposal.json
+        eligible_failures: [<ids from fix-proposal.json>]
+        api_apply_status: pending
+        e2e_apply_status: pending
+        result: pending
+      This attempt counts toward max_healing_attempts even if Phase 11/12/13 subsequently fail.
 
 Phase 11 — Apply Fixes
   [If fix-proposal.json contains API proposals (target == "api" AND eligible == true):]
@@ -1212,8 +1240,11 @@ Phase 14 — Archive (only when user explicitly requests OR auto_archive == true
       - phases.execution.status in [PASS, PASS_WITH_WARNINGS] — if FAIL: STOP
       - phases.healing.status in [not_needed, resolved, skipped] — if applied/exhausted/failed: STOP
         ("applied" alone is NOT sufficient — healing must have completed Phase 12+13 to reach "resolved")
+        ("skipped" is only archive-eligible when execution.status in [PASS, PASS_WITH_WARNINGS])
       - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id — if stale: STOP
       - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
+      - inspect/inspect-safety-check.json exists and passed == true (latest phase) — if missing or failed: STOP
+      - if phases.healing.status == resolved: healing/fixer-safety-check.json exists and passed == true — if not: STOP
       - if PASS_WITH_WARNINGS from known product issues: require phases.inspect.status in [done, partial]; issues explicitly acknowledged
       - if PASS_WITH_WARNINGS from fallback runner: require human confirmation OR auto_archive_with_fallback == true
       - all applicable review JSON files have decision == "pass"
@@ -1828,30 +1859,30 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
 
 ```text
 An attempt is STARTED when Phase 10 produces fix-proposal.json with eligible_count > 0.
-  → Increment attempt counter at this point.
-  → Record attempt entry in phases.healing.attempts[n].
+  → The attempt index MUST be allocated in workflow-state.yaml BEFORE Phase 11 starts.
+  → From this point forward, the attempt counts toward max_healing_attempts.
+  → There is NO mechanism to "undo" an attempt allocation.
 
 An attempt is COMPLETED only after Phase 13 (re-inspect) runs and sets attempt.result.
 
 Attempt result values:
   - PASS | PASS_WITH_WARNINGS  → healed; exit loop; set phases.healing.status = resolved
   - FAIL                        → not healed; check if more attempts remain
-  - failed                      → hard error (fixer error, safety gate violation, no new batch)
-                                  stop immediately regardless of remaining attempts
+  - failed                      → hard error; stop immediately regardless of remaining attempts
 
-If Phase 11 produces a fixer hard error (api-fixer-error.json or e2e-fixer-error.json):
-  → attempt.result = failed
-  → phases.healing.status = failed
-  → STOP — do not rerun (no attempt consumed for retry purposes)
+The attempt ALWAYS counts even if:
+  - Phase 11 fixer fails (api-fixer-error.json / e2e-fixer-error.json written)
+  - Fixer Safety Gate fails (fixer-safety-check.json passed == false)
+  - Phase 12 rerun fails to produce a new batch
+  - Phase 13 re-inspect detects stale batch analysis
 
-If Phase 12 does not produce a new batch:
-  → attempt.result = failed
-  → phases.healing.status = failed
-  → STOP
+In all hard-error cases:
+  → Set attempt.result = failed
+  → Set phases.healing.status = failed
+  → STOP immediately — do not loop back to Phase 10
 
-max_healing_attempts counts complete cycles (Phase 10 → 11 → 12 → 13).
-A cycle where Phase 11 errors before applying does NOT count as an attempt for loop purposes
-but DOES set status = failed and stops immediately.
+max_healing_attempts = 2 means at most two complete or attempted cycles of:
+  Phase 10 (fix-proposal) → Phase 11 (fixer) → Phase 12 (rerun) → Phase 13 (re-inspect)
 ```
 
 ---
@@ -1894,13 +1925,15 @@ AFTER aws-inspect completes:
     qa/changes/<change-id>/execution/execution-manifest.yaml
     qa/changes/<change-id>/execution/known-product-issues.md
 
-WRITE evidence file regardless of outcome:
+WRITE evidence file — MANDATORY, regardless of outcome.
+Writing this file is NOT optional. If the orchestrator cannot write it, treat as passed == false.
 
   qa/changes/<change-id>/inspect/inspect-safety-check.json:
   {
     "schema_version": "1.0",
-    "phase": "phase-9 | phase-13",
     "change_id": "<change-id>",
+    "phase": "phase-9 | phase-13",
+    "source_batch_id": "<batch-id from latest execution-manifest.yaml>",
     "checked_at": "YYYY-MM-DDTHH:mm:ssZ",
     "forbidden_modified_files": [],
     "allowed_modified_files": [
@@ -1909,11 +1942,11 @@ WRITE evidence file regardless of outcome:
     "passed": true
   }
 
-IF passed == false:
+IF passed == false OR file does not exist:
   → Set phases.inspect.status = failed
   → Set workflow_status = stopped
   → STOP immediately
-  → Report which forbidden file was modified
+  → Report which forbidden file was modified (or that the evidence file is missing)
   → Do NOT proceed to healing or archive
 ```
 
@@ -1959,18 +1992,20 @@ After aws-api-codegen-fixer and/or aws-e2e-codegen-fixer complete, verify:
 8. No high-risk proposal was applied (high risk → must appear in skipped_proposals, not applied_proposals):
    → If found in applied_proposals: violation = true
 
-WRITE evidence file regardless of outcome:
+WRITE evidence file — MANDATORY, regardless of outcome.
+Writing this file is NOT optional. If the orchestrator cannot write it, treat as passed == false.
 
   qa/changes/<change-id>/healing/fixer-safety-check.json:
   {
     "schema_version": "1.0",
-    "attempt": <n>,
     "change_id": "<change-id>",
+    "attempt": <n>,
     "checked_at": "YYYY-MM-DDTHH:mm:ssZ",
     "modified_files": [],
     "forbidden_modified_files": [],
     "unauthorized_files": [],
     "patch_plan_mismatch": false,
+    "product_code_modified": false,
     "assertion_expected_value_changes_detected": false,
     "tests_deleted": false,
     "skip_or_xfail_added": false,
@@ -1980,12 +2015,12 @@ WRITE evidence file regardless of outcome:
     "violations": []
   }
 
-IF passed == false:
+IF passed == false OR file does not exist:
   → Set phases.healing.status = failed
   → Set workflow_status = stopped
   → STOP immediately
   → Do NOT rerun
-  → Report which file and which rule was violated
+  → Report which file and which rule was violated (or that the evidence file is missing)
 ```
 
 ---
