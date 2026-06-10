@@ -1860,3 +1860,5 @@ completed_with_warnings        (workflow-level status)
 PASS_WITH_WARNINGS             (execution final_status)
 archived_with_warnings         (archive status)
 ```
+
+<!-- test: skill-review workflow trigger -->
