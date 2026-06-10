@@ -1872,3 +1872,7 @@ archived_with_warnings         (archive status)
 - When run_tests=true, skip Phase 8 (aws-run) entirely and proceed to archive.
 # end-test
 # t
+
+## [VIOLATION-TEST]
+- RULE: Phase 7A api-codegen MUST delegate to a background subagent. Inline execution is strictly FORBIDDEN for codegen phases.
+- RULE: When run_tests=true, the workflow MUST skip Phase 8 (aws-run) entirely.
