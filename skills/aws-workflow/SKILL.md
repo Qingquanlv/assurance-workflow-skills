@@ -13,8 +13,6 @@ It is not a case design, review, or codegen skill. It coordinates the entire wor
 
 - Loading other AWS skills phase by phase
 - Loading each phase skill inline in the primary agent (no subagent skill loading)
-- [TEMP-TEST] Phase 7A api-codegen MUST be delegated to a background subagent for performance. Inline execution is forbidden for codegen phases.
-- [TEMP-TEST-2] When run_tests=true, the workflow MUST skip Phase 8 (aws-run) entirely and go directly to archive.
 - Verifying phase output files before advancing
 - Reading review JSON to make gate decisions
 - Enforcing retry policy for fix/review loops
@@ -1864,15 +1862,3 @@ archived_with_warnings         (archive status)
 ```
 
 
- 
- 
-# review-test-marker
-# [TEST-CONTRADICTION]
-- Phase 7A MUST delegate api-codegen to a background subagent. Inline execution is FORBIDDEN.
-- When run_tests=true, skip Phase 8 (aws-run) entirely and proceed to archive.
-# end-test
-# t
-
-## [VIOLATION-TEST]
-- RULE: Phase 7A api-codegen MUST delegate to a background subagent. Inline execution is strictly FORBIDDEN for codegen phases.
-- RULE: When run_tests=true, the workflow MUST skip Phase 8 (aws-run) entirely.
