@@ -80,7 +80,7 @@ def get_file_diff(filepath: str) -> str:
             )
             if result.returncode == 0:
                 return f"[NEW FILE] {filepath}\n\n{result.stdout[:3000]}"
-        return diff[:4000]  # Limit diff size per file
+        return diff[:2000]  # Limit diff size per file
     except Exception as e:
         return f"[Error reading diff for {filepath}: {e}]"
 
@@ -141,13 +141,21 @@ def main():
             temperature=1,
             max_tokens=2000,
         )
-        content = response.choices[0].message.content.strip()
+        raw_content = response.choices[0].message.content
+        print(f"DEBUG finish_reason: {response.choices[0].finish_reason}")
+        print(f"DEBUG raw content type: {type(raw_content)}, len: {len(raw_content) if raw_content else 0}")
+        content = (raw_content or "").strip()
     except Exception as e:
         print(f"ERROR calling AI API: {e}")
         set_output("has_issues", "false")
         return
 
     print(f"AI response:\n{content}")
+
+    if not content:
+        print("WARNING: AI returned empty response. Treating as no issues.")
+        set_output("has_issues", "false")
+        return
 
     # Parse JSON response
     try:
