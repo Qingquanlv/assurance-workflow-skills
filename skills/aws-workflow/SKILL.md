@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, aws-run, aws-inspect) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
+description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, aws-run, aws-inspect, aws-fix-proposal, aws-api-codegen-fixer, aws-e2e-codegen-fixer) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -464,9 +464,13 @@ phases:
     #   source_analysis: inspect/failure-analysis.json
     #   eligible_failures: [<id>, ...]
     #   proposal_file: healing/fix-proposal.md
+    #   proposal_json: healing/fix-proposal.json
     #   applied_files: [<path>, ...]
+    #   api_apply_summary: healing/api-apply-summary.json    # if API proposals applied
+    #   e2e_apply_summary: healing/e2e-apply-summary.json    # if E2E proposals applied
     #   rerun_batch_id: <YYYYMMDD-HHmmss>
     #   result: PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
+    #   stop_reason: <if result == stopped>
 
   archive:
     status: pending | archived | archived_with_warnings | skipped
@@ -1061,10 +1065,92 @@ Phase 9 — Inspect / Failure Analysis
   → Output structured summary (see Final Response Format)
   → Report agent_warnings from workflow-state.yaml
   → Load skill aws-dashboard if run_dashboard = true
-  → If any failures have fix_proposal_eligible == true → enter Healing loop (Phases 10–13)
 
-[Healing loop — Phases 10–13 — only if eligible failures exist]
-  See Healing Execution Policy below.
+  → Apply Inspect Safety Gate (see Inspect Safety Gate section)
+      If any forbidden file was modified by inspect: STOP
+
+  → Evaluate healing entry conditions:
+      If phases.execution.status in [PASS, PASS_WITH_WARNINGS] AND no fix_proposal_eligible failures:
+        Set phases.healing.status = not_needed
+        → Proceed to Phase 14 archive gate
+      If phases.execution.status == FAIL AND no fix_proposal_eligible failures:
+        Set phases.healing.status = not_needed
+        → STOP: no eligible auto-fix; require human intervention
+      If phases.execution.status == FAIL AND fix_proposal_eligible failures exist:
+        If gates.healing_available == false: STOP — report healing skills unavailable
+        If phases.inspect.inspect_mode != primary: STOP — healing requires primary inspect mode
+        → Enter healing loop (Phase 10)
+
+[Healing loop — Phases 10–13]
+
+Phase 10 — Fix Proposal
+  → Load skill aws-fix-proposal in primary agent   ← MUST be inline in primary agent
+  → Re-read from disk: workflow-state.yaml, inspect/failure-analysis.json (required), inspect/failure-summary.md, execution/execution-manifest.yaml
+  → Execute inline
+  → Verify healing/fix-proposal.json exists and is valid JSON
+  → Verify healing/fix-proposal.md exists
+  → If fix-proposal.json.summary.eligible_count == 0:
+      Set phases.healing.status = not_needed
+      If phases.execution.status == FAIL: STOP — no eligible fixes; require human intervention
+  → Update workflow-state.yaml: phases.healing.status = proposal_created
+  → Record healing attempt: phases.healing.attempts[n].proposal_file, proposal_json
+
+Phase 11 — Apply Fixes
+  [If fix-proposal.json contains API proposals (target == "api" AND eligible == true):]
+  → Load skill aws-api-codegen-fixer in primary agent   ← MUST be inline in primary agent
+  → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
+  → Execute inline
+  → Verify healing/api-apply-summary.json exists and is valid JSON
+  → Verify every file in api-apply-summary.json.modified_files is an allowed API test file
+  → If healing/api-fixer-error.json was written: STOP — forbidden modification attempted
+
+  [If fix-proposal.json contains E2E proposals (target == "e2e" AND eligible == true):]
+  → Load skill aws-e2e-codegen-fixer in primary agent   ← MUST be inline in primary agent
+  → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
+  → Execute inline
+  → Verify healing/e2e-apply-summary.json exists and is valid JSON
+  → Verify every file in e2e-apply-summary.json.modified_files is an allowed E2E test file
+  → If healing/e2e-fixer-error.json was written: STOP — forbidden modification attempted
+
+  → Apply Fixer Safety Gate (see Fixer Safety Gate section)
+      If product code changed, assertions weakened, tests deleted, skip/xfail added, or unrelated tests changed:
+        STOP — do NOT proceed to Phase 12
+  → Update workflow-state.yaml: phases.healing.attempts[n].applied_files
+
+Phase 12 — Re-run
+  → Load skill aws-run in primary agent   ← MUST be inline in primary agent
+  → Re-read from disk: workflow-state.yaml, .aws/config.yaml
+  → Execute inline: attempt `aws run --change <change-id>` (primary mode)
+  → Verify execution/runs/<new-batch-id>/ was created (new batch, different from Phase 8 batch)
+  → Verify execution/execution-manifest.yaml was updated with new batch_id
+  → Read final_status from updated execution/execution-manifest.yaml (not from chat or claim)
+  → Update workflow-state.yaml:
+      phases.execution.status = final_status
+      phases.healing.attempts[n].rerun_batch_id = <new-batch-id>
+  → If execution-manifest.yaml not updated with a new batch: STOP — do not claim rerun completed
+
+Phase 13 — Re-inspect
+  → Load skill aws-inspect in primary agent   ← MUST be inline in primary agent
+  → Re-read from disk: workflow-state.yaml, execution/execution-manifest.yaml (updated in Phase 12)
+  → Execute inline
+  → Verify inspect/failure-analysis.json was updated (new inspection based on Phase 12 results)
+  → Verify inspect/failure-summary.md was updated
+  → Update workflow-state.yaml:
+      phases.inspect.status
+      phases.healing.attempts[n].result = final_status
+
+  → Apply Inspect Safety Gate (same rules as Phase 9 safety gate)
+
+  → Apply healing loop gate:
+      If phases.execution.status in [PASS, PASS_WITH_WARNINGS]:
+        → Exit healing loop — proceed to Phase 14 archive gate
+      If phases.execution.status == FAIL AND healing.attempts < max_healing_attempts AND fix_proposal_eligible failures remain:
+        → Increment healing attempt counter
+        → Loop back to Phase 10 (re-read files from disk first)
+      If healing.attempts exhausted (== max_healing_attempts):
+        → Set phases.healing.status = exhausted
+        → STOP: healing attempts exhausted; require human intervention
+        → Do NOT proceed to archive
 
 Phase 14 — Archive (only when user explicitly requests OR auto_archive == true)
   → Verify archive gate before loading skill:
@@ -1632,30 +1718,131 @@ aws-run (Phase 8)
 - `locator_failure`
 - `wait_strategy_failure`
 - `test_code_error`
+- `test_data_failure` *(conditional — only if test data generation can be fixed without changing product code or expected assertions)*
 
 **Human or external fix required (not eligible for healing loop):**
 
-- `test_data_failure`
 - `environment_failure`
 - `assertion_failure`
 - `business_logic_failure`
 - `case_semantic_failure`
 - `known_product_issue`
 - `coverage_gap`
+- `product_bug`
+- `unrelated_existing_failure`
 - `unknown`
+
+**Healing entry conditions (after Phase 9):**
+
+```text
+IF phases.execution.status == FAIL
+   AND inspect/failure-analysis.json contains failures with fix_proposal_eligible == true:
+   AND phases.inspect.inspect_mode == primary
+   AND phases.inspect.classification_performed == true:
+
+  IF gates.healing_available == true → enter Phase 10
+  IF gates.healing_available == false → STOP: report healing skills unavailable; do not archive
+
+IF no eligible failures exist (or all fix_proposal_eligible == false):
+  Set phases.healing.status = not_needed
+  IF phases.execution.status == FAIL → STOP: no auto-fix available; require human intervention
+  IF phases.execution.status in [PASS, PASS_WITH_WARNINGS] → proceed to Phase 14 archive gate
+```
 
 **Healing hard rules:**
 
-- Never change assertion expected values automatically.
-- Never fix product bugs by changing tests.
-- Never hide `known_product_issue` or `coverage_gap`.
-- Never change `FAIL` to `PASS` without a successful re-run from `aws-run` that produces `final_status == PASS`.
+- **Never** change assertion expected values automatically.
+- **Never** fix product bugs by changing tests.
+- **Never** hide `known_product_issue` or `coverage_gap`.
+- **Never** change `FAIL` to `PASS` without a successful re-run from `aws-run` that produces `final_status == PASS`.
 - Every healing apply (Phase 11) must be followed by a re-run (Phase 12).
+- Every re-run (Phase 12) must be followed by a re-inspect (Phase 13).
+- **Never** allow a diagnostic probe from Phase 9/13 to count as an official re-run.
+- **Never** allow `phases.execution.status` to change from `FAIL` to `PASS` unless Phase 12 `aws-run` produced a new batch with `final_status == PASS`.
+- **Never** allow healing to modify product code (`app/`, `web/`, `src/`).
+- **Never** allow healing to modify unrelated tests outside the current change scope.
 - If the healing skills (`aws-fix-proposal`, `aws-api-codegen-fixer`, `aws-e2e-codegen-fixer`) are not installed (`gates.healing_available == false`):
   - Set `phases.healing.status = skipped`.
   - If `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist in `inspect/failure-analysis.json`: **STOP** — report missing healing skills; do not archive a failed execution.
   - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`: healing may be skipped; proceed to Phase 14.
 - Max healing attempts: controlled by `max_healing_attempts` (default: `2`).
+
+---
+
+## Inspect Safety Gate
+
+Apply this gate **after Phase 9 (initial inspect)** and **after Phase 13 (re-inspect)**:
+
+```text
+Inspect Safety Gate:
+
+After aws-inspect completes, verify inspect did not modify forbidden files.
+
+Check that no files outside these paths were modified during the inspect phase:
+  ALLOWED:
+    qa/changes/<change-id>/inspect/**
+    qa/changes/<change-id>/execution/failure-analysis.json   (optional copy)
+    qa/changes/<change-id>/execution/failure-summary.md      (optional copy)
+    qa/changes/<change-id>/inspect/diagnostic-probes.json
+
+  FORBIDDEN:
+    tests/**
+    app/**
+    web/**
+    src/**
+    .aws/**
+    qa/changes/<change-id>/cases/**
+    qa/changes/<change-id>/plans/**
+    qa/changes/<change-id>/review/**
+    qa/changes/<change-id>/healing/**
+    qa/changes/<change-id>/execution/execution-manifest.yaml
+    qa/changes/<change-id>/execution/known-product-issues.md  (must not overwrite snapshot)
+
+IF any forbidden path was modified during inspect:
+  → Set phases.inspect.status = failed
+  → Set workflow_status = stopped
+  → STOP immediately
+  → Report which forbidden file was modified
+  → Do NOT proceed to healing or archive
+```
+
+---
+
+## Fixer Safety Gate
+
+Apply this gate **after Phase 11 (apply fixes)**:
+
+```text
+Fixer Safety Gate:
+
+After aws-api-codegen-fixer and/or aws-e2e-codegen-fixer complete, verify:
+
+1. Every modified file is listed in fix-proposal.json.proposals[].files_to_modify
+   and matches the allowed file patterns for the target.
+
+2. No product code was modified:
+   FORBIDDEN modified paths: app/**, web/**, src/**
+   → If found: STOP, do NOT proceed to Phase 12 re-run
+
+3. No assertion expected values were changed:
+   → If found: STOP, do NOT proceed to Phase 12 re-run
+
+4. No tests were deleted:
+   → If found: STOP, do NOT proceed to Phase 12 re-run
+
+5. No pytest.mark.skip, xfail, or equivalent was added:
+   → If found: STOP, do NOT proceed to Phase 12 re-run
+
+6. No unrelated test files (outside change scope) were modified:
+   → If found: STOP, do NOT proceed to Phase 12 re-run
+
+IF any violation is found:
+  → Set phases.healing.status = failed
+  → Set workflow_status = stopped
+  → STOP immediately
+  → Do NOT rerun
+  → Report which file and which rule was violated
+```
 
 ---
 
@@ -1691,6 +1878,14 @@ Stop the workflow immediately when any of the following is true:
 - **Phase 8 gate violations:**
   - `run_tests == true` and Phase 7 Completion Gate passed, but Phase 8 `aws-run` is not executed
   - Phase 8 executes but `execution/execution-manifest.yaml` is missing after the run
+- **Healing loop violations:**
+  - `phases.execution.status == FAIL` and no `fix_proposal_eligible` failures and `phases.healing.status == not_needed` (no auto-fix path; require human)
+  - `gates.healing_available == false` and `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist
+  - Inspect safety gate triggered: `aws-inspect` modified forbidden files during Phase 9 or Phase 13
+  - Fixer safety gate triggered: fixer modified product code, weakened assertions, added skip/xfail, deleted tests, or modified unrelated tests
+  - Phase 12 `aws-run` did not produce a new batch — `execution-manifest.yaml` not updated
+  - `phases.healing.status == exhausted` (max attempts reached)
+  - `phases.healing.status == failed` (fixer wrote error file or safety gate triggered)
 
 When stopped, **report** the exact stop reason, which file or gate triggered it, and what a human must do to resume. In orchestrated mode, do **not** ask for chat confirmation to bypass a gate.
 
@@ -1764,8 +1959,11 @@ Known product issues:
     - qa/changes/<change-id>/inspect/known-product-issues.md    (inspect-confirmed)
 
 Healing:
-  status: <not_needed | applied | exhausted | failed | skipped | —>
+  status: <not_needed | proposal_created | applied | exhausted | failed | skipped | —>
   attempts: <N>
+  healing_available: <true | false>
+  eligible_failures: <N>
+  applied_files: <list or —>
 
 Execution mode: inline
 Subagent usage: <none | exploration_only>

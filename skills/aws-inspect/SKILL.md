@@ -424,3 +424,218 @@ If `final_status == PASS_WITH_WARNINGS`, downstream workflow status must be `com
 - `known_product_issue` and `coverage_gap` must **not** enter Fix Proposal — require product fix.
 - If known product issues exist, never report overall result as `no risk`, `clean`, or `PASS` — use `PASS_WITH_WARNINGS`.
 - In fallback partial mode: no `failure-analysis.json`, no categories, `phases.inspect.status = partial`.
+
+---
+
+## Inspect Role in Healing
+
+`aws-inspect` is the **diagnostic** stage of healing — not the repair stage.
+
+It may:
+
+- Classify failures into categories
+- Collect limited evidence (logs, traces, screenshots)
+- Determine whether failures have `fix_proposal_eligible == true`
+- Write `inspect/failure-analysis.json`
+- Write `inspect/failure-summary.md`
+- Recommend that Phase 10 (`aws-fix-proposal`) be invoked
+
+It **MUST NOT**:
+
+- Modify test files (`tests/`)
+- Modify fixtures
+- Modify product code (`app/`, `web/`, `src/`)
+- Apply any fix
+- Execute tests as verification (diagnostic probes are not reruns — see **Diagnostic Probe Policy**)
+- Write `failure-analysis.json` in fallback/partial mode
+
+The repair pipeline is: `aws-fix-proposal` → `aws-api-codegen-fixer` / `aws-e2e-codegen-fixer` → `aws-run` → `aws-inspect` (re-inspect).
+
+---
+
+## Extended failure-analysis Failure Fields
+
+Each failure in `failure-analysis.json.failures[]` written by the CLI (primary mode) should include — and the skill must verify these fields are present when reading for downstream healing:
+
+```json
+{
+  "failure_id": "FAIL-001",
+  "case_id": "CASE-001",
+  "target": "api|e2e",
+  "category": "<category>",
+  "severity": "low|medium|high|critical",
+  "summary": "Human-readable one-line description of the failure",
+  "evidence": [],
+  "in_current_change_scope": true,
+  "requires_test_code_change": false,
+  "requires_product_change": false,
+  "fix_proposal_eligible": false,
+  "recommended_next_action": "run_fix_proposal|human_review|fix_product|fix_environment|rerun"
+}
+```
+
+If the CLI writes these fields, the skill must preserve them. If the CLI does not write them, the skill must **not** fabricate them — leave missing fields absent rather than guessing.
+
+---
+
+## Fix Proposal Eligibility Classification
+
+These rules define `fix_proposal_eligible` for each category (written by the CLI; verified by this skill):
+
+```text
+locator_failure:
+  fix_proposal_eligible: true
+  requires_test_code_change: true
+  requires_product_change: false
+
+wait_strategy_failure:
+  fix_proposal_eligible: true
+  requires_test_code_change: true
+  requires_product_change: false
+
+test_code_error:
+  fix_proposal_eligible: true
+  requires_test_code_change: true
+  requires_product_change: false
+
+test_data_failure:
+  fix_proposal_eligible: true   # only if test data generation can be fixed without changing product code or expected assertions
+  requires_test_code_change: true
+  requires_product_change: false (when eligible)
+  NOTE: if product change is required → fix_proposal_eligible: false
+
+environment_failure:
+  fix_proposal_eligible: false
+  requires_test_code_change: false
+  requires_product_change: false
+  recommended_next_action: fix_environment
+
+assertion_failure:
+  fix_proposal_eligible: false
+  requires_test_code_change: false
+  requires_product_change: false (may indicate product change needed — investigate)
+  recommended_next_action: human_review
+
+business_logic_failure:
+  fix_proposal_eligible: false
+  requires_test_code_change: false
+  requires_product_change: true
+  recommended_next_action: fix_product
+
+known_product_issue:
+  fix_proposal_eligible: false
+  requires_product_change: true
+  recommended_next_action: fix_product
+
+coverage_gap:
+  fix_proposal_eligible: false
+  recommended_next_action: separate_change_required
+
+product_bug:
+  fix_proposal_eligible: false
+  requires_product_change: true
+  recommended_next_action: fix_product
+
+unrelated_existing_failure:
+  fix_proposal_eligible: false
+  in_current_change_scope: false
+  recommended_next_action: manual_investigation
+
+unknown:
+  fix_proposal_eligible: false
+  recommended_next_action: manual_investigation
+```
+
+**Hard rule:** `aws-inspect` must **not** override the CLI's `fix_proposal_eligible` assignment. If the CLI writes `fix_proposal_eligible: false` for a `locator_failure`, do not change it — report the discrepancy for human review.
+
+---
+
+## Diagnostic Probe Policy
+
+`aws-inspect` may run a limited number of targeted probes to gather evidence for classification.
+
+**Probe limits:**
+
+- At most **1 diagnostic probe per failure category** per inspect run
+- At most **3 diagnostic probes total** per inspect run
+
+**What counts as a probe:**
+
+- Running a single targeted test or assertion to gather output/trace
+- Reading a specific log entry matching a known failure pattern
+- Checking a route or endpoint directly to confirm a product-level behavior
+
+**What does NOT count as a probe:**
+
+- Running `aws run --change <change-id>` (that is a rerun, not a probe)
+- Reading existing log/trace files already present in `execution/`
+
+**Recording probes:**
+
+All probes must be recorded in:
+
+```text
+qa/changes/<change-id>/inspect/diagnostic-probes.json
+```
+
+```json
+{
+  "schema_version": "1.0",
+  "change_id": "<change-id>",
+  "batch_id": "<batch-id>",
+  "probes": [
+    {
+      "probe_id": "PROBE-001",
+      "category": "locator_failure",
+      "failure_id": "FAIL-002",
+      "command": "...",
+      "purpose": "Confirm selector .product-card is absent in current DOM",
+      "result": "confirmed"
+    }
+  ]
+}
+```
+
+**Probes must NOT:**
+
+- Update `execution/execution-manifest.yaml`
+- Update `phases.execution.status`
+- Be reported as reruns
+- Count toward `max_healing_attempts`
+
+---
+
+## No File Modification
+
+`aws-inspect` **MUST NOT** modify files outside its designated output directories.
+
+**Allowed output paths:**
+
+```text
+qa/changes/<change-id>/inspect/**
+qa/changes/<change-id>/execution/failure-analysis.json   (optional pointer/copy, primary mode only)
+qa/changes/<change-id>/execution/failure-summary.md      (optional pointer/copy, primary mode only)
+qa/changes/<change-id>/inspect/diagnostic-probes.json    (probe record)
+```
+
+**Forbidden during inspect:**
+
+```text
+tests/**
+app/**
+web/**
+src/**
+.aws/**
+qa/changes/<change-id>/cases/**
+qa/changes/<change-id>/plans/**
+qa/changes/<change-id>/review/**
+qa/changes/<change-id>/healing/**
+qa/changes/<change-id>/execution/execution-manifest.yaml   (must not update)
+qa/changes/<change-id>/execution/known-product-issues.md   (must not overwrite execution snapshot)
+```
+
+If the orchestrator (`aws-workflow`) detects that `aws-inspect` modified any forbidden path during Phase 9 or Phase 13, it must:
+
+1. Set `phases.inspect.status = failed`
+2. Set `workflow_status = stopped`
+3. Stop the workflow immediately
