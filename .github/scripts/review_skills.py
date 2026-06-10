@@ -66,21 +66,29 @@ Here are the changed files with their git diff:
 
 
 def get_file_diff(filepath: str) -> str:
+    """Return only added/removed lines from the diff (no context), capped at 1500 chars."""
     try:
         result = subprocess.run(
-            ["git", "diff", "HEAD~1", "HEAD", "--", filepath],
+            ["git", "diff", "HEAD~1", "HEAD", "--unified=0", "--", filepath],
             capture_output=True, text=True, check=True
         )
         diff = result.stdout.strip()
         if not diff:
-            # File might be new
+            # File might be new — show a small excerpt of the content
             result = subprocess.run(
                 ["git", "show", f"HEAD:{filepath}"],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
-                return f"[NEW FILE] {filepath}\n\n{result.stdout[:3000]}"
-        return diff[:2000]  # Limit diff size per file
+                return f"[NEW FILE] {filepath}\n\n{result.stdout[:800]}"
+            return "[No diff and file not found]"
+        # Keep only hunk headers and +/- lines, skip context lines
+        lines = []
+        for line in diff.splitlines():
+            if line.startswith("@@") or line.startswith("+") or line.startswith("-"):
+                lines.append(line)
+        compact = "\n".join(lines)
+        return compact[:1500]  # Hard cap
     except Exception as e:
         return f"[Error reading diff for {filepath}: {e}]"
 
@@ -139,7 +147,7 @@ def main():
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=1,
-            max_tokens=2000,
+            max_tokens=1000,
         )
         raw_content = response.choices[0].message.content
         print(f"DEBUG finish_reason: {response.choices[0].finish_reason}")
