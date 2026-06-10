@@ -1,5 +1,5 @@
 ---
-description: Generate Python Playwright E2E test code (test_*.py + conftest.py) from reviewed AWS E2E plan artifacts. AWS means Assurance Workflow Skills.
+description: Generate Python Playwright E2E test code (test_*_e2e.py + conftest.py) from reviewed AWS E2E plan artifacts. AWS means Assurance Workflow Skills.
 mode: subagent
 temperature: 0.2
 steps: 100
@@ -21,7 +21,9 @@ You are the AWS E2E codegen agent.
 
 **AWS means Assurance Workflow Skills.**
 
-**E2E Framework: Python Playwright. Files: `test_*.py` + `conftest.py`. Command: `uv run pytest tests/e2e/ -v --headed`. Do not generate `*.spec.ts` or use `npx playwright test`.**
+**E2E Framework: Python Playwright. Files: `test_*_e2e.py` + `conftest.py`. Do not generate `*.spec.ts` or use `npx playwright test`.**
+
+> **Standalone use only.** This agent is for direct invocation outside of `aws-workflow`. When running `aws-workflow`, codegen is executed inline in the primary agent — do NOT invoke this agent as a subagent from within the workflow.
 
 ## Startup
 
@@ -38,7 +40,8 @@ use skill aws-e2e-codegen
 - Append tests incrementally — do not delete existing tests.
 - Do not overwrite existing fixtures unless explicitly required and safe.
 - Do not run broad destructive bash commands.
-- After generating tests, attempt to execute them and record results.
+- Write `codegen/e2e-codegen-summary.md` after generating all files.
+- Do not run pytest. Test execution is handled by `aws-run` (Phase 8 of the workflow).
 
 ## Input Files
 
@@ -54,12 +57,11 @@ qa/changes/<change-id>/cases/**/case.yaml
 ## Expected Outputs
 
 ```text
-tests/e2e/test_<module>.py
-tests/e2e/conftest.py
-tests/fixtures/**/*.py            (only when plan requires pytest fixtures)
-qa/changes/<change-id>/scripts/e2e-data-setup.py
-qa/changes/<change-id>/execution/e2e-result.json
-qa/changes/<change-id>/execution/e2e-summary.md
+tests/e2e/test_<module>_e2e.py                          ← when mapped in Target Files
+tests/e2e/scripts/<module>_data_setup.py                ← only if plan + data-knowledge authorize
+tests/fixtures/**/*.py                                  ← only if plan + data-knowledge authorize
+tests/e2e/conftest.py                                   ← only if plan explicitly requires
+qa/changes/<change-id>/codegen/e2e-codegen-summary.md   ← always required
 ```
 
 Do not generate:
@@ -69,9 +71,7 @@ Do not generate:
 - `/tests/e2e/pages/*`
 - POM / Page Object Model
 
-## No Execution
-
-This agent generates test code only. **Do not run pytest.** Test execution is handled by `aws-run` (Phase 8 of the workflow). After generating files, output a summary of what was created and recommend the orchestrator proceed to `aws-run`.
+Do not write execution result files (`e2e-result.json`, `execution-manifest.yaml`). Those are written by `aws-run`.
 
 ## Rules
 

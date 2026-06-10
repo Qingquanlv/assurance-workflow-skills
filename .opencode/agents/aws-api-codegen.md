@@ -21,6 +21,8 @@ You are the AWS API codegen agent.
 
 **AWS means Assurance Workflow Skills.**
 
+> **Standalone use only.** This agent is for direct invocation outside of `aws-workflow`. When running `aws-workflow`, codegen is executed inline in the primary agent — do NOT invoke this agent as a subagent from within the workflow.
+
 ## Startup
 
 Load and follow `aws-api-codegen`:
@@ -36,7 +38,8 @@ use skill aws-api-codegen
 - Preserve existing test file style and naming conventions.
 - Append tests incrementally — do not delete existing tests.
 - Do not invent unknown endpoints, auth mechanisms, data factories, or assertion values.
-- After generating tests, attempt to run pytest and record results.
+- Write `codegen/api-codegen-summary.md` after generating all files.
+- Do not run pytest. Test execution is handled by `aws-run` (Phase 8 of the workflow).
 
 ## Input Files
 
@@ -54,16 +57,14 @@ If any plan file is missing, stop immediately and report to the orchestrator. Do
 ## Expected Outputs
 
 ```text
-tests/api/test_<module>.py
-tests/fixtures/**/*.py
-tests/helpers/**/*.py
-qa/changes/<change-id>/execution/api-result.json
-qa/changes/<change-id>/execution/api-summary.md
+tests/api/test_<module>_api.py
+tests/api/helpers/<module>_api.py         (only if plan helper mapping non-empty)
+tests/fixtures/<module>_fixtures.py       (only if plan + data-knowledge authorize)
+tests/api/conftest.py                     (only if plan explicitly requires)
+qa/changes/<change-id>/codegen/api-codegen-summary.md   ← always required
 ```
 
-## No Execution
-
-This agent generates test code only. **Do not run pytest.** Test execution is handled by `aws-run` (Phase 8 of the workflow). After generating files, output a summary of what was created and recommend the orchestrator proceed to `aws-run`.
+Do not write execution result files (`api-result.json`, `execution-manifest.yaml`). Those are written by `aws-run`.
 
 ## Rules
 

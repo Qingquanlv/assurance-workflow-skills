@@ -192,13 +192,13 @@ If tests pass but a real product issue was discovered and worked around:
 - Verify that `known-product-issues.md` exists in either:
   - `qa/changes/<change-id>/execution/known-product-issues.md`
   - `qa/changes/<change-id>/inspect/known-product-issues.md`
-- Ensure the final workflow `Status` field is `completed_with_known_issues`, not `completed`.
+- Ensure the final workflow `Status` field is `completed_with_warnings`, not `completed`.
 - The final summary must explicitly mention:
   - Affected endpoint or feature
   - Workaround used
   - Coverage gap
   - Next action to resolve
-- Do not allow `aws-archive` to write a clean archive. Ensure it uses `archived_with_known_issues`.
+- Do not allow `aws-archive` to write a clean archive. Ensure it uses `archived_with_warnings`.
 - Forbidden summary language when known product issues exist: `no risk`, `fully clean`, `clean pass`, `all good`, `no issues`, `completed`.
 
 ## Final Summary
