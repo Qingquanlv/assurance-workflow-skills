@@ -465,12 +465,17 @@ phases:
     #   eligible_failures: [<id>, ...]
     #   proposal_file: healing/fix-proposal.md
     #   proposal_json: healing/fix-proposal.json
-    #   applied_files: [<path>, ...]
-    #   api_apply_summary: healing/api-apply-summary.json    # if API proposals applied
-    #   e2e_apply_summary: healing/e2e-apply-summary.json    # if E2E proposals applied
-    #   rerun_batch_id: <YYYYMMDD-HHmmss>
-    #   result: PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
-    #   stop_reason: <if result == stopped>
+    #   api_apply_status: applied | no_op | failed    # set by aws-api-codegen-fixer
+    #   api_apply_summary: healing/api-apply-summary.json
+    #   e2e_apply_status: applied | no_op | failed    # set by aws-e2e-codegen-fixer
+    #   e2e_apply_summary: healing/e2e-apply-summary.json
+    #   applied_files: [<path>, ...]                  # aggregate, set by orchestrator after safety gate
+    #   rerun_batch_id: <YYYYMMDD-HHmmss>             # set after Phase 12
+    #   result: PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED   # set after Phase 13
+    #   stop_reason: <if result == stopped or failed>
+    # NOTE: phases.healing.status = applied is set by the orchestrator ONLY after
+    #       both fixers complete (api_apply_status and e2e_apply_status resolved)
+    #       and the Fixer Safety Gate passes.
 
   archive:
     status: pending | archived | archived_with_warnings | skipped
@@ -1115,7 +1120,14 @@ Phase 11 — Apply Fixes
   → Apply Fixer Safety Gate (see Fixer Safety Gate section)
       If product code changed, assertions weakened, tests deleted, skip/xfail added, or unrelated tests changed:
         STOP — do NOT proceed to Phase 12
-  → Update workflow-state.yaml: phases.healing.attempts[n].applied_files
+
+  → Orchestrator sets global apply status (after BOTH fixers complete and safety gate passes):
+      Read api_apply_status from attempt entry (applied | no_op | failed)
+      Read e2e_apply_status from attempt entry (applied | no_op | failed)
+      If any status == failed: phases.healing.status = failed; STOP
+      If all statuses are in [applied, no_op] (at least one applied):
+        phases.healing.status = applied
+      Update workflow-state.yaml: phases.healing.attempts[n].applied_files (aggregate from both fixers)
 
 Phase 12 — Re-run
   → Load skill aws-run in primary agent   ← MUST be inline in primary agent
@@ -1817,24 +1829,36 @@ Fixer Safety Gate:
 
 After aws-api-codegen-fixer and/or aws-e2e-codegen-fixer complete, verify:
 
-1. Every modified file is listed in fix-proposal.json.proposals[].files_to_modify
-   and matches the allowed file patterns for the target.
+1. patch_plan/files_to_modify consistency:
+   Every modified file is listed in fix-proposal.json.proposals[].files_to_modify.
+   Every patch_plan[].file is also in files_to_modify.
+   → If mismatch: STOP
 
-2. No product code was modified:
+2. Trusted source authorization:
+   Every modified file appears in at least one trusted source:
+   - workflow-state.yaml phases.api_codegen.generated_tests.files (API)
+   - workflow-state.yaml phases.e2e_codegen.generated_tests.files (E2E)
+   - codegen/api-codegen-summary.md or e2e-codegen-summary.md generated/reused files
+   → If not authorized: STOP
+
+3. No product code was modified:
    FORBIDDEN modified paths: app/**, web/**, src/**
    → If found: STOP, do NOT proceed to Phase 12 re-run
 
-3. No assertion expected values were changed:
+4. No assertion expected values were changed:
    → If found: STOP, do NOT proceed to Phase 12 re-run
 
-4. No tests were deleted:
+5. No tests were deleted:
    → If found: STOP, do NOT proceed to Phase 12 re-run
 
-5. No pytest.mark.skip, xfail, or equivalent was added:
+6. No pytest.mark.skip, xfail, or equivalent was added:
    → If found: STOP, do NOT proceed to Phase 12 re-run
 
-6. No unrelated test files (outside change scope) were modified:
+7. No unrelated test files (outside change scope) were modified:
    → If found: STOP, do NOT proceed to Phase 12 re-run
+
+8. No high-risk proposal was applied (high risk → must appear in skipped_proposals, not applied_proposals):
+   → If found in applied_proposals: STOP
 
 IF any violation is found:
   → Set phases.healing.status = failed
