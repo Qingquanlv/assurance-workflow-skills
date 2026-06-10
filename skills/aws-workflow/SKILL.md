@@ -275,6 +275,33 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Post-workflow (optional): Dashboard | `aws-dashboard` (only when `run_dashboard = true`) |
 
 After each phase, **update `workflow-state.yaml`** before loading the next skill.
+
+---
+
+## Phase Completion Rule
+
+Loading a skill is **never** enough to mark a phase complete.
+
+A phase is complete only when **all** of the following are true:
+
+1. The phase skill executed **inline in the primary agent** — not in a subagent, not in a background task.
+2. The expected output files exist on disk (verified by reading them).
+3. The output files were **re-read from disk** by the primary agent after the skill completed.
+4. `workflow-state.yaml` was updated for that phase (status set to the correct terminal value).
+5. The next-phase gate was explicitly evaluated before advancing.
+
+Do **not** report a phase as done based on:
+
+- skill loaded
+- subagent started
+- subagent completed
+- background task completed
+- chat summary from an agent
+- agent claim without file verification
+- partial output (some files present but not all required outputs)
+
+**Codegen phases are especially strict** — see Phase 7A and Phase 7B Inline Execution Rules.
+
 ---
 
 ## workflow-state.yaml
@@ -292,8 +319,8 @@ execution_mode: inline
 subagent_skill_inheritance: disabled
 
 subagents:
-  used: false          # true if any subagent (explore / document-driven) was invoked during this workflow run
-  purpose:             # list — valid values: source_exploration_only | document_driven_parallel
+  used: false          # true if any subagent (explore / document-driven / forbidden) was invoked during this workflow run
+  purpose:             # list — valid values: source_exploration_only | document_driven_parallel | forbidden_codegen_attempt
     []
   loaded_skills: false # MUST remain false — subagents MUST NOT load AWS skills
   affected_gates: false # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
@@ -355,7 +382,8 @@ phases:
     fix_attempts: []   # appended by aws-e2e-plan-fixer each run
 
   api_codegen:
-    status: pending | done | failed
+    status: pending | done | failed | stopped
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
     review_gate_file: review/api-plan-review.json
     codegen_readiness: ready | ready_with_warnings
     generated_tests:
@@ -368,7 +396,8 @@ phases:
       file: null
 
   e2e_codegen:
-    status: pending | done | failed
+    status: pending | done | failed | stopped
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
     review_gate_file: review/plan-review.json
     codegen_readiness: ready | ready_with_warnings
     generated_tests:
@@ -562,6 +591,37 @@ gate:
   - Codegen Hard Gates (API) — force_continue MUST NOT bypass
 ```
 
+### Phase 7A Inline Execution Rule
+
+`aws-api-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+
+**Forbidden:**
+
+```text
+❌ delegate_task for aws-api-codegen
+❌ background API codegen agent
+❌ treating subagent or background task output as Phase 7A completion
+```
+
+If a codegen subagent or background task is spawned for API codegen:
+
+- **STOP** the workflow immediately.
+- Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `subagents.used = true`, `subagents.purpose = [forbidden_codegen_attempt]`, `subagents.loaded_skills = true`.
+- Do **not** proceed to Phase 7B or Phase 8.
+- Require the primary agent to re-run codegen inline.
+
+**Phase 7A is complete only when all are true:**
+
+1. `aws-api-codegen` executed inline in the primary agent.
+2. No subagent or background task executed API codegen.
+3. All files listed in `api-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+4. `qa/changes/<change-id>/codegen/api-codegen-summary.md` exists on disk.
+5. `workflow-state.yaml` has `phases.api_codegen.status = done`.
+6. `workflow-state.yaml` lists `generated_tests.files`, `warnings_carried`, and `known_product_issues`.
+
+If any condition fails, **STOP** and report the exact missing condition.
+
 ### Phase 7B — E2E Codegen
 
 ```yaml
@@ -581,6 +641,37 @@ outputs:
 gate:
   - Codegen Hard Gates (E2E) — force_continue MUST NOT bypass
 ```
+
+### Phase 7B Inline Execution Rule
+
+`aws-e2e-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+
+**Forbidden:**
+
+```text
+❌ delegate_task for aws-e2e-codegen
+❌ background E2E codegen agent
+❌ treating subagent or background task output as Phase 7B completion
+```
+
+If a codegen subagent or background task is spawned for E2E codegen:
+
+- **STOP** the workflow immediately.
+- Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `subagents.used = true`, `subagents.purpose = [forbidden_codegen_attempt]`, `subagents.loaded_skills = true`.
+- Do **not** proceed to Phase 8.
+- Require the primary agent to re-run codegen inline.
+
+**Phase 7B is complete only when all are true:**
+
+1. `aws-e2e-codegen` executed inline in the primary agent.
+2. No subagent or background task executed E2E codegen.
+3. All files listed in `e2e-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+4. `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` exists on disk.
+5. `workflow-state.yaml` has `phases.e2e_codegen.status = done`.
+6. `workflow-state.yaml` lists `generated_tests.files`, `data_setup`, `fixtures`, `warnings_carried`, and `known_product_issues`.
+
+If any condition fails, **STOP** and report the exact missing condition.
 
 ### Phase 8 — Execution
 
@@ -841,7 +932,7 @@ Phase 7A — API Codegen
   → Load skill aws-api-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, api-plan.md, api-codegen-plan.md, api-plan-review.json, .aws/data-knowledge.yaml
   → Apply Codegen Hard Gates (API) — force_continue MUST NOT bypass
-  → Execute inline
+  → Execute inline   ← MUST be inline in primary agent; DO NOT delegate to subagent or background task
   → Verify files listed in api-codegen-plan.md Target Files exist (helpers/fixtures/conftest only if plan authorized)
   → Verify codegen/api-codegen-summary.md exists
   → Update workflow-state.yaml: phases.api_codegen (review_gate_file, codegen_readiness, generated_tests.files, warnings_carried)
@@ -886,14 +977,28 @@ Phase 7B — E2E Codegen
   → Load skill aws-e2e-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-codegen-plan.md, plan-review.json, .aws/data-knowledge.yaml
   → Apply Codegen Hard Gates (E2E) — force_continue MUST NOT bypass
-  → Execute inline
+  → Execute inline   ← MUST be inline in primary agent; DO NOT delegate to subagent or background task
   → Verify files listed in e2e-codegen-plan.md Target Files exist (scripts/fixtures/conftest only if plan authorized)
   → Verify codegen/e2e-codegen-summary.md exists
   → E2E framework: runtime `e2e_framework=python-playwright` → workflow-state `generated_tests.framework=pytest-playwright`
   → Do NOT generate *.spec.ts files
   → Update workflow-state.yaml: phases.e2e_codegen (review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried)
 
-Phase 8 — Test Execution (if run_tests = true)
+Phase 7 Completion Gate — verify before Phase 8
+  → If test_types includes "api":
+      - phases.api_codegen.status MUST == done  (not stopped, not failed, not pending)
+      - codegen/api-codegen-summary.md MUST exist on disk
+      - All Target Files from api-codegen-plan.md MUST exist on disk
+      - If any condition fails: STOP — report which codegen output is missing
+  → If test_types includes "e2e":
+      - phases.e2e_codegen.status MUST == done
+      - codegen/e2e-codegen-summary.md MUST exist on disk
+      - All Target Files from e2e-codegen-plan.md MUST exist on disk
+      - If any condition fails: STOP — report which codegen output is missing
+  → If run_tests == false: skip Phase 8, record phases.execution.status = SKIPPED, advance to Phase 14 gate
+
+Phase 8 — Test Execution (run_tests = true; MUST execute if Phase 7 gate passed)
+  → If run_tests == true and Phase 7 Completion Gate passed: this phase is MANDATORY — skipping it is a STOP condition
   → Load skill aws-run in primary agent
   → Re-read from disk: workflow-state.yaml, .aws/config.yaml
   → Execute inline: aws-run must attempt `aws run --change <change-id>` first (primary mode)
@@ -903,8 +1008,10 @@ Phase 8 — Test Execution (if run_tests = true)
       - fallback pass → final_status MUST be PASS_WITH_WARNINGS, never PASS
       - no fallback allowed + CLI missing → final_status MUST be FAIL
   → Verify execution/execution-manifest.yaml exists on disk after run
+      - If missing after run: STOP — do not report execution as complete
   → Read final_status from execution/execution-manifest.yaml (not from chat or claim)
   → Update workflow-state.yaml: phases.execution.status = final_status, phases.execution.batch_id
+  → If run_tests == true but this phase is not reached: workflow status MUST be stopped, not completed
 
 Phase 9 — Inspect / Failure Analysis
   → Load skill aws-inspect if: phases.execution.status in [FAIL, PASS_WITH_WARNINGS]
@@ -1345,6 +1452,39 @@ subagents:
   affected_gates: true    # forbidden — stop workflow
 ```
 
+### Forbidden: codegen subagents
+
+API/E2E codegen **MUST NOT** be delegated to subagents or background tasks.
+
+**Forbidden patterns:**
+
+```text
+❌ delegate_task for aws-api-codegen
+❌ delegate_task for aws-e2e-codegen
+❌ background API codegen agent
+❌ background E2E codegen agent
+❌ treating subagent codegen output as Phase 7 completion
+```
+
+If a codegen subagent is spawned:
+
+1. **STOP** the workflow immediately.
+2. Set `phases.api_codegen.status = stopped` or `phases.e2e_codegen.status = stopped` (whichever was affected).
+3. Set `stop_reason: "codegen delegated to background subagent; must execute inline in primary agent"`.
+4. Update `subagents`:
+
+```yaml
+subagents:
+  used: true
+  purpose:
+    - forbidden_codegen_attempt
+  loaded_skills: true
+  affected_gates: false
+```
+
+5. Do **not** proceed to Phase 7B (if API was affected) or Phase 8 (if E2E was affected).
+6. Require the primary agent to re-run codegen inline from the point of failure.
+
 ### Conflict with analyze-mode pre-exploration
 
 When an external `analyze-mode` or equivalent pre-exploration step sends explore agents before the workflow starts, this **does not** conflict with inline orchestration — provided:
@@ -1501,6 +1641,16 @@ Stop the workflow immediately when any of the following is true:
 - Codegen requires guessing unknown product behavior (route, auth, selector, factory)
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A document-driven optional subagent returns an unrecoverable error (inline orchestration does not use skill-loading subagents)
+- **Codegen subagent violations (always stops — no bypass):**
+  - Any AWS phase skill (`aws-api-codegen`, `aws-e2e-codegen`, or any other phase skill) is delegated to a subagent or background task
+  - `aws-api-codegen` or `aws-e2e-codegen` executes in a background agent instead of inline in the primary agent
+  - Phase 7A or Phase 7B codegen skill is loaded but not executed inline (skill loaded ≠ phase complete)
+  - Phase 7A codegen summary (`codegen/api-codegen-summary.md`) is missing after codegen was claimed complete
+  - Phase 7B codegen summary (`codegen/e2e-codegen-summary.md`) is missing after codegen was claimed complete
+  - `workflow-state.yaml` does not show `phases.api_codegen.status = done` or `phases.e2e_codegen.status = done` when required
+- **Phase 8 gate violations:**
+  - `run_tests == true` and Phase 7 Completion Gate passed, but Phase 8 `aws-run` is not executed
+  - Phase 8 executes but `execution/execution-manifest.yaml` is missing after the run
 
 When stopped, **report** the exact stop reason, which file or gate triggered it, and what a human must do to resume. In orchestrated mode, do **not** ask for chat confirmation to bypass a gate.
 
@@ -1550,10 +1700,20 @@ Generated test files:
   tests/api/: <N files>
   tests/e2e/: <N files> (Python Playwright, test_*_e2e.py)
 
-Execution result:
-  runner: primary (aws run) | fallback (direct pytest)
+Codegen:
+  api_codegen: pending | done | failed | stopped | not_applicable
+  e2e_codegen: pending | done | failed | stopped | not_applicable
+  api_codegen_summary: present | missing | not_applicable
+  e2e_codegen_summary: present | missing | not_applicable
+  stop_reason: <if api_codegen or e2e_codegen == stopped>
+
+Execution:
+  expected: true | false   # true when run_tests == true and Phase 7 gate passed
+  executed: true | false   # true only if aws-run ran inline in primary agent
+  runner: primary (aws run) | fallback (direct pytest) | —
   final_status: <PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | —>
-  manifest: execution/execution-manifest.yaml
+  manifest: execution/execution-manifest.yaml | missing | not_applicable
+  stop_reason: <if expected == true but executed == false>
 
 Known product issues:
   count: <N>
@@ -1589,6 +1749,14 @@ Do not report any phase as complete unless its expected output files exist and w
 
 Do not claim the workflow succeeded if it stopped before Phase 9.
 
+If `run_tests == true`, do **not** report the workflow as `completed` or `completed_with_warnings` unless:
+
+- Phase 8 (`aws-run`) executed inline in the primary agent.
+- `execution/execution-manifest.yaml` exists on disk.
+- `final_status` was read from the manifest (not from chat or claim).
+
+If `run_tests == true` but Phase 8 did not execute, report `Workflow status: stopped` and include `Execution.stop_reason`.
+
 **Workflow status mapping:**
 
 | Condition | Workflow status |
@@ -1597,6 +1765,9 @@ Do not claim the workflow succeeded if it stopped before Phase 9.
 | All gates pass, execution `PASS_WITH_WARNINGS` or known issues exist | `completed_with_warnings` |
 | Execution `FAIL`, healing `exhausted`, or healing `failed` | `failed` |
 | Workflow stops before execution due to missing inputs, invalid gates, `human_review_required`, missing `.aws/data-knowledge.yaml`, unavailable environment, or missing required skill | `stopped` |
+| `run_tests == true` but Phase 8 was not executed (codegen stopped, subagent violation, or Phase 7 gate failed) | `stopped` |
+| `run_tests == true`, Phase 8 executed, but `execution/execution-manifest.yaml` is missing | `stopped` |
+| Codegen delegated to subagent or background task (`forbidden_codegen_attempt`) | `stopped` |
 
 Do not use `completed` when execution is `PASS_WITH_WARNINGS` or known product issues are present — use `completed_with_warnings`.
 
