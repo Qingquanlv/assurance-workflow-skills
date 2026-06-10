@@ -35,7 +35,12 @@ export function registerReportCommand(program: Command): void {
           analysis.status === 'analyzed' ? chalk.yellow :
           chalk.gray;
 
-        console.log(`  Status       : ${statusColor(analysis.status)}`);
+        const finalColor =
+          analysis.final_status === 'PASS' ? chalk.green :
+          analysis.final_status === 'FAIL' ? chalk.red : chalk.gray;
+        console.log(`  Final Status : ${finalColor(analysis.final_status)}`);
+        console.log(`  Batch ID     : ${analysis.batch_id || '(unknown)'}`);
+        console.log(`  Inspect Mode : ${analysis.inspect_mode}`);
         console.log(`  Failures     : ${analysis.failures.length}`);
         console.log(`  Hard Fails   : ${analysis.hard_fails.length}`);
         console.log(`  Needs Review : ${analysis.needs_review.length}`);
@@ -48,7 +53,7 @@ export function registerReportCommand(program: Command): void {
             catCounts[f.category] = (catCounts[f.category] ?? 0) + 1;
           }
           for (const [cat, cnt] of Object.entries(catCounts)) {
-            const allowed = analysis.failures.find(f => f.category === cat)?.fix_proposal_allowed;
+            const allowed = analysis.failures.find(f => f.category === cat)?.fix_proposal_eligible;
             const flag = allowed ? chalk.green('fix-allowed') : chalk.red('no-fix');
             console.log(`    ${cat.padEnd(28)} ×${cnt}  [${flag}]`);
           }
@@ -64,7 +69,7 @@ export function registerReportCommand(program: Command): void {
         } else if (analysis.hard_fails.length > 0) {
           console.log(chalk.red('→ Hard failures detected. Investigate product or environment issues.'));
           process.exit(1);
-        } else if (analysis.failures.some(f => f.fix_proposal_allowed)) {
+        } else if (analysis.failures.some(f => f.fix_proposal_eligible)) {
           console.log(chalk.yellow('→ Fixable failures found. Proceed to fix-proposal-for-qa.'));
         } else {
           console.log(chalk.yellow('→ Review failures manually — no automatic fixes available.'));

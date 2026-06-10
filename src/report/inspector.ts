@@ -22,18 +22,28 @@ export interface InspectResult {
 export function inspect(opts: InspectOptions): InspectResult {
   const { changeId, projectRoot } = opts;
   const executionDir = path.join(projectRoot, 'qa', 'changes', changeId, 'execution');
+  // Write outputs to inspect/ — consumed by aws-inspect skill and healing gates
+  const inspectDir = path.join(projectRoot, 'qa', 'changes', changeId, 'inspect');
 
-  const analysisPath = path.join(executionDir, 'failure-analysis.json');
-  const summaryPath = path.join(executionDir, 'failure-summary.md');
+  const analysisPath = path.join(inspectDir, 'failure-analysis.json');
+  const summaryPath = path.join(inspectDir, 'failure-summary.md');
 
-  // Load result files
+  // Load result files (always read from execution/ where runner writes them)
   const apiResult = loadJson<ApiResult>(path.join(executionDir, 'api-result.json'));
   const e2eResult = loadJson<E2eResult>(path.join(executionDir, 'e2e-result.json'));
+
+  // Extract batch_id from either result file (both carry the same batch_id per run)
+  const batchId = apiResult?.batch_id ?? e2eResult?.batch_id ?? '';
 
   if (!apiResult && !e2eResult) {
     const analysis: FailureAnalysis = {
       schema_version: '1.0',
       change_id: changeId,
+      batch_id: batchId,
+      source_batch_id: batchId,
+      final_status: 'SKIPPED',
+      inspect_mode: 'primary',
+      classification_performed: false,
       status: 'skipped',
       failures: [],
       hard_fails: [],
@@ -69,7 +79,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         case_id: c.case_id || c.test_name,
         target: 'api',
         category: classification.category,
-        fix_proposal_allowed: classification.fixProposalAllowed,
+        fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
           result_file: path.join(executionDir, 'api-result.json'),
@@ -85,7 +95,7 @@ export function inspect(opts: InspectOptions): InspectResult {
       };
 
       failures.push(entry);
-      if (!classification.fixProposalAllowed && !classification.needsReview) {
+      if (!classification.fixProposalEligible && !classification.needsReview) {
         hardFails.push(entry);
       } else if (classification.needsReview) {
         needsReview.push(entry);
@@ -116,7 +126,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         case_id: c.case_id || c.test_name,
         target: 'e2e',
         category: classification.category,
-        fix_proposal_allowed: classification.fixProposalAllowed,
+        fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
           result_file: path.join(executionDir, 'e2e-result.json'),
@@ -132,7 +142,7 @@ export function inspect(opts: InspectOptions): InspectResult {
       };
 
       failures.push(entry);
-      if (!classification.fixProposalAllowed && !classification.needsReview) {
+      if (!classification.fixProposalEligible && !classification.needsReview) {
         hardFails.push(entry);
       } else if (classification.needsReview) {
         needsReview.push(entry);
@@ -141,10 +151,16 @@ export function inspect(opts: InspectOptions): InspectResult {
   }
 
   const status = failures.length === 0 ? 'no_failures' : 'analyzed';
+  const finalStatus = failures.length === 0 ? 'PASS' : 'FAIL';
 
   const analysis: FailureAnalysis = {
     schema_version: '1.0',
     change_id: changeId,
+    batch_id: batchId,
+    source_batch_id: batchId,
+    final_status: finalStatus,
+    inspect_mode: 'primary',
+    classification_performed: true,
     status,
     failures,
     hard_fails: hardFails,

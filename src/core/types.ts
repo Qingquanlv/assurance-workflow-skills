@@ -100,7 +100,8 @@ export interface FailureEntry {
   case_id: string;
   target: 'api' | 'e2e';
   category: FailureCategory;
-  fix_proposal_allowed: boolean;
+  /** Whether the CLI considers this failure eligible for an automated fix proposal */
+  fix_proposal_eligible: boolean;
   severity: FailureSeverity;
   evidence: FailureEvidence;
   diagnosis: string;
@@ -109,9 +110,21 @@ export interface FailureEntry {
 
 export type AnalysisStatus = 'analyzed' | 'no_failures' | 'skipped';
 
+/** High-level workflow status emitted in failure-analysis.json, consumed by healing gates */
+export type InspectFinalStatus = 'PASS' | 'FAIL' | 'SKIPPED';
+
 export interface FailureAnalysis {
   schema_version: '1.0';
   change_id: string;
+  /** Batch ID of the execution run this analysis is based on */
+  batch_id: string;
+  /** Same as batch_id for primary inspect; kept for healing re-inspect compatibility */
+  source_batch_id: string;
+  /** High-level outcome consumed by healing gates in workflow-state.yaml */
+  final_status: InspectFinalStatus;
+  /** Always "primary" when produced by the CLI */
+  inspect_mode: 'primary';
+  classification_performed: boolean;
   status: AnalysisStatus;
   failures: FailureEntry[];
   hard_fails: FailureEntry[];

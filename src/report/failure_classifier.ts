@@ -26,7 +26,7 @@ const FIX_PROPOSAL_ALLOWED: Record<FailureCategory, boolean | 'review'> = {
 
 export function classifyFailure(input: ClassifyInput): {
   category: FailureCategory;
-  fixProposalAllowed: boolean;
+  fixProposalEligible: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
   needsReview: boolean;
 } {
@@ -54,12 +54,12 @@ export function classifyFailure(input: ClassifyInput): {
   }
 
   const allowed = FIX_PROPOSAL_ALLOWED[category];
-  const fixProposalAllowed = allowed === true;
+  const fixProposalEligible = allowed === true;
   const needsReview = category === 'unknown' || allowed === 'review';
 
   const severity = computeSeverity(category);
 
-  return { category, fixProposalAllowed, severity, needsReview };
+  return { category, fixProposalEligible, severity, needsReview };
 }
 
 function isEnvironmentFailure(text: string): boolean {

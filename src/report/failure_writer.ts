@@ -21,7 +21,7 @@ export function buildFailureSummaryMd(
   if (analysis.failures.length === 0) {
     lines.push('_No failures._');
   } else {
-    lines.push('| Case ID | Target | Category | Fix Proposal | Evidence | Summary |');
+    lines.push('| Case ID | Target | Category | Fix Eligible | Evidence | Summary |');
     lines.push('|---------|--------|----------|:------------:|----------|---------|');
     for (const f of analysis.failures) {
       const evidenceLinks = [
@@ -30,7 +30,7 @@ export function buildFailureSummaryMd(
         f.evidence.video ? `[video](${f.evidence.video})` : '',
       ].filter(Boolean).join(', ') || '—';
       lines.push(
-        `| ${f.case_id} | ${f.target} | ${f.category} | ${f.fix_proposal_allowed ? '✓' : '✗'} | ${evidenceLinks} | ${truncate(f.diagnosis, 80)} |`,
+        `| ${f.case_id} | ${f.target} | ${f.category} | ${f.fix_proposal_eligible ? '✓' : '✗'} | ${evidenceLinks} | ${truncate(f.diagnosis, 80)} |`,
       );
     }
   }
@@ -95,7 +95,7 @@ export function buildFailureSummaryMd(
   // Next step
   lines.push('## Next Step');
   lines.push('');
-  const hasAllowed = analysis.failures.some(f => f.fix_proposal_allowed);
+  const hasAllowed = analysis.failures.some(f => f.fix_proposal_eligible);
   const hasHardFail = analysis.hard_fails.length > 0;
 
   if (analysis.status === 'no_failures') {
