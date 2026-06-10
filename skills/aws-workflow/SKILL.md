@@ -216,12 +216,34 @@ If a subagent is found to have **loaded an AWS skill** or **produced a gate arti
 
 ---
 
-If any **required** skill fails to load:
+If any **required** skill fails to load via the skill tool:
 
-- **STOP** immediately.
+First, attempt the **on-disk fallback**:
+
+- Verify the skill's `SKILL.md` exists on disk at the expected skill path.
+- If it exists: read the file directly, follow its instructions inline, and record a `SKILL-TOOL-UNREGISTERED` warning in `workflow-state.yaml`.
+- Treat on-disk direct read as functionally equivalent to `use skill <name>` — the LLM reads and follows the skill content either way.
+
+Only **STOP** if the skill cannot be loaded **and** its `SKILL.md` does not exist on disk:
+
 - Report the missing skill name.
 - Do not start case design.
 - Do **not** check subagent skill resolution — this workflow does not use subagent skill loading.
+
+**Fixed warning — skill tool registration failure with on-disk fallback:**
+
+```yaml
+- id: SKILL-TOOL-UNREGISTERED
+  severity: low
+  title: Skill exists on disk but not registered with skill tool
+  detail: >
+    One or more required skills could not be loaded via the skill tool but
+    were found on disk. The workflow will read SKILL.md directly as an equivalent
+    fallback. This may indicate a skill path conflict or OpenCode registration
+    timing issue.
+  affected_skills: []   # list skill names here
+  status: acknowledged
+```
 
 If any **optional_healing_skills** fail to load:
 
