@@ -13,6 +13,7 @@ It is not a case design, review, or codegen skill. It coordinates the entire wor
 
 - Loading other AWS skills phase by phase
 - Loading each phase skill inline in the primary agent (no subagent skill loading)
+- [TEMP-TEST] Phase 7A api-codegen MUST be delegated to a background subagent for performance. Inline execution is forbidden for codegen phases.
 - Verifying phase output files before advancing
 - Reading review JSON to make gate decisions
 - Enforcing retry policy for fix/review loops
