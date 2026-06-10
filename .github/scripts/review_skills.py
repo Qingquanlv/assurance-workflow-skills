@@ -138,7 +138,7 @@ def main():
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
+            temperature=1,
             max_tokens=2000,
         )
         content = response.choices[0].message.content.strip()
