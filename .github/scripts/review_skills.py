@@ -120,7 +120,6 @@ def main():
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=1,
-            max_tokens=1000,
         )
         raw_content = response.choices[0].message.content
         print(f"DEBUG finish_reason: {response.choices[0].finish_reason}")
