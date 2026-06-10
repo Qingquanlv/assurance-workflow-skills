@@ -1870,3 +1870,4 @@ archived_with_warnings         (archive status)
 # [TEST-CONTRADICTION]
 - Phase 7A MUST delegate api-codegen to a background subagent. Inline execution is FORBIDDEN.
 - When run_tests=true, skip Phase 8 (aws-run) entirely and proceed to archive.
+# end-test
