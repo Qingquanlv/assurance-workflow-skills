@@ -1,6 +1,6 @@
 ---
 description: Review AWS API plan artifacts and write structured api-plan-review.json before API codegen. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 30
 permission:

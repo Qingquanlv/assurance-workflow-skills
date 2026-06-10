@@ -1,6 +1,6 @@
 ---
 description: Generate E2E test planning artifacts from approved AWS case files. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 60
 permission:

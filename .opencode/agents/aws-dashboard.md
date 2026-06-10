@@ -1,6 +1,6 @@
 ---
 description: Start or describe the AWS Case Center dashboard for viewing QA artifacts. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 30
 permission:

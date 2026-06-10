@@ -1,6 +1,6 @@
 ---
 description: Generate pytest API test code from reviewed AWS API plan artifacts. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 80
 permission:

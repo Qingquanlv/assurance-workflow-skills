@@ -1,6 +1,6 @@
 ---
 description: Archive reviewed AWS QA assets into long-lived regression assets. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 60
 permission:

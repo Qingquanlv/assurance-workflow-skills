@@ -1,6 +1,6 @@
 ---
 description: Design AWS QA cases from a requirement and generate proposal and case YAML artifacts. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 60
 permission:

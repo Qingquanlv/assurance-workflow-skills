@@ -1,6 +1,6 @@
 ---
 description: Apply approved E2E test-code fixes from the healing fix-proposal (Phase 11B). Modifies only generated E2E test files. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 60
 permission:

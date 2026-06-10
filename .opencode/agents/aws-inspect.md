@@ -1,6 +1,6 @@
 ---
 description: Inspect AWS execution results by running aws report inspect and classifying failures. AWS means Assurance Workflow Skills. aws means Assurance Workflow Engine CLI.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 60
 permission:

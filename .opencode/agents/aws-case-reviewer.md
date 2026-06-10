@@ -1,6 +1,6 @@
 ---
 description: Review AWS case artifacts and write structured case-review.json without modifying case artifacts.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 30
 permission:

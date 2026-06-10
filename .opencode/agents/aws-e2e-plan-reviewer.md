@@ -1,6 +1,6 @@
 ---
 description: "Review AWS E2E plan artifacts and write structured plan-review.json before E2E codegen. E2E-only — do not use for API plan review (use aws-api-plan-reviewer instead). AWS means Assurance Workflow Skills."
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 30
 permission:

@@ -1,6 +1,6 @@
 ---
 description: Generate Python Playwright E2E test code (test_*_e2e.py + conftest.py) from reviewed AWS E2E plan artifacts. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 100
 permission:

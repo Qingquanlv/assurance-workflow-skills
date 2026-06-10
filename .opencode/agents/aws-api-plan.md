@@ -1,6 +1,6 @@
 ---
 description: Generate API test planning artifacts from approved AWS case files. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 50
 permission:

@@ -1,6 +1,6 @@
 ---
 description: Run AWS generated tests via the aws CLI and collect structured execution outputs. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 40
 permission:

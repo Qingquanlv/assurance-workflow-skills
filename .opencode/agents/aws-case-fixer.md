@@ -1,6 +1,6 @@
 ---
 description: Apply safe auto-fixes to AWS case artifacts based on case-review.json.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 40
 permission:

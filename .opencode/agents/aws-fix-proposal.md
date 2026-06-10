@@ -1,6 +1,6 @@
 ---
 description: Generate structured fix proposals for eligible test failures in the healing loop (Phase 10). Does NOT modify any code. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 40
 permission:

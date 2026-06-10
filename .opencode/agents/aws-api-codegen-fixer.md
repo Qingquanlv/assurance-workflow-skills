@@ -1,6 +1,6 @@
 ---
 description: Apply approved API test-code fixes from the healing fix-proposal (Phase 11A). Modifies only generated API test files. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.1
 steps: 60
 permission:

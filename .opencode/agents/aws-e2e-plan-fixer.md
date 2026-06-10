@@ -1,6 +1,6 @@
 ---
 description: "Apply safe auto-fixes to AWS E2E plan artifacts based on plan-review.json. E2E-only — do not use for API plan fixes (use aws-api-plan-fixer instead). AWS means Assurance Workflow Skills."
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 40
 permission:

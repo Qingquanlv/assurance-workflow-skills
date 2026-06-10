@@ -1,6 +1,6 @@
 ---
 description: Apply safe auto-fixes to AWS API plan artifacts based on api-plan-review.json. AWS means Assurance Workflow Skills.
-mode: subagent
+mode: primary
 temperature: 0.2
 steps: 40
 permission:
