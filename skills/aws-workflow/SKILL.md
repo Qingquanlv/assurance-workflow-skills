@@ -183,6 +183,39 @@ optional_healing_skills:
   - aws-e2e-codegen-fixer   # healing: apply E2E test code fixes
 ```
 
+After verifying required skills, **write `workflow-state.yaml`** with the initial `subagents` block:
+
+```yaml
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  affected_gates: false
+```
+
+If any explore agents or document-driven subagents were invoked **before or during Phase 0** (e.g., by `analyze-mode` pre-exploration or parallel source scanning):
+
+- Set `subagents.used = true`
+- Add `source_exploration_only` to `subagents.purpose`
+- Confirm `subagents.loaded_skills = false` (they must not have loaded AWS skills)
+- Confirm `subagents.affected_gates = false` (they must not have written or substituted gate artifacts)
+- Record in `agent_warnings`:
+
+```yaml
+- id: AWS-SUBAGENT-EXPLORATION-ONLY
+  severity: info
+  title: Subagents used for source exploration only
+  detail: >
+    Explore agents or document-driven subagents were invoked for source/structure
+    exploration. No AWS skill was loaded by any subagent. No gate artifact was
+    produced by a subagent. All AWS phases executed inline in the primary agent.
+  status: acknowledged
+```
+
+If a subagent is found to have **loaded an AWS skill** or **produced a gate artifact**, set `subagents.loaded_skills = true` or `subagents.affected_gates = true` and **STOP** — this is a forbidden pattern violation.
+
+---
+
 If any **required** skill fails to load:
 
 - **STOP** immediately.
@@ -257,6 +290,13 @@ module: <module>
 
 execution_mode: inline
 subagent_skill_inheritance: disabled
+
+subagents:
+  used: false          # true if any subagent (explore / document-driven) was invoked during this workflow run
+  purpose:             # list — valid values: source_exploration_only | document_driven_parallel
+    []
+  loaded_skills: false # MUST remain false — subagents MUST NOT load AWS skills
+  affected_gates: false # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
 
 phases:
   skill_registry_check:
@@ -1263,6 +1303,61 @@ Every gate listed in **Mandatory Review JSON Gate** applies identically whether 
 
 ---
 
+## Subagent Usage Disambiguation
+
+This section clarifies when subagent usage is **allowed** vs. **forbidden**, and how to record it unambiguously in `workflow-state.yaml`.
+
+### Allowed: exploration / document-driven subagents
+
+```text
+✅ explore agent reads backend source files
+✅ explore agent reads frontend directory structure
+✅ document-driven subagent receives plan.md and produces a non-gate artifact
+```
+
+These do **not** constitute a forbidden-pattern violation. However, they **must be recorded**:
+
+```yaml
+subagents:
+  used: true
+  purpose:
+    - source_exploration_only        # if used for codebase exploration
+    - document_driven_parallel       # if used for parallel document work
+  loaded_skills: false               # MUST remain false
+  affected_gates: false              # MUST remain false
+```
+
+### Forbidden: skill-loading or gate-producing subagents
+
+```text
+❌ subagent is asked to load aws-case-design
+❌ subagent writes case-review.json
+❌ subagent writes api-plan-review.json
+❌ subagent produces any gate artifact substituting for an inline reviewer
+```
+
+If either of these occurs, set the corresponding flag and **STOP**:
+
+```yaml
+subagents:
+  used: true
+  loaded_skills: true     # forbidden — stop workflow
+  affected_gates: true    # forbidden — stop workflow
+```
+
+### Conflict with analyze-mode pre-exploration
+
+When an external `analyze-mode` or equivalent pre-exploration step sends explore agents before the workflow starts, this **does not** conflict with inline orchestration — provided:
+
+1. The explore agents only read source files and return findings.
+2. No AWS skill is loaded by any explore agent.
+3. No gate artifact (`case-review.json`, `api-plan-review.json`, `plan-review.json`) is produced by an explore agent.
+4. All AWS phases (Phase 1–14) are then executed inline in the primary agent.
+
+Record this as `purpose: [source_exploration_only]` with `loaded_skills: false` and `affected_gates: false`.
+
+---
+
 ## Case Review Gate
 
 Read `qa/changes/<change-id>/review/case-review.json` and apply this gate:
@@ -1472,7 +1567,12 @@ Healing:
   status: <not_needed | applied | exhausted | failed | skipped | —>
   attempts: <N>
 
-Execution mode: inline (no subagents used)
+Execution mode: inline
+Subagent usage: <none | exploration_only>
+  used: <true | false>
+  purpose: <source_exploration_only | document_driven_parallel | none>
+  loaded_skills: <true | false>   # must be false
+  affected_gates: <true | false>  # must be false
 
 Agent Warnings:
   - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
