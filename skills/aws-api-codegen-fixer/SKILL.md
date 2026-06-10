@@ -18,8 +18,8 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Verify `healing/api-apply-summary.json` exists and is valid JSON.
-2. Verify `healing/api-apply-summary.md` exists.
+1. Verify `qa/changes/<change-id>/healing/api-apply-summary.json` exists and is valid JSON.
+2. Verify `qa/changes/<change-id>/healing/api-apply-summary.md` exists.
 3. Verify every modified file is in the allowed list.
 4. Update **only** the per-target status field in `workflow-state.yaml`:
 
@@ -29,9 +29,7 @@ phases:
     attempts:
       - attempt: <n>
         api_apply_status: applied | no_op | failed
-        api_apply_summary: healing/api-apply-summary.json
-        applied_files:
-          - tests/api/...
+        api_apply_summary: qa/changes/<change-id>/healing/api-apply-summary.json
 ```
 
 **Do NOT** set `phases.healing.status = applied` — this is the orchestrator's responsibility after both API and E2E fixers complete and the Fixer Safety Gate passes.
@@ -298,9 +296,8 @@ phases:
     attempts:
       - attempt: <n>
         api_apply_status: applied
-        api_apply_summary: healing/api-apply-summary.json
-        applied_files:
-          - tests/api/test_<module>_api.py
+        api_apply_summary: qa/changes/<change-id>/healing/api-apply-summary.json
+        # applied_files is aggregated by the orchestrator after both fixers complete — NOT set here
 ```
 
 After no eligible API proposals (no-op):
@@ -311,7 +308,7 @@ phases:
     attempts:
       - attempt: <n>
         api_apply_status: no_op
-        api_apply_summary: healing/api-apply-summary.json  # applied: false
+        api_apply_summary: qa/changes/<change-id>/healing/api-apply-summary.json  # applied: false
 ```
 
 After forbidden modification attempt or cross-validation failure:
@@ -344,8 +341,9 @@ phases:
 6. Apply patches (only after all validations pass):
    a. For each validated proposal, apply each `patch_plan` step.
    b. Re-read each modified file to confirm patch applied correctly.
-7. Write `healing/api-apply-summary.json` and `healing/api-apply-summary.md`.
-8. Update `workflow-state.yaml` attempt entry (`api_apply_status`, `api_apply_summary`, `applied_files`).
+7. Write `qa/changes/<change-id>/healing/api-apply-summary.json` and `qa/changes/<change-id>/healing/api-apply-summary.md`.
+8. Update `workflow-state.yaml` attempt entry: set `api_apply_status` and `api_apply_summary` only.
+   (`applied_files` is NOT written here — it is an orchestrator-only aggregate field)
    - **Do NOT** set `phases.healing.status = applied`.
 9. Report summary to user.
 
