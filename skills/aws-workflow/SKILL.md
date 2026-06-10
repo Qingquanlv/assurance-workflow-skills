@@ -322,8 +322,10 @@ subagents:
   used: false          # true if any subagent (explore / document-driven / forbidden) was invoked during this workflow run
   purpose:             # list — valid values: source_exploration_only | document_driven_parallel | forbidden_codegen_attempt
     []
-  loaded_skills: false # MUST remain false — subagents MUST NOT load AWS skills
-  affected_gates: false # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
+  loaded_skills: false          # MUST remain false — subagents MUST NOT successfully load AWS skills
+  attempted_skill_loading: false # true if any subagent attempted to load an AWS skill (success OR failure)
+  attempted_phase_execution: false # true if any subagent attempted to execute an AWS phase (success OR failure)
+  affected_gates: false         # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
 
 phases:
   skill_registry_check:
@@ -450,7 +452,7 @@ phases:
 gates:
   data_knowledge:
     status: present | missing
-    decision: pass | force_continue | stop
+    decision: pass | stop   # force_continue MUST NOT bypass this gate before codegen
   healing_available: true | false   # default: true if all optional_healing_skills load; false if any fail to load
 
 known_product_issues: []
@@ -603,13 +605,18 @@ gate:
 ❌ treating subagent or background task output as Phase 7A completion
 ```
 
-If a codegen subagent or background task is spawned for API codegen:
+If a subagent or background task is used to attempt API codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- **STOP** the workflow immediately.
 - Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
-- Set `subagents.used = true`, `subagents.purpose = [forbidden_codegen_attempt]`, `subagents.loaded_skills = true`.
-- Do **not** proceed to Phase 7B or Phase 8.
-- Require the primary agent to re-run codegen inline.
+- Update `subagents`:
+  - `used = true`
+  - `purpose = [forbidden_codegen_attempt]`
+  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
+  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `affected_gates = false`
+- Do **not** proceed to any later phase.
+- Require the primary agent to re-run the affected codegen phase inline.
 
 **Phase 7A is complete only when all are true:**
 
@@ -654,13 +661,18 @@ gate:
 ❌ treating subagent or background task output as Phase 7B completion
 ```
 
-If a codegen subagent or background task is spawned for E2E codegen:
+If a subagent or background task is used to attempt E2E codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- **STOP** the workflow immediately.
 - Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
-- Set `subagents.used = true`, `subagents.purpose = [forbidden_codegen_attempt]`, `subagents.loaded_skills = true`.
-- Do **not** proceed to Phase 8.
-- Require the primary agent to re-run codegen inline.
+- Update `subagents`:
+  - `used = true`
+  - `purpose = [forbidden_codegen_attempt]`
+  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
+  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `affected_gates = false`
+- Do **not** proceed to any later phase.
+- Require the primary agent to re-run the affected codegen phase inline.
 
 **Phase 7B is complete only when all are true:**
 
@@ -1431,6 +1443,8 @@ subagents:
     - source_exploration_only        # if used for codebase exploration
     - document_driven_parallel       # if used for parallel document work
   loaded_skills: false               # MUST remain false
+  attempted_skill_loading: false     # MUST remain false
+  attempted_phase_execution: false   # MUST remain false
   affected_gates: false              # MUST remain false
 ```
 
@@ -1448,8 +1462,10 @@ If either of these occurs, set the corresponding flag and **STOP**:
 ```yaml
 subagents:
   used: true
-  loaded_skills: true     # forbidden — stop workflow
-  affected_gates: true    # forbidden — stop workflow
+  loaded_skills: true              # forbidden — subagent successfully loaded an AWS skill
+  attempted_skill_loading: true    # forbidden — subagent attempted skill loading
+  attempted_phase_execution: true  # forbidden — subagent was used to execute a phase
+  affected_gates: true             # forbidden — subagent produced or substituted a gate artifact
 ```
 
 ### Forbidden: codegen subagents
@@ -1466,7 +1482,7 @@ API/E2E codegen **MUST NOT** be delegated to subagents or background tasks.
 ❌ treating subagent codegen output as Phase 7 completion
 ```
 
-If a codegen subagent is spawned:
+If a subagent or background task is used to attempt any AWS phase codegen — **regardless of whether the skill loading succeeded or failed**:
 
 1. **STOP** the workflow immediately.
 2. Set `phases.api_codegen.status = stopped` or `phases.e2e_codegen.status = stopped` (whichever was affected).
@@ -1478,11 +1494,13 @@ subagents:
   used: true
   purpose:
     - forbidden_codegen_attempt
-  loaded_skills: true
+  loaded_skills: false         # true only if subagent successfully loaded an AWS skill
+  attempted_skill_loading: true  # true if subagent attempted skill loading (success or failure)
+  attempted_phase_execution: true # true always when a codegen subagent was spawned
   affected_gates: false
 ```
 
-5. Do **not** proceed to Phase 7B (if API was affected) or Phase 8 (if E2E was affected).
+5. Do **not** proceed to any later phase.
 6. Require the primary agent to re-run codegen inline from the point of failure.
 
 ### Conflict with analyze-mode pre-exploration
@@ -1669,9 +1687,9 @@ Current phase: <phase that completed or stopped>
 Stop reason: <if stopped>
 
 Review gates:
-  case-review.json: present | missing | invalid | pass | needs_fix | reject
-  api-plan-review.json: present | missing | invalid | pass | needs_fix | reject | not_applicable
-  plan-review.json: present | missing | invalid | pass | needs_fix | reject | not_applicable
+  case-review.json: present | missing | invalid | pass | needs_fix | needs_human_review | reject
+  api-plan-review.json: present | missing | invalid | pass | needs_fix | needs_human_review | reject | not_applicable
+  plan-review.json: present | missing | invalid | pass | needs_fix | needs_human_review | reject | not_applicable
 
 Case files:
   .qa.yaml: present | missing
@@ -1719,7 +1737,7 @@ Known product issues:
   count: <N>
   status: none | present
   files:
-    - qa/changes/<change-id>/known-product-issues.md       (source of truth, codegen-written)
+    - qa/changes/<change-id>/known-product-issues.md       (source of truth, human/reviewer acknowledged; codegen append-only implementation notes)
     - qa/changes/<change-id>/execution/known-product-issues.md  (execution snapshot)
     - qa/changes/<change-id>/inspect/known-product-issues.md    (inspect-confirmed)
 
