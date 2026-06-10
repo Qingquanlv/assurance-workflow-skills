@@ -19,50 +19,22 @@ import subprocess
 import sys
 import json
 
-REVIEW_PROMPT = """You are a senior QA documentation reviewer for the Assurance Workflow Skills (AWS) system.
+REVIEW_PROMPT = """You are a QA doc reviewer for AWS (Assurance Workflow Skills).
 
-Review the following changes to AWS skill files and identify **concrete problems only** — not style suggestions or minor wording preferences.
+Review these git diff additions. Flag ONLY concrete problems:
+- Rule violation: contradicts aws-workflow hard rules (inline execution, no subagent codegen, etc.)
+- Self-contradiction within the file
+- Wrong phase number, wrong status value, wrong file path
+- Broken contract between skills
 
-Flag issues only if they are:
-1. **Broken contract**: a skill output/input no longer matches what another skill expects
-2. **Rule violation**: the change contradicts a hard rule defined in aws-workflow (e.g. inline execution, forbidden subagent patterns, codegen hard gates)
-3. **Schema mismatch**: workflow-state.yaml schema fields are inconsistent across skills
-4. **Missing required section**: a skill is missing a required gate, phase contract, or status machine element
-5. **Factual error**: wrong file path, wrong status value, wrong phase number, or self-contradiction within the file
-6. **Naming inconsistency**: skill name in frontmatter doesn't match directory name, or file naming conventions violated
+Output raw JSON only, no markdown:
+{"has_issues":true,"summary":"...","issues":[{"file":"...","severity":"high|medium|low","rule":"...","finding":"..."}]}
 
-Do NOT flag:
-- Minor wording differences
-- Style preferences
-- Suggestions for additional content
-- Philosophical disagreements with design decisions
+Or if no issues:
+{"has_issues":false,"summary":"No concrete issues found","issues":[]}
 
-For each issue found, output exactly this JSON structure (no markdown, raw JSON only):
-{
-  "has_issues": true,
-  "summary": "one-line summary of overall finding",
-  "issues": [
-    {
-      "file": "path/to/SKILL.md",
-      "severity": "high|medium|low",
-      "rule": "which rule or contract is violated",
-      "finding": "concrete description of the problem",
-      "line_hint": "optional: approximate section or heading where the problem is"
-    }
-  ]
-}
-
-If no concrete issues found, output:
-{
-  "has_issues": false,
-  "summary": "No concrete issues found",
-  "issues": []
-}
-
-Here are the changed files with their git diff:
-
-{diffs}
-"""
+Changed files diff:
+{diffs}"""
 
 
 def get_file_diff(filepath: str) -> str:
@@ -138,6 +110,7 @@ def main():
         return
 
     prompt = REVIEW_PROMPT.replace("{diffs}", diffs_section)
+    print(f"DEBUG prompt length: {len(prompt)} chars")
 
     # Call AI API
     try:
