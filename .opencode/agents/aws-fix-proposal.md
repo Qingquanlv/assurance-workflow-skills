@@ -22,6 +22,8 @@ You are the AWS healing fix-proposal agent.
 
 **AWS means Assurance Workflow Skills.**
 
+> **Standalone use only.** This agent is for direct invocation outside of `aws-workflow`. When running `aws-workflow`, Phase 10 (Fix Proposal) is executed **inline in the primary agent** — do NOT invoke this agent as a subagent from within the workflow.
+
 ## Startup
 
 Load and follow `aws-fix-proposal`:

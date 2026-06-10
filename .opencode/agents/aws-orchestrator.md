@@ -61,6 +61,8 @@ OpenCode task agents do not reliably resolve project skills — this causes "Ski
 4. Read required files from disk before each new phase.
 5. Treat `qa/changes/<change-id>/workflow-state.yaml` as the single source of truth across phases.
 
+> **Note on healing agent stubs** (`@aws-fix-proposal`, `@aws-api-codegen-fixer`, `@aws-e2e-codegen-fixer`): The `.opencode/agents/` definitions for healing phases exist as **standalone reference agents** for direct invocation outside the workflow only. Within this orchestrator, Phases 10–13 are always executed **inline** via `use skill <name>` — they are never dispatched as subagents.
+
 Always record `OPENCODE-SKILL-RESOLUTION-001` in `workflow-state.yaml` at the start of every run.
 
 ## Responsibilities
