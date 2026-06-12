@@ -11,6 +11,7 @@
  * `aws status` / `aws gate check` engine consumes the validated Schema.
  */
 import * as fs from 'fs';
+import * as path from 'path';
 import * as yaml from 'js-yaml';
 import {
   compile,
@@ -244,6 +245,26 @@ export function parseSchema(yamlText: string): Schema {
 
 export function loadSchemaFromFile(filePath: string): Schema {
   return parseSchema(fs.readFileSync(filePath, 'utf-8'));
+}
+
+/**
+ * Locate the workflow schema file for a project.
+ * Precedence: explicit override → `.aws/workflow-schema.yaml` (project-local) →
+ * `docs/design/workflow-schema.yaml` (the draft shipped with the repo).
+ */
+export function findSchemaFile(projectRoot: string, override?: string): string {
+  const candidates = override
+    ? [path.isAbsolute(override) ? override : path.join(projectRoot, override)]
+    : [
+        path.join(projectRoot, '.aws', 'workflow-schema.yaml'),
+        path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'),
+      ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  throw new SchemaError(
+    `workflow-schema.yaml not found (looked in: ${candidates.join(', ')})`
+  );
 }
 
 // ─── Static validation ───────────────────────────────────────────────────────

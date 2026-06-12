@@ -20,7 +20,7 @@ import {
 export { DslError } from './ast';
 export type { DslValue, EvalResult, Node } from './ast';
 export type { EvalContext, Scope } from './evaluator';
-export { RootScope, ChildScope } from './evaluator';
+export { RootScope, ChildScope, evaluate } from './evaluator';
 export { parse } from './parser';
 export { tokenize } from './tokenizer';
 export { walk, collectGateRefs, collectCalls } from './walk';
