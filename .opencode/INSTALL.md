@@ -194,11 +194,16 @@ aws report inspect --change <change-id>
 
 ## Updating
 
-OpenCode installs AWS through a git-backed package spec. If updates do not appear after restart, clear OpenCode's package cache:
+If skill updates do not appear after restart, refresh local OpenCode AWS package caches:
 
 ```bash
-# macOS / Linux
-rm -rf ~/.config/opencode/packages/assurance-workflow-skills
+aws skill refresh
+```
+
+For a local development checkout, also refresh the linked CLI:
+
+```bash
+aws skill refresh --build-link
 ```
 
 Then restart OpenCode.
@@ -219,11 +224,10 @@ opencode run --print-logs "hello" 2>&1 | grep -i aws
 2. Confirm the plugin line is in your `opencode.json`.
 3. Check that each `SKILL.md` has valid YAML frontmatter (`name:` field present).
 
-### AWS slash commands still visible
+### AWS package cache still stale
 
-AWS no longer ships OpenCode agents or slash commands. If `/aws-*` command
-entries still appear, remove stale copied files from
-`~/.config/opencode/.opencode/agents/aws-*.md` and restart OpenCode.
+If OpenCode still loads an older `assurance-workflow-skills` package, run
+`aws skill refresh` and restart OpenCode.
 
 ### Tool mapping
 
