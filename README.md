@@ -259,11 +259,9 @@ aws report inspect --change REQ-002-menu-management
 
 ## OpenCode 使用方式
 
-在 OpenCode 中通过 `@aws-orchestrator` 触发完整工作流：
+在 OpenCode 中通过 Skill 触发完整工作流：
 
 ```
-@aws-orchestrator
-
 use skill aws-workflow
 
 Requirement:
@@ -290,19 +288,21 @@ Max plan fix attempts:
 | `review-case` | 仅 Case Review + Fix |
 | `review-plan` | 仅 Plan Review + Fix |
 
-### Subagent 架构
+### Skill 架构
 
-| Subagent | 职责 |
+| Skill | 职责 |
 |---|---|
-| `@aws-orchestrator` | 入口，全流程编排 |
-| `@aws-case-reviewer` | 只读 Case 审查，写 `case-review.json` |
-| `@aws-case-fixer` | 按 JSON 建议自动修复 Case |
-| `@aws-api-plan-reviewer` | 只读 API Plan 审查，写 `api-plan-review.json` |
-| `@aws-api-plan-fixer` | 按 JSON 建议修复 API Plan |
-| `@aws-e2e-plan-reviewer` | 只读 E2E Plan 审查，写 `plan-review.json` |
-| `@aws-e2e-plan-fixer` | 按 JSON 建议修复 E2E Plan |
+| `aws-workflow` | 入口，全流程编排 |
+| `aws-case-reviewer` | 只读 Case 审查，写 `case-review.json` |
+| `aws-case-fixer` | 按 JSON 建议自动修复 Case |
+| `aws-api-plan-reviewer` | 只读 API Plan 审查，写 `api-plan-review.json` |
+| `aws-api-plan-fixer` | 按 JSON 建议修复 API Plan |
+| `aws-e2e-plan-reviewer` | 只读 E2E Plan 审查，写 `plan-review.json` |
+| `aws-e2e-plan-fixer` | 按 JSON 建议修复 E2E Plan |
 
-Reviewer 只读，永不修改 Case 或 Plan 文件。Fixer 只处理 `auto_fix_allowed = true` 的 findings，不发明产品行为。
+这些都是通过 `skills/**/SKILL.md` 注册的 Skill，不再通过 `.opencode/agents`
+或 `/aws-*` slash command 进入。Reviewer 只读，永不修改 Case 或 Plan 文件。
+Fixer 只处理 `auto_fix_allowed = true` 的 findings，不发明产品行为。
 
 ---
 

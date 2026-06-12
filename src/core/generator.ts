@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { InitAnswers } from './types';
 import { buildConfigYaml } from '../templates/config-yaml';
 import { buildExecutionPolicy } from '../templates/execution-policy';
-import { safeWriteFile, fileExists, ensureDir } from '../utils/fs';
+import { safeWriteFile, fileExists } from '../utils/fs';
 
 
 // ─── OpenCode registration ────────────────────────────────────────────────────
@@ -13,15 +13,11 @@ const OPENCODE_PLUGIN_ENTRY =
 
 export interface OpenCodeResult {
   opencodejsonCreated: boolean;
-  agentsCopied: string[];
-  agentsSkipped: string[];
 }
 
 export function registerOpenCode(projectRoot: string, packageRoot: string): OpenCodeResult {
   const result: OpenCodeResult = {
     opencodejsonCreated: false,
-    agentsCopied: [],
-    agentsSkipped: [],
   };
 
   // 1. Write / merge opencode.json
@@ -46,24 +42,6 @@ export function registerOpenCode(projectRoot: string, packageRoot: string): Open
     plugins.push(OPENCODE_PLUGIN_ENTRY);
     config['plugin'] = plugins;
     fs.writeFileSync(opencodejsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  }
-
-  // 2. Copy .opencode/agents/ from package into project
-  const agentsSrc = path.join(packageRoot, '.opencode', 'agents');
-  const agentsDest = path.join(projectRoot, '.opencode', 'agents');
-
-  if (fs.existsSync(agentsSrc)) {
-    ensureDir(agentsDest);
-    const files = fs.readdirSync(agentsSrc).filter(f => f.endsWith('.md'));
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(agentsSrc, file), 'utf8');
-      const r = safeWriteFile(path.join(agentsDest, file), content, { overwrite: false });
-      if (r === 'created') {
-        result.agentsCopied.push(`.opencode/agents/${file}`);
-      } else {
-        result.agentsSkipped.push(`.opencode/agents/${file}`);
-      }
-    }
   }
 
   return result;

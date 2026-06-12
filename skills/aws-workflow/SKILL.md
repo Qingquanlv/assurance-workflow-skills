@@ -75,11 +75,9 @@ This restriction remains in effect until OpenCode explicitly supports reliable s
 
 ## Invocation
 
-Users invoke this workflow in OpenCode by addressing `@aws-orchestrator`:
+Users invoke this workflow in OpenCode by loading the skill directly:
 
 ```text
-@aws-orchestrator
-
 use skill aws-workflow
 
 Requirement:

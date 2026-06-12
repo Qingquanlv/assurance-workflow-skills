@@ -30,9 +30,8 @@ aws init
 When asked **"Agent workflow"**, select **OpenCode** (or **All**). `aws init` will:
 
 - Write `opencode.json` with the plugin entry
-- Copy `.opencode/agents/` into your project automatically
 
-Then restart OpenCode and type `@aws-orchestrator` to verify.
+Then restart OpenCode and run `use skill aws-workflow` to start the workflow.
 
 ### Option 2: manual
 
@@ -44,54 +43,37 @@ Add AWS to the `plugin` array in your `opencode.json` (global or project-level):
 }
 ```
 
-Copy `.opencode/agents/` from this plugin into your project root.
-
 Restart OpenCode after editing `opencode.json`. The plugin registers all AWS QA workflow skills automatically.
 
 Verify by asking OpenCode: "What AWS skills do you have?"
 
 ---
 
-## OpenCode Agents
+## OpenCode Skills
 
-This plugin includes OpenCode agent definitions under `.opencode/agents/`.
+This plugin intentionally exposes AWS as **skills only**.
 
-The main entry agent is `@aws-orchestrator`. It delegates work to specialized subagents:
-
-```
-@aws-case-design       — QA case design from requirement
-@aws-case-reviewer     — Review case artifacts
-@aws-case-fixer        — Apply safe auto-fixes to cases
-
-@aws-api-plan          — API test planning
-@aws-api-plan-reviewer — Review API plan artifacts
-@aws-api-plan-fixer    — Apply safe auto-fixes to API plan
-@aws-api-codegen       — Generate pytest API test code
-
-@aws-e2e-plan          — E2E test planning
-@aws-e2e-plan-reviewer     — Review E2E plan artifacts (E2E only)
-@aws-e2e-plan-fixer        — Apply safe auto-fixes to E2E plan
-@aws-e2e-codegen       — Generate Python Playwright E2E test code
-
-@aws-run               — Run tests via aws CLI
-@aws-inspect           — Inspect test failures via aws CLI
-@aws-archive           — Archive reviewed QA assets
-@aws-dashboard         — View QA Case Center dashboard
-```
-
-### Verify agents
-
-After restarting OpenCode, type:
+The main entry skill is `aws-workflow`:
 
 ```
-@aws-orchestrator
+use skill aws-workflow
 ```
 
-If OpenCode recognizes the agent, start the workflow with:
+The workflow loads phase skills inline in the primary agent. Do not invoke AWS
+phase agents or slash commands; they are not part of the supported OpenCode
+surface.
+
+### Verify skills
+
+After restarting OpenCode, ask:
 
 ```
-@aws-orchestrator
+What AWS skills do you have?
+```
 
+Then start the workflow with:
+
+```
 use skill aws-workflow
 
 Requirement:
@@ -113,7 +95,8 @@ Force continue:
 false
 ```
 
-If OpenCode does not recognize `@aws-orchestrator`, copy the `.opencode/agents/` directory from this plugin into your project root and restart OpenCode.
+If OpenCode does not recognize `aws-workflow`, confirm the plugin entry is in
+`opencode.json`, clear the package cache if needed, and restart OpenCode.
 
 ---
 
@@ -149,7 +132,7 @@ use skill aws/aws-case-design
 
 | Skill | Description |
 |-------|-------------|
-| `aws-workflow` | Full orchestration skill, loaded by `@aws-orchestrator` |
+| `aws-workflow` | Full orchestration skill, loaded directly with `use skill aws-workflow` |
 | `aws-case-design` | Analyze requirement and generate QA case delta |
 | `aws-case-reviewer` | Review case artifacts, write `case-review.json` |
 | `aws-case-fixer` | Apply safe auto-fixes from `case-review.json` |
@@ -236,13 +219,11 @@ opencode run --print-logs "hello" 2>&1 | grep -i aws
 2. Confirm the plugin line is in your `opencode.json`.
 3. Check that each `SKILL.md` has valid YAML frontmatter (`name:` field present).
 
-### Agents not found
+### AWS slash commands still visible
 
-1. Restart OpenCode after installing the plugin.
-2. Try typing `@aws-orchestrator` in the OpenCode chat.
-3. Confirm the plugin contains `.opencode/agents/*.md` files.
-4. If OpenCode does not load plugin-provided agents automatically, copy `.opencode/agents/` from this plugin into your project root.
-5. Restart OpenCode.
+AWS no longer ships OpenCode agents or slash commands. If `/aws-*` command
+entries still appear, remove stale copied files from
+`~/.config/opencode/.opencode/agents/aws-*.md` and restart OpenCode.
 
 ### Tool mapping
 

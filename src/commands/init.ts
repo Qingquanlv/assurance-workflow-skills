@@ -133,12 +133,6 @@ async function runInit(root: string): Promise<void> {
   } else {
     logOk('updated: opencode.json (plugin entry added)');
   }
-  for (const f of ocResult.agentsCopied) {
-    logOk(`created: ${f}`);
-  }
-  for (const f of ocResult.agentsSkipped) {
-    logInfo(`exists:  ${f}`);
-  }
 
   logBlank();
   console.log(chalk.green.bold('AWS initialized successfully.'));
@@ -147,8 +141,7 @@ async function runInit(root: string): Promise<void> {
   logBlank();
   console.log(chalk.bold('OpenCode setup complete. Next steps:'));
   console.log('  1. Restart OpenCode');
-  console.log('  2. Type:  ' + chalk.cyan('@aws-orchestrator'));
-  console.log('  3. Start: ' + chalk.cyan('use skill aws-workflow'));
+  console.log('  2. Start: ' + chalk.cyan('use skill aws-workflow'));
 }
 
 async function runRepair(root: string): Promise<void> {

@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - "skills/**/SKILL.md"
-      - ".opencode/agents/*.md"
 
 permissions:
   contents: read
@@ -23,7 +22,7 @@ jobs:
       - name: Get changed skill files
         id: diff
         run: |
-          FILES=$(git diff --name-only HEAD~1 HEAD | grep -E '(skills/.*/SKILL\.md|\.opencode/agents/.*\.md)' || true)
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep -E 'skills/.*/SKILL\.md' || true)
           echo "files<<EOF" >> $GITHUB_OUTPUT
           echo "$FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

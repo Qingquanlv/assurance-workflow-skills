@@ -78,10 +78,6 @@ describe('registerOpenCode', () => {
   beforeEach(() => {
     tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-oc-proj-'));
     tmpPackage = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-oc-pkg-'));
-    const agentsSrc = path.join(tmpPackage, '.opencode', 'agents');
-    fs.mkdirSync(agentsSrc, { recursive: true });
-    fs.writeFileSync(path.join(agentsSrc, 'aws-orchestrator.md'), '# orchestrator');
-    fs.writeFileSync(path.join(agentsSrc, 'aws-case-design.md'), '# case design');
   });
 
   afterEach(() => {
@@ -116,22 +112,10 @@ describe('registerOpenCode', () => {
     expect(config.plugin.filter((e: string) => e === PLUGIN_ENTRY)).toHaveLength(1);
   });
 
-  it('copies agent files into project .opencode/agents/', () => {
+  it('does not create OpenCode agent files; skills are registered via plugin', () => {
     const result = registerOpenCode(tmpProject, tmpPackage);
-    expect(fs.existsSync(path.join(tmpProject, '.opencode', 'agents', 'aws-orchestrator.md'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpProject, '.opencode', 'agents', 'aws-case-design.md'))).toBe(true);
-    expect(result.agentsCopied).toHaveLength(2);
-    expect(result.agentsSkipped).toHaveLength(0);
-  });
-
-  it('does not overwrite existing agent files', () => {
-    const destDir = path.join(tmpProject, '.opencode', 'agents');
-    fs.mkdirSync(destDir, { recursive: true });
-    fs.writeFileSync(path.join(destDir, 'aws-orchestrator.md'), 'custom content');
-    const result = registerOpenCode(tmpProject, tmpPackage);
-    expect(fs.readFileSync(path.join(destDir, 'aws-orchestrator.md'), 'utf8')).toBe('custom content');
-    expect(result.agentsSkipped).toContain('.opencode/agents/aws-orchestrator.md');
-    expect(result.agentsCopied).toContain('.opencode/agents/aws-case-design.md');
+    expect(fs.existsSync(path.join(tmpProject, '.opencode', 'agents'))).toBe(false);
+    expect(result.opencodejsonCreated).toBe(true);
   });
 });
 
