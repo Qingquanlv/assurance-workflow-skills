@@ -5,5 +5,5 @@ coverage/
 .aws/cache/
 .DS_Store
 **/.DS_Store
-docs/
+docs/superpowers/
 .history

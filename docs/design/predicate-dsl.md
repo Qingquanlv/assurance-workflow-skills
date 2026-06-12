@@ -95,8 +95,9 @@ or_expr     = and_expr , { "or" , and_expr } ;
 and_expr    = not_expr , { "and" , not_expr } ;
 not_expr    = [ "not" ] , comparison ;
 comparison  = additive , [ comp_op , additive ]
-            | additive , "in" , list
-            | additive , "not" , "in" , list ;
+            | additive , "in" , collection
+            | additive , "not" , "in" , collection ;
+collection  = list | path ;                     (* list literal OR a path that resolves to a list *)
 comp_op     = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
 additive    = primary ;                         (* no arithmetic in v0.1 *)
 primary     = literal
@@ -146,8 +147,10 @@ Value types: `string`, `number`, `bool`, `null`, `list`, `object`, `undefined`.
 - Comparison ops `< <= > >=` require both operands `number` **or** both
   `string` (lexicographic); otherwise → `undefined`.
 - `==` / `!=` are defined for all same-type pairs; cross-type `==` → `false`.
-- `in` / `not in` require the right operand to be a `list`; membership uses
-  `==` semantics. Right operand not a list → `undefined`.
+- `in` / `not in` require the right operand to *resolve* to a `list` — this may
+  be a list literal (`['a','b']`) or a path that yields a list at runtime
+  (`params.test_types`). Membership uses `==` semantics. Right operand not a
+  list (including missing) → `undefined`.
 - `null` is a real value: `decision == null` is valid and `true` when the field
   is present and literally null. **Missing != null** (see §6).
 - Truthiness in `and`/`or`/`not`: only `true`/`false` are boolean. Any non-bool
@@ -237,7 +240,8 @@ Static checks before the schema is ever used at runtime:
 - Every alias is unique; collisions require an explicit `reads:` alias form:
   `- { path: inspect/failure-analysis.json, as: fa }`.
 - Every function name is in the §5 allow-list; arity matches.
-- `in` / `not in` right operands are list literals.
+- `in` / `not in` right operands are either list literals or paths whose root
+  resolves to a known scope (the list-ness is checked at runtime, not statically).
 - No reserved keyword used as a path segment.
 
 ---
