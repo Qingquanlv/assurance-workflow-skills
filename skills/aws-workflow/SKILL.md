@@ -316,6 +316,13 @@ A phase is complete only when **all** of the following are true:
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
 4. `workflow-state.yaml` was updated for that phase (status set to the correct terminal value).
 5. The next-phase gate was explicitly evaluated before advancing.
+6. **Shadow CLI status check ran after the phase update**:
+   - Run `aws status --change <change-id> --json` after every phase that writes or updates workflow artifacts.
+   - If the completed phase has a schema gate, also run `aws gate check --change <change-id> --phase <phase-id> --json`.
+   - These CLI commands do **not** run automatically; the primary agent must invoke them explicitly.
+   - In shadow mode, CLI output is **advisory only**. Do not replace the prose workflow gates or stop/advance rules with CLI output yet.
+   - If CLI output disagrees with this skill's prose decision, append an `AWS-ORCHESTRATION-SHADOW-DISAGREEMENT` entry to `workflow-state.yaml.agent_warnings[]` and report it in the final response.
+   - If the CLI command itself fails because the CLI is unavailable, schema validation fails, or the schema file is missing, append `AWS-ORCHESTRATION-SHADOW-UNAVAILABLE` to `agent_warnings[]`. Do not stop the workflow for shadow-only CLI failure unless the same condition is already a prose gate failure.
 
 Do **not** report a phase as done based on:
 
@@ -513,6 +520,29 @@ agent_warnings:
       - use file-based phase contracts
       - use document-driven subagents only if parallelism is needed
     status: acknowledged
+  # Shadow-mode CLI orchestration warnings (written only when applicable).
+  # The CLI is advisory until the workflow explicitly migrates from prose gates
+  # to authoritative CLI gates.
+  - id: AWS-ORCHESTRATION-SHADOW-DISAGREEMENT
+    severity: medium | high
+    phase: <phase-id>
+    command: aws status | aws gate check
+    prose_decision:
+      status: <done | stopped | next phase | gate verdict>
+      reason: <brief prose-gate reason>
+    cli_decision:
+      status: <CLI phase status or gate verdict>
+      next: [<phase-id>, ...]
+      terminal: <null | stopped | completed>
+    action_taken: followed_prose_workflow
+    status: recorded
+  - id: AWS-ORCHESTRATION-SHADOW-UNAVAILABLE
+    severity: low
+    phase: <phase-id>
+    command: aws status | aws gate check
+    error: <CLI unavailable | schema missing | schema validation failed | command failed>
+    action_taken: continued_with_prose_workflow
+    status: recorded
 ```
 
 ---
@@ -944,6 +974,8 @@ never_archive_when:
 ## Full Workflow (run_mode = full)
 
 All phases execute **inline in the primary agent**. No subagents or tasks are used.
+
+After every phase that writes artifacts or updates `workflow-state.yaml`, apply the **Phase Completion Rule** above, including the shadow-mode CLI calls (`aws status` always; `aws gate check` when the phase has a schema gate). The prose workflow remains authoritative during shadow mode; CLI disagreements are recorded, not used to override routing.
 
 ```
 Phase 0 — Skill Registry Check
