@@ -42,5 +42,8 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Build (required by integration tests)
+        run: npm run build
+
       - name: Run tests
         run: npx jest --ci --forceExit
