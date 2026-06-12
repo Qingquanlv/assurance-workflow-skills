@@ -56,7 +56,7 @@ ALL of the following must be true before archiving:
 **Execution gates**
 
 - `phases.execution.status` in `[PASS, PASS_WITH_WARNINGS]` — **NEVER archive when FAIL or SKIPPED-only without explicit user override** (default: STOP on FAIL)
-- `phases.healing.status` in `[not_needed, applied, skipped]` — **NEVER archive when exhausted or failed**
+- `phases.healing.status` in `[not_needed, resolved, skipped]` — **NEVER archive when applied/exhausted/failed** (`applied` means fixers ran but re-inspect has not confirmed success yet)
 - No unresolved `fix_proposal_eligible` failures in `inspect/failure-analysis.json`
 
 **Inspect gates (when warnings exist)**

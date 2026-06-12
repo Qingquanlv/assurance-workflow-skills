@@ -196,12 +196,14 @@ subagents:
   affected_gates: false
 ```
 
-If any explore agents or document-driven subagents were invoked **before or during Phase 0** (e.g., by `analyze-mode` pre-exploration or parallel source scanning):
+If explore agents were invoked **strictly before Phase 0** for source-only reading (the only permitted case — see **Conflict with analyze-mode / search-mode pre-exploration**):
 
 - Set `subagents.used = true`
 - Add `source_exploration_only` to `subagents.purpose`
 - Confirm `subagents.loaded_skills = false` (they must not have loaded AWS skills)
 - Confirm `subagents.affected_gates = false` (they must not have written or substituted gate artifacts)
+
+**If search-mode or analyze-mode agents were launched at or after Phase 0** — this is a forbidden-pattern violation: STOP, set `subagents.affected_gates = true`.
 - Record in `agent_warnings`:
 
 ```yaml
@@ -283,6 +285,7 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Phase 1: Case Design | `aws-case-design` |
 | Phase 2: Case Review | `aws-case-reviewer` |
 | Phase 3: Case Fix | `aws-case-fixer` |
+| Phase 3.5: Fact Baseline | *(inline — no separate skill; primary agent reads seed/DB)* |
 | Phase 4A: API Plan | `aws-api-plan` |
 | Phase 4B: E2E Plan | `aws-e2e-plan` |
 | Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
@@ -393,6 +396,12 @@ phases:
     gate_file: review/case-review.json
     fix_attempts: []   # appended by aws-case-fixer each run
 
+  fact_baseline:
+    status: pending | done | unavailable
+    # unavailable = seed file not found AND db_probe not configured; planning continues with warning
+    source: null      # seed_file | db_probe | both | unavailable
+    file: facts/fact-baseline.json
+
   api_plan:
     status: pending | done | failed
     outputs:
@@ -408,38 +417,48 @@ phases:
       - plans/e2e-codegen-plan.md
 
   api_plan_review:
-    status: pending | pass | needs_fix | needs_human_review | reject
+    status: pending | pass | needs_fix | needs_human_review | reject | stale
+    # stale = review JSON was written before a fact correction; it cannot gate codegen until re-reviewed
+    # reason: fact_correction_after_review | fact_mismatch_before_review
+    stale_reason: null
     gate_file: review/api-plan-review.json
     fix_attempts: []   # appended by aws-api-plan-fixer each run
 
   e2e_plan_review:
-    status: pending | pass | needs_fix | needs_human_review | reject
+    status: pending | pass | needs_fix | needs_human_review | reject | stale
+    stale_reason: null
     gate_file: review/plan-review.json
     fix_attempts: []   # appended by aws-e2e-plan-fixer each run
 
   api_codegen:
-    status: pending | done | failed | stopped
+    status: pending | done | failed | stopped | needs_patch
+    # needs_patch = codegen completed but generated tests contain stale facts (e.g. wrong role name)
+    # requires manual patch + re-collect before Phase 8 can proceed
     stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    needs_patch_reason: null  # set when status == needs_patch; e.g. "stale_role_name_fact"
     review_gate_file: review/api-plan-review.json
     codegen_readiness: ready | ready_with_warnings
     generated_tests:
       framework: pytest
       language: python
       files: []
+      semantic_validity: valid | stale   # stale = generated with stale facts; set to valid after patch+collect
     warnings_carried: []
     known_product_issues:
       present: false
       file: null
 
   e2e_codegen:
-    status: pending | done | failed | stopped
+    status: pending | done | failed | stopped | needs_patch
     stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    needs_patch_reason: null
     review_gate_file: review/plan-review.json
     codegen_readiness: ready | ready_with_warnings
     generated_tests:
       framework: pytest-playwright   # from runtime e2e_framework=python-playwright
       language: python
       files: []
+      semantic_validity: valid | stale
     data_setup:
       scripts: []
       reused: []
@@ -578,6 +597,47 @@ outputs:
 gate: decision == "pass"
 ```
 
+### Phase 3.5 — Fact Baseline
+
+```yaml
+inputs:
+  - workflow-state.yaml
+  - app/core/init_app.py (or equivalent seed/fixture file)
+  - .aws/config.yaml (for db_probe flag)
+  - live DB read-only probe (optional, if db_probe: true in config)
+outputs:
+  - facts/fact-baseline.json
+  - workflow-state.yaml (updated: phases.fact_baseline.status)
+gate: facts/fact-baseline.json must exist before Phase 5A or 5B run
+```
+
+**fact-baseline.json schema:**
+
+```json
+{
+  "change_id": "<change-id>",
+  "generated_at": "<ISO timestamp>",
+  "source": "seed_file | db_probe | both",
+  "seed_file": "<path to seed/init file read>",
+  "facts": {
+    "builtin_roles": [
+      {"id": 1, "name": "管理员", "source": "seed_file"}
+    ],
+    "auth": {
+      "default_username": "admin",
+      "default_password": "<from seed>",
+      "source": "seed_file"
+    },
+    "route_prefix": "/api/v1",
+    "token_header": "Authorization",
+    "token_scheme": "Bearer"
+  },
+  "warnings": []
+}
+```
+
+If the seed file cannot be found and db_probe is false, write `fact-baseline.json` with `"source": "unavailable"` and record a warning — do **not** STOP; continue to Phase 4 but planners must note that fact validation is skipped.
+
 ### Phase 4A — API Plan
 
 ```yaml
@@ -587,6 +647,7 @@ inputs:
   - cases/<module>/case.yaml
   - .aws/config.yaml
   - .aws/data-knowledge.yaml (or plans/data-knowledge.proposal.yaml)
+  - facts/fact-baseline.json   ← NEW: validate key facts before writing plan
   - backend source files
 outputs:
   - plans/api-plan.md
@@ -1012,6 +1073,13 @@ Phase 3 — Case Fix Loop (if gate requires it)
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
+Phase 3.5 — Fact Baseline (always runs after Case Review passes)
+  → Read seed/init sources: look for app/core/init_app.py, db/seed*.py, fixtures/, or equivalent
+  → If live DB probe is configured (.aws/config.yaml has db_probe: true): run read-only probe
+  → Capture: built-in role id/name, auth credentials, route prefix, token header mechanism
+  → Write facts/fact-baseline.json
+  → Update workflow-state.yaml: phases.fact_baseline.status = done
+
 [API branch — run if test_types includes "api"]
 
 Phase 4A — API Plan
@@ -1306,6 +1374,12 @@ qa/changes/<change-id>/review/case-review.json
 qa/changes/<change-id>/review/case-review-summary.md
 ```
 
+### Fact Baseline outputs (Phase 3.5)
+
+```text
+qa/changes/<change-id>/facts/fact-baseline.json
+```
+
 ### API Plan outputs
 
 ```text
@@ -1463,6 +1537,20 @@ Gate decision:
 - `decision == "needs_fix"` and `auto_fix_allowed == true` → run `aws-case-fixer`
 - otherwise → STOP
 
+### Fact Baseline Gate (before Phase 5A / 5B — Plan Review)
+
+Before running `aws-api-plan-reviewer` (Phase 5A) or `aws-e2e-plan-reviewer` (Phase 5B), verify:
+
+- `facts/fact-baseline.json` exists
+- If `source != "unavailable"`: key facts (role names/ids, auth credentials, route prefix, token header) in the plan documents **must match** values in `fact-baseline.json`
+  - If mismatch found: mark the plan review as **blocked** and set `phases.api_plan_review.status = stale` (or `e2e_plan_review`) with `reason: fact_mismatch_before_review`
+  - Correct the plan documents first, then run the reviewer
+- If `source == "unavailable"`: log a warning but do not block; reviewer proceeds with a `fact_validation_skipped: true` note in the review JSON
+
+This gate prevents review-JSON artifacts from being written against stale facts, avoiding the full-chain contamination described in P0-4.
+
+---
+
 ### API plan gate required fields
 
 `qa/changes/<change-id>/review/api-plan-review.json` must contain:
@@ -1559,6 +1647,96 @@ Gate decision:
 
 ---
 
+## Fact Correction Mode
+
+Fact Correction Mode activates when a **newly discovered source-of-truth fact** (from live DB probe, seed file re-read, or code inspection) invalidates artifacts that were produced in earlier phases — including artifacts that already passed review.
+
+### When to Activate
+
+Activate Fact Correction Mode if ANY of the following is true after Phase 4 or later:
+
+- A role name / id in `proposal.md`, `case.yaml`, or plan files does not match `facts/fact-baseline.json`
+- Auth credentials, route prefix, or token header in plan files differ from seed source
+- A live DB probe returns data that contradicts an assumption embedded in approved plans
+
+### What Fact Correction Mode Allows
+
+- **Modify** `proposal.md`, `cases/<module>/case.yaml`, `plans/api-plan.md`, `plans/e2e-plan.md`, and generated test files — but ONLY for the discovered fact, no scope creep
+- **NOT** allowed to add new test cases or change test logic beyond the fact correction
+
+### Required Actions
+
+1. **Mark affected review gates as stale** in `workflow-state.yaml` before making any edits:
+
+   ```yaml
+   phases:
+     api_plan_review:
+       status: stale
+       stale_reason: fact_correction_after_review
+     e2e_plan_review:
+       status: stale
+       stale_reason: fact_correction_after_review
+     api_codegen:
+       status: needs_patch
+       needs_patch_reason: stale_role_name_fact
+       generated_tests:
+         semantic_validity: stale
+   ```
+
+2. **Apply corrections** to plan files and generated test files.
+
+3. **Write `facts/fact-correction-summary.json`**:
+
+   ```json
+   {
+     "change_id": "<change-id>",
+     "triggered_at": "Phase 7B codegen pre-check",
+     "discovered_at": "<ISO timestamp>",
+     "discovery_source": "live_db_probe | seed_file | code_inspection",
+     "corrections": [
+       {
+         "artifact": "plans/api-plan.md",
+         "field": "role.name",
+         "stale_value": "admin",
+         "correct_value": "管理员",
+         "files_patched": ["tests/api/test_role_api.py"]
+       }
+     ],
+     "stale_gates": ["api_plan_review", "e2e_plan_review"],
+     "stale_codegen": ["api_codegen"],
+     "re_review_required": ["api_plan_review", "e2e_plan_review"]
+   }
+   ```
+
+4. **Re-run affected reviewers** (`aws-api-plan-reviewer`, `aws-e2e-plan-reviewer`) to produce fresh review JSON.
+
+5. **Re-collect** any patched test files: `pytest --collect-only <patched_test_file>` — collect-only confirms syntax, not semantics.
+
+6. **Update `workflow-state.yaml`** after re-review passes:
+
+   ```yaml
+   phases:
+     api_plan_review:
+       status: pass
+       stale_reason: null
+     api_codegen:
+       status: needs_patch   # remains until Phase 8 execution confirms semantics
+       generated_tests:
+         semantic_validity: stale   # updated to valid only after Phase 8 PASS
+   ```
+
+### Fact Correction Mode Is NOT a Substitute for Standard Fixers
+
+`aws-api-plan-fixer` and `aws-e2e-plan-fixer` require `decision == needs_fix` in the review JSON. Fact Correction Mode handles a different case: `decision == pass` but the review is **stale** due to a fact discovered after review. These are separate flows:
+
+| Situation | Mechanism |
+|---|---|
+| Review says `needs_fix` | Standard fixer (`aws-api-plan-fixer`) |
+| Review is `pass` but facts changed | Fact Correction Mode (inline patch + re-review) |
+| Codegen artifact contains stale facts | Set `needs_patch`, patch inline, re-collect, re-review |
+
+---
+
 ## Codegen Hard Gates
 
 Before **Phase 7A (API Codegen)** or **Phase 7B (E2E Codegen)**, verify in order — **STOP** on first failure. **`force_continue` MUST NOT bypass any item below.**
@@ -1634,6 +1812,32 @@ Forbidden transitions:
 Required transition:
 
 - ✅ new review JSON `decision == "pass"` → continue
+
+---
+
+## When to Ask the User
+
+**Do NOT ask the user to choose phase execution order.** The workflow routing table defines the sequence (Phase 4A → 5A → 6A → 7A for API; Phase 4B → 5B → 6B → 7B for E2E). This is not a user decision.
+
+**Do NOT ask** for:
+
+- Whether to run Phase 7A before or after Phase 7B — workflow defines: API first, then E2E
+- Which phases to run — determined by `test_types` in `.qa.yaml`
+- Whether to proceed to the next phase after a `pass` — proceed automatically
+- What fix approach to use when `auto_fix_allowed == true` — run the designated fixer
+
+**DO ask** the user only in these cases:
+
+| Situation | What to ask |
+|---|---|
+| `human_review_required == true` in any review JSON | Present findings, ask for decision |
+| `risk_level in ["high", "critical"]` (without `force_continue`) | Present risk, ask to proceed or stop |
+| Fact correction affects already-approved artifacts | Present the conflict, ask: in-place correction or rollback to planning |
+| Fallback runner risk (aws-run not found, test framework missing) | Present alternatives |
+| Archive confirmation when `auto_archive == false` | Ask before archiving |
+| Healing exhausted, still FAIL | Ask: accept failures, re-plan, or stop |
+
+Any decision not in this list is made by the workflow itself. Do not surface it as a user question.
 
 ---
 
@@ -1731,16 +1935,31 @@ subagents:
 5. Do **not** proceed to any later phase.
 6. Require the primary agent to re-run codegen inline from the point of failure.
 
-### Conflict with analyze-mode pre-exploration
+### Conflict with analyze-mode / search-mode pre-exploration
 
-When an external `analyze-mode` or equivalent pre-exploration step sends explore agents before the workflow starts, this **does not** conflict with inline orchestration — provided:
+**Hard rule: search-mode and analyze-mode parallel agents are DISABLED by default during aws-workflow.**
 
-1. The explore agents only read source files and return findings.
-2. No AWS skill is loaded by any explore agent.
-3. No gate artifact (`case-review.json`, `api-plan-review.json`, `plan-review.json`) is produced by an explore agent.
-4. All AWS phases (Phase 1–14) are then executed inline in the primary agent.
+When aws-workflow is running (Phase 0 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. The workflow's inline-execution requirement takes precedence.
 
-Record this as `purpose: [source_exploration_only]` with `loaded_skills: false` and `affected_gates: false`.
+**The only allowed exception** is source exploration *before Phase 1 begins*, and only when ALL of the following hold:
+
+1. No AWS skill has been loaded yet (`load_skills == []` in the invocation context).
+2. The explore agent reads source files only — no writes, no gate artifacts.
+3. No AWS skill is loaded by any explore agent.
+4. No gate artifact (`case-review.json`, `api-plan-review.json`, `plan-review.json`) is produced by an explore agent.
+5. All AWS phases (Phase 1–14) are then executed inline in the primary agent.
+
+If the exception applies, record it immediately in `workflow-state.yaml`:
+
+```yaml
+subagents:
+  used: true
+  purpose: [source_exploration_only]
+  loaded_skills: false
+  affected_gates: false
+```
+
+**If search-mode/analyze-mode agents were launched AFTER Phase 0 started**, this is a forbidden-pattern violation — treat identically to a forbidden codegen subagent (STOP, set `subagents.affected_gates = true`).
 
 ---
 
