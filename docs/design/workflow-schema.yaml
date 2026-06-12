@@ -293,15 +293,20 @@ gates:
 
   healing-loop-gate:
     reads: [workflow-state.yaml, inspect/failure-analysis.json]
-    # adjudicates loop-back vs exit after healing-reinspect
+    # adjudicates loop-back vs exit after healing-reinspect.
+    # NOTE: '#' is NOT a comment inside a `>` block scalar — keep annotations
+    # on their own comment lines, never inline within a predicate value.
+    # exit    → healing.status = resolved
+    # continue → loop back to fix-proposal
+    # stop    → healing.status = exhausted
     exit_when: >
-      state.phases.execution.status in ['PASS','PASS_WITH_WARNINGS']      # → healing.status = resolved
+      state.phases.execution.status in ['PASS','PASS_WITH_WARNINGS']
     continue_when: >
       state.phases.execution.status == 'FAIL'
       and any(failure_analysis.failures, fix_proposal_eligible == true)
-      and len(state.phases.healing.attempts) < params.max_healing_attempts  # → loop back to fix-proposal
+      and len(state.phases.healing.attempts) < params.max_healing_attempts
     stop_when: >
-      len(state.phases.healing.attempts) >= params.max_healing_attempts     # → healing.status = exhausted
+      len(state.phases.healing.attempts) >= params.max_healing_attempts
       or state.phases.healing.all_fixers_no_op == true
 
   archive-gate:

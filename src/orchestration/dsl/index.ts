@@ -23,6 +23,18 @@ export type { EvalContext, Scope } from './evaluator';
 export { RootScope, ChildScope } from './evaluator';
 export { parse } from './parser';
 export { tokenize } from './tokenizer';
+export { walk, collectGateRefs, collectCalls } from './walk';
+
+/** Built-in functions and their exact arities (the entire allow-list). */
+export const BUILTIN_ARITY: Readonly<Record<string, number>> = {
+  len: 1,
+  file_exists: 1,
+  defined: 1,
+  any: 2,
+  all: 2,
+  count: 2,
+  gate: 1,
+};
 
 /** Cache parsed ASTs by source string — expressions are reused across phases. */
 const astCache = new Map<string, Node>();
