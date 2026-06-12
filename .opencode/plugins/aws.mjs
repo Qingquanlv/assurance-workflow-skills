@@ -96,6 +96,8 @@ ${skills.join('\n')}
 - \`Task\` with subagents → OpenCode's subagent system
 
 **Key CLI commands (must be run in terminal, never fabricated):**
+- \`aws status --change <change-id> --json\` — compute deterministic workflow phase status (shadow-mode orchestration)
+- \`aws gate check --change <change-id> --phase <phase-id> --json\` — adjudicate one phase gate deterministically
 - \`aws run --change <change-id>\` — execute tests (skill: aws-run)
 - \`aws report inspect --change <change-id>\` — classify failures (skill: aws-inspect)
 `;
