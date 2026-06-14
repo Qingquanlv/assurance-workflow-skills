@@ -85,7 +85,7 @@ def main():
         return
 
     base_url = os.environ.get("AI_BASE_URL", "https://api.anthropic.com/v1")
-    model = os.environ.get("AI_MODEL", "claude-sonnet-4-5")
+    model = os.environ.get("AI_MODEL", "kimi-k2.7-code")
     changed_files_raw = os.environ.get("CHANGED_FILES", "").strip()
     commit_sha = os.environ.get("COMMIT_SHA", "unknown")[:7]
     commit_message = os.environ.get("COMMIT_MESSAGE", "").split("\n")[0][:100]
