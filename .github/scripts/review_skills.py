@@ -7,8 +7,8 @@ issues were found and the issue title/body to create.
 
 Required env vars:
   AI_API_KEY     - API key (required)
-  AI_BASE_URL    - API base URL (default: https://api.anthropic.com/v1)
-  AI_MODEL       - Model name (default: claude-sonnet-4-5)
+  AI_BASE_URL    - API base URL (default: https://api.moonshot.cn/v1)
+  AI_MODEL       - Model name (default: kimi-k2.7-code)
   CHANGED_FILES  - Newline-separated list of changed file paths
   COMMIT_SHA     - Current commit SHA
   COMMIT_MESSAGE - Commit message
@@ -84,7 +84,7 @@ def main():
         set_output("has_issues", "false")
         return
 
-    base_url = os.environ.get("AI_BASE_URL", "https://api.anthropic.com/v1")
+    base_url = os.environ.get("AI_BASE_URL", "https://api.moonshot.cn/v1")
     model = os.environ.get("AI_MODEL", "kimi-k2.7-code")
     changed_files_raw = os.environ.get("CHANGED_FILES", "").strip()
     commit_sha = os.environ.get("COMMIT_SHA", "unknown")[:7]
