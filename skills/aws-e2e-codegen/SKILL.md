@@ -181,6 +181,42 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 
 - `tests/e2e/test_<module>_e2e.py` — test functions (required when mapped)
 - `tests/e2e/scripts/<module>_data_setup.py` — **only when** plan + data-knowledge authorize new setup script
+
+### Test Data Strategy
+
+**pytest `fixture` vs factory pattern — do not confuse them:**
+
+- **pytest `fixture`** is the *injection mechanism*. The `tests/fixtures/` directory refers to this mechanism — do NOT rename or remove it.
+- **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory rather than a static dict.
+
+Rules:
+- Implement Playwright test fixtures as factories: each test receives an independent data state.
+- Do not hard-code user credentials, entity IDs, or environment-specific URLs in fixture bodies.
+- Derive all data capabilities from `.aws/data-knowledge.yaml`.
+- Shared mutable state between Playwright tests causes flaky results — always set up and tear down per test.
+
+```python
+# Preferred: factory-as-fixture for E2E data setup
+# NOTE: Adapt `entity_factory`, `/api/entities`, and field names
+#       to the actual module per data-knowledge.yaml and the plan.
+@pytest.fixture
+def entity_factory(api_client):
+    created = []
+
+    def _create(**overrides):
+        payload = {"name": "E2E Test Entity", **overrides}
+        r = api_client.post("/api/entities", json=payload)
+        r.raise_for_status()
+        entity = r.json()
+        created.append(entity["id"])
+        return entity
+
+    yield _create
+
+    for entity_id in created:
+        api_client.delete(f"/api/entities/{entity_id}")
+```
+
 - `tests/fixtures/**/*.py` — **only when** plan + data-knowledge authorize new fixture wrappers
 - `tests/e2e/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
 - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` — always
