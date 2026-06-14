@@ -12,6 +12,9 @@ interface RefreshOptions {
 
 interface RefreshPlan {
   cacheDirs: string[];
+  skillsPathAlreadySet: boolean;
+  skillsPathAdded: boolean;
+  openCodeJsonPath: string | null;
 }
 
 function opencodeConfigHome(): string {
@@ -41,22 +44,106 @@ function listAwsPackageCaches(configHome: string, cacheHome: string): string[] {
   return matches;
 }
 
-export function planSkillRefresh(): RefreshPlan {
+function expandHome(p: string): string {
+  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  if (p.startsWith('~\\')) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+/** Find the user-level opencode.json (global config, not project-level). */
+function findGlobalOpenCodeJson(): string | null {
+  const candidates = [
+    path.join(os.homedir(), '.config', 'opencode', 'opencode.json'),
+    path.join(os.homedir(), '.opencode', 'opencode.json'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Ensure `skillsDir` is listed in opencode.json `skills.paths`.
+ * Returns what happened and where the file is.
+ */
+function ensureSkillsPath(skillsDir: string, dryRun: boolean): {
+  alreadySet: boolean;
+  added: boolean;
+  openCodeJsonPath: string | null;
+} {
+  const jsonPath = findGlobalOpenCodeJson();
+  if (!jsonPath) {
+    return { alreadySet: false, added: false, openCodeJsonPath: null };
+  }
+
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  } catch {
+    return { alreadySet: false, added: false, openCodeJsonPath: jsonPath };
+  }
+
+  const skillsConfig = (config.skills ?? {}) as Record<string, unknown>;
+  const existingPaths: string[] = Array.isArray(skillsConfig.paths)
+    ? skillsConfig.paths as string[]
+    : [];
+
+  // Compare resolved absolute paths (handles both ~/... and absolute forms)
+  const resolvedTarget = path.resolve(skillsDir);
+  const alreadySet = existingPaths.some(
+    p => path.resolve(expandHome(p)) === resolvedTarget
+  );
+
+  if (alreadySet) {
+    return { alreadySet: true, added: false, openCodeJsonPath: jsonPath };
+  }
+
+  if (!dryRun) {
+    config.skills = { ...skillsConfig, paths: [...existingPaths, skillsDir] };
+    fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  }
+
+  return { alreadySet: false, added: true, openCodeJsonPath: jsonPath };
+}
+
+export function planSkillRefresh(packageRoot: string): RefreshPlan {
   const configHome = opencodeConfigHome();
   const cacheHome = opencodeCacheHome();
+  const skillsDir = path.join(packageRoot, 'skills');
+
+  const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, /* dryRun */ true);
+
   return {
     cacheDirs: listAwsPackageCaches(configHome, cacheHome),
+    skillsPathAlreadySet: alreadySet,
+    skillsPathAdded: added,
+    openCodeJsonPath,
   };
 }
 
-export function refreshOpenCodeSkills(options: RefreshOptions = {}): RefreshPlan {
-  const plan = planSkillRefresh();
-  if (options.dryRun) return plan;
+export function refreshOpenCodeSkills(packageRoot: string, options: RefreshOptions = {}): RefreshPlan {
+  const configHome = opencodeConfigHome();
+  const cacheHome = opencodeCacheHome();
+  const skillsDir = path.join(packageRoot, 'skills');
+  const dryRun = options.dryRun === true;
 
-  for (const dir of plan.cacheDirs) {
-    fs.rmSync(dir, { recursive: true, force: true });
+  // 1. Clear plugin package caches (for original OpenCode CLI users)
+  const cacheDirs = listAwsPackageCaches(configHome, cacheHome);
+  if (!dryRun) {
+    for (const dir of cacheDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
-  return plan;
+
+  // 2. Ensure skills.paths in global opencode.json (for OpenChamber / web server)
+  const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, dryRun);
+
+  return {
+    cacheDirs,
+    skillsPathAlreadySet: alreadySet,
+    skillsPathAdded: added,
+    openCodeJsonPath,
+  };
 }
 
 export function registerSkillCommand(program: Command): void {
@@ -66,8 +153,10 @@ export function registerSkillCommand(program: Command): void {
 
   skill
     .command('refresh')
-    .description('Refresh local OpenCode AWS skills by clearing AWS plugin package caches')
-    .option('--dry-run', 'Show what would be removed without deleting anything')
+    .description(
+      'Refresh OpenCode AWS skills: clears plugin caches and ensures skills.paths in opencode.json'
+    )
+    .option('--dry-run', 'Show what would change without modifying anything')
     .option('--build-link', 'Also run npm run build && npm link from the AWS package root')
     .action((options: RefreshOptions) => {
       const packageRoot = path.resolve(__dirname, '../../');
@@ -76,6 +165,7 @@ export function registerSkillCommand(program: Command): void {
       logHeader(`aws skill refresh${dryRun ? ' (DRY RUN)' : ''}`);
       logBlank();
 
+      // Optional: rebuild + relink
       if (options.buildLink) {
         const cmd = 'npm run build && npm link';
         if (dryRun) {
@@ -84,10 +174,12 @@ export function registerSkillCommand(program: Command): void {
           logInfo(`Running: ${cmd}`);
           execSync(cmd, { cwd: packageRoot, stdio: 'inherit' });
         }
+        logBlank();
       }
 
-      const plan = refreshOpenCodeSkills({ dryRun });
+      const plan = refreshOpenCodeSkills(packageRoot, { dryRun });
 
+      // Report: package cache removal
       if (plan.cacheDirs.length === 0) {
         logInfo('No AWS OpenCode package caches found.');
       } else {
@@ -98,11 +190,28 @@ export function registerSkillCommand(program: Command): void {
       }
 
       logBlank();
+
+      // Report: skills.paths in opencode.json
+      if (plan.openCodeJsonPath === null) {
+        logWarn('opencode.json not found — skills.paths not configured automatically.');
+        logWarn('  Add manually: { "skills": { "paths": ["' + path.join(packageRoot, 'skills') + '"] } }');
+      } else if (plan.skillsPathAlreadySet) {
+        logOk(`skills.paths already set in ${plan.openCodeJsonPath}`);
+      } else if (plan.skillsPathAdded) {
+        logOk(`added skills.paths entry to ${plan.openCodeJsonPath}`);
+        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      } else {
+        // dryRun and not yet set
+        logInfo(`[dry-run] would add skills.paths to ${plan.openCodeJsonPath}`);
+        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      }
+
+      logBlank();
       if (dryRun) {
         logWarn('DRY RUN only. Re-run without --dry-run to apply changes.');
       } else {
         logOk('OpenCode AWS skill refresh complete.');
-        logWarn('Restart OpenCode so it re-scans AWS skills from the latest package.');
+        logWarn('Restart OpenCode so it re-scans AWS skills from the latest config.');
       }
     });
 }
