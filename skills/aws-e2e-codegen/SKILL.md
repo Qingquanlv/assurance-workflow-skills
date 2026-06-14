@@ -181,6 +181,9 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 
 - `tests/e2e/test_<module>_e2e.py` — test functions (required when mapped)
 - `tests/e2e/scripts/<module>_data_setup.py` — **only when** plan + data-knowledge authorize new setup script
+- `tests/fixtures/**/*.py` — **only when** plan + data-knowledge authorize new fixture wrappers
+- `tests/e2e/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
+- `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` — always
 
 ### Test Data Strategy
 
@@ -190,7 +193,7 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 - **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory rather than a static dict.
 
 Rules:
-- Implement Playwright test fixtures as factories: each test receives an independent data state.
+- When authorized to generate a new fixture, implement it as a Playwright factory: each test receives an independent data state.
 - Do not hard-code user credentials, entity IDs, or environment-specific URLs in fixture bodies.
 - Derive all data capabilities from `.aws/data-knowledge.yaml`.
 - Shared mutable state between Playwright tests causes flaky results — always set up and tear down per test.
@@ -216,10 +219,6 @@ def entity_factory(api_client):
     for entity_id in created:
         api_client.delete(f"/api/entities/{entity_id}")
 ```
-
-- `tests/fixtures/**/*.py` — **only when** plan + data-knowledge authorize new fixture wrappers
-- `tests/e2e/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
-- `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` — always
 
 **known-product-issues.md:** Codegen may **append** implementation notes only when the file already exists and `aws-e2e-plan-reviewer` has acknowledged the issue. Codegen **MUST NOT** create the file for E2E coverage gaps.
 

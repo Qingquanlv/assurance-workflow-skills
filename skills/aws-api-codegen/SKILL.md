@@ -252,7 +252,7 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 
 ### tests/fixtures/<module>_fixtures.py
 
-### Test Data Strategy
+#### Test Data Strategy
 
 **pytest `fixture` vs factory pattern — do not confuse them:**
 
@@ -260,7 +260,7 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 - **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory (dynamic data creation) rather than a static dict (hard-coded values).
 
 Rules:
-- Implement fixtures as factories: return a factory function or use `factory_boy` / `polyfactory` patterns rather than returning a plain static dict.
+- When authorized to generate a new fixture, implement it as a factory: return a factory function or use `factory_boy` / `polyfactory` patterns rather than returning a plain static dict.
 - Each test must receive an independent data instance — avoid shared mutable state between tests.
 - Do not hard-code account IDs, tokens, or business-entity IDs in fixture bodies; derive them from `.aws/data-knowledge.yaml` capabilities.
 
