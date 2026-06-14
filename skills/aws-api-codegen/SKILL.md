@@ -252,6 +252,41 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 
 ### tests/fixtures/<module>_fixtures.py
 
+### Test Data Strategy
+
+**pytest `fixture` vs factory pattern — do not confuse them:**
+
+- **pytest `fixture`** is the *injection mechanism* (the `@pytest.fixture` decorator). This is mandatory pytest convention. The `tests/fixtures/` directory name refers to this mechanism — do NOT rename or remove it.
+- **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory (dynamic data creation) rather than a static dict (hard-coded values).
+
+Rules:
+- Implement fixtures as factories: return a factory function or use `factory_boy` / `polyfactory` patterns rather than returning a plain static dict.
+- Each test must receive an independent data instance — avoid shared mutable state between tests.
+- Do not hard-code account IDs, tokens, or business-entity IDs in fixture bodies; derive them from `.aws/data-knowledge.yaml` capabilities.
+
+```python
+# Preferred: factory-as-fixture (each test gets independent data)
+# NOTE: Adapt `entity_factory`, `/api/entities`, and field names
+#       to the actual module per data-knowledge.yaml and the plan.
+@pytest.fixture
+def entity_factory(api_client):
+    created = []
+    def _create(**overrides):
+        payload = {"name": "Test Entity", **overrides}
+        r = api_client.post("/api/entities", json=payload)
+        r.raise_for_status()
+        created.append(r.json()["id"])
+        return r.json()
+    yield _create
+    for entity_id in created:
+        api_client.delete(f"/api/entities/{entity_id}")
+
+# Avoid: static fixture returning a fixed dict
+@pytest.fixture
+def entity_data():
+    return {"name": "固定实体名"}  # shared, not parameterizable
+```
+
 Generate **only when** `api-codegen-plan.md` and `.aws/data-knowledge.yaml` explicitly authorize new fixture wrappers or factories.
 
 If required capability already exists in the project or data-knowledge file, **reuse it** — do not generate a new fixture file.
