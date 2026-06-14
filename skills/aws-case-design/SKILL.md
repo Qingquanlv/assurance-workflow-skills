@@ -84,7 +84,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 5. **Analyze risks internally** — do NOT dump full risk analysis to the user
 6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
 7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section with a line per case)
+8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section — one entry per case with a `case_id`, layer assignment, and `reason`)
 9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
 10. **Self-review case delta YAML** — validate schema, required fields, delta operation rules, semantic rules
 11. **Hand off** — report completion; the orchestrator or user will invoke `aws-case-reviewer`
@@ -117,7 +117,7 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 
 ### Test Layer Decision Tree
 
-For every case, apply this two-level rule before assigning `automation_targets`:
+For every case targeting `tests/api/` or `tests/e2e/`, apply this rule before assigning `automation_targets`:
 
 ```
 Behavior to verify:
