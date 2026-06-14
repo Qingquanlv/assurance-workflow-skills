@@ -163,7 +163,7 @@ Allowed operations:
 
 **Layering fixes** (`category: layering`, `auto_fix_allowed: true`):
 
-- REQUIRED: the finding MUST have a `fix_scope` field. If `fix_scope` is absent, STOP — this is a reviewer error; do not attempt to guess the fix scope.
+- REQUIRED: the finding MUST have a `fix_scope` field. If `fix_scope` is absent, STOP the entire fixer immediately — this is a reviewer error; do not attempt to guess the fix scope, do not apply any other fixes.
 - The ONLY permitted action is adjusting `automation_targets` on the specific case identified in the finding (e.g. `[e2e] → [api]`).
 - Scope is strictly **single-case**: do not split cases, merge cases, move assertions, or change any field other than `automation_targets`.
 - Do not change `title`, `steps`, `assertions`, `summary`, or any semantic content.
