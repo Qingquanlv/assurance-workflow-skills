@@ -15,6 +15,9 @@ interface RefreshPlan {
   skillsPathAlreadySet: boolean;
   skillsPathAdded: boolean;
   openCodeJsonPath: string | null;
+  projectJsonPath: string | null;
+  projectPathAlreadySet: boolean;
+  projectPathAdded: boolean;
 }
 
 function opencodeConfigHome(): string {
@@ -62,8 +65,64 @@ function findGlobalOpenCodeJson(): string | null {
   return null;
 }
 
+/** Find the project-level opencode.json starting from cwd, walking up. */
+function findProjectOpenCodeJson(startDir: string): string | null {
+  const candidates = [
+    path.join(startDir, 'opencode.json'),
+    path.join(startDir, '.opencode', 'opencode.json'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  // Walk one level up (common case: run from subdir of project root)
+  const parent = path.dirname(startDir);
+  if (parent === startDir) return null;
+  const parentCandidates = [
+    path.join(parent, 'opencode.json'),
+    path.join(parent, '.opencode', 'opencode.json'),
+  ];
+  for (const c of parentCandidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 /**
- * Ensure `skillsDir` is listed in opencode.json `skills.paths`.
+ * Ensure `skillsDir` is listed in `skills.paths` of the given opencode.json file.
+ */
+function ensureSkillsPathInFile(skillsDir: string, jsonPath: string, dryRun: boolean): {
+  alreadySet: boolean;
+  added: boolean;
+} {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  } catch {
+    return { alreadySet: false, added: false };
+  }
+
+  const skillsConfig = (config.skills ?? {}) as Record<string, unknown>;
+  const existingPaths: string[] = Array.isArray(skillsConfig.paths)
+    ? skillsConfig.paths as string[]
+    : [];
+
+  const resolvedTarget = path.resolve(skillsDir);
+  const alreadySet = existingPaths.some(
+    p => path.resolve(expandHome(p)) === resolvedTarget
+  );
+
+  if (alreadySet) return { alreadySet: true, added: false };
+
+  if (!dryRun) {
+    config.skills = { ...skillsConfig, paths: [...existingPaths, skillsDir] };
+    fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  }
+
+  return { alreadySet: false, added: true };
+}
+
+/**
+ * Ensure `skillsDir` is listed in global opencode.json `skills.paths`.
  * Returns what happened and where the file is.
  */
 function ensureSkillsPath(skillsDir: string, dryRun: boolean): {
@@ -75,49 +134,42 @@ function ensureSkillsPath(skillsDir: string, dryRun: boolean): {
   if (!jsonPath) {
     return { alreadySet: false, added: false, openCodeJsonPath: null };
   }
+  const result = ensureSkillsPathInFile(skillsDir, jsonPath, dryRun);
+  return { ...result, openCodeJsonPath: jsonPath };
+}
 
-  let config: Record<string, unknown>;
-  try {
-    config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-  } catch {
-    return { alreadySet: false, added: false, openCodeJsonPath: jsonPath };
-  }
-
-  const skillsConfig = (config.skills ?? {}) as Record<string, unknown>;
-  const existingPaths: string[] = Array.isArray(skillsConfig.paths)
-    ? skillsConfig.paths as string[]
-    : [];
-
-  // Compare resolved absolute paths (handles both ~/... and absolute forms)
-  const resolvedTarget = path.resolve(skillsDir);
-  const alreadySet = existingPaths.some(
-    p => path.resolve(expandHome(p)) === resolvedTarget
-  );
-
-  if (alreadySet) {
-    return { alreadySet: true, added: false, openCodeJsonPath: jsonPath };
-  }
-
-  if (!dryRun) {
-    config.skills = { ...skillsConfig, paths: [...existingPaths, skillsDir] };
-    fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  }
-
-  return { alreadySet: false, added: true, openCodeJsonPath: jsonPath };
+/**
+ * Find and update project-level opencode.json if it exists in or near cwd.
+ */
+function ensureSkillsPathInProject(skillsDir: string, cwd: string, dryRun: boolean): {
+  alreadySet: boolean;
+  added: boolean;
+  projectJsonPath: string | null;
+} {
+  const jsonPath = findProjectOpenCodeJson(cwd);
+  if (!jsonPath) return { alreadySet: false, added: false, projectJsonPath: null };
+  const result = ensureSkillsPathInFile(skillsDir, jsonPath, dryRun);
+  return { ...result, projectJsonPath: jsonPath };
 }
 
 export function planSkillRefresh(packageRoot: string): RefreshPlan {
   const configHome = opencodeConfigHome();
   const cacheHome = opencodeCacheHome();
   const skillsDir = path.join(packageRoot, 'skills');
+  const cwd = process.cwd();
 
   const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, /* dryRun */ true);
+  const { alreadySet: pSet, added: pAdded, projectJsonPath } =
+    ensureSkillsPathInProject(skillsDir, cwd, /* dryRun */ true);
 
   return {
     cacheDirs: listAwsPackageCaches(configHome, cacheHome),
     skillsPathAlreadySet: alreadySet,
     skillsPathAdded: added,
     openCodeJsonPath,
+    projectJsonPath,
+    projectPathAlreadySet: pSet,
+    projectPathAdded: pAdded,
   };
 }
 
@@ -125,6 +177,7 @@ export function refreshOpenCodeSkills(packageRoot: string, options: RefreshOptio
   const configHome = opencodeConfigHome();
   const cacheHome = opencodeCacheHome();
   const skillsDir = path.join(packageRoot, 'skills');
+  const cwd = process.cwd();
   const dryRun = options.dryRun === true;
 
   // 1. Clear plugin package caches (for original OpenCode CLI users)
@@ -138,11 +191,18 @@ export function refreshOpenCodeSkills(packageRoot: string, options: RefreshOptio
   // 2. Ensure skills.paths in global opencode.json (for OpenChamber / web server)
   const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, dryRun);
 
+  // 3. Also ensure skills.paths in project-level opencode.json (if any) so project context works
+  const { alreadySet: pSet, added: pAdded, projectJsonPath } =
+    ensureSkillsPathInProject(skillsDir, cwd, dryRun);
+
   return {
     cacheDirs,
     skillsPathAlreadySet: alreadySet,
     skillsPathAdded: added,
     openCodeJsonPath,
+    projectJsonPath,
+    projectPathAlreadySet: pSet,
+    projectPathAdded: pAdded,
   };
 }
 
@@ -191,18 +251,30 @@ export function registerSkillCommand(program: Command): void {
 
       logBlank();
 
-      // Report: skills.paths in opencode.json
+      // Report: skills.paths in global opencode.json
       if (plan.openCodeJsonPath === null) {
-        logWarn('opencode.json not found — skills.paths not configured automatically.');
+        logWarn('Global opencode.json not found — skills.paths not configured automatically.');
         logWarn('  Add manually: { "skills": { "paths": ["' + path.join(packageRoot, 'skills') + '"] } }');
       } else if (plan.skillsPathAlreadySet) {
-        logOk(`skills.paths already set in ${plan.openCodeJsonPath}`);
+        logOk(`[global] skills.paths already set in ${plan.openCodeJsonPath}`);
       } else if (plan.skillsPathAdded) {
-        logOk(`added skills.paths entry to ${plan.openCodeJsonPath}`);
+        logOk(`[global] added skills.paths entry to ${plan.openCodeJsonPath}`);
         logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
       } else {
-        // dryRun and not yet set
         logInfo(`[dry-run] would add skills.paths to ${plan.openCodeJsonPath}`);
+        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      }
+
+      // Report: skills.paths in project-level opencode.json
+      if (plan.projectJsonPath === null) {
+        logInfo('[project] no project-level opencode.json found near cwd — skipping');
+      } else if (plan.projectPathAlreadySet) {
+        logOk(`[project] skills.paths already set in ${plan.projectJsonPath}`);
+      } else if (plan.projectPathAdded) {
+        logOk(`[project] added skills.paths entry to ${plan.projectJsonPath}`);
+        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      } else {
+        logInfo(`[dry-run] would add skills.paths to ${plan.projectJsonPath}`);
         logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
       }
 
