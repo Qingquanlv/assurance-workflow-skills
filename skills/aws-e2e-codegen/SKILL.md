@@ -486,6 +486,26 @@ Do not silently change tests to avoid product bugs or skip flows.
 - Do not create `known-product-issues.md` as the first acknowledgment of an E2E coverage gap — that belongs to human + `aws-e2e-plan-reviewer` before pass.
 - Do not generate locators without confirmed Source and Confidence in `e2e-codegen-plan.md`.
 
+### Test Failure Integrity
+
+Generated tests MUST fail for the right reason.
+
+Rules:
+- Every assertion MUST map to a case assertion or plan assertion.
+- Do not use `assert True`, placeholder assertions, or empty expectations.
+- Do not swallow failures with empty `try/except` or `except Exception: pass`.
+- Do not add fallback logic that hides product failures.
+- Do not use `skip`, `xfail`, `pytest.mark.skip`, or `test.fixme` to make generated tests green.
+- Do not loosen expected values after observing failures.
+- Do not mock the behavior under test unless the plan explicitly authorizes it.
+- Do not fall back to a generic locator if the primary locator fails — report the failure instead.
+- Setup may be flexible; assertions must be strict.
+
+Self-check before finishing codegen:
+1. Would this test fail if the product behavior is wrong?
+2. Does every assertion trace back to the case or plan?
+3. Are setup failures reported instead of hidden?
+
 ## Stop Conditions
 
 **STOP and report** to orchestrator/user. In orchestrated mode, do **not** ask for chat confirmation to bypass the gate.
