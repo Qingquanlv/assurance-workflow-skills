@@ -51,17 +51,19 @@ QA 范围澄清环节新增两层决策树(项目只有 API + E2E 两层产物):
 
 产物变化:
 
-- `proposal.md` 新增 `## Layer Rationale` 一节,逐条 case 标注「API / E2E + 选择理由」。示例:
+- `proposal.md` 新增 `## Layer Rationale` 一节,以 `case_id` 为 key 逐条标注,格式**固定**如下(reviewer 依此比对 `case.yaml` 的 `case_id` 与 `automation_targets`):
 
 ```markdown
 ## Layer Rationale
 
-- Case CASE-001 → API
-  原因:权限码、状态码、字段校验,单请求即可断言
+- CASE-001: API
+  - reason: 权限码、状态码、字段校验,单请求即可断言
 
-- Case CASE-002 → E2E
-  原因:需要验证前端交互与页面状态同步(提交后列表实时刷新)
+- CASE-002: E2E
+  - reason: 需要验证浏览器交互与页面状态同步(提交后列表实时刷新)
 ```
+
+格式约束:每条必须包含 `<case_id>: <layer>` + `- reason: <理由>`,不得省略任何一项。
 
 - `case.yaml` **不变**(不新增 `layer_rationale` 字段,保证零下游影响)。
 
@@ -96,15 +98,21 @@ QA 范围澄清环节新增两层决策树(项目只有 API + E2E 两层产物):
   "category": "layering",
   "severity": "medium",
   "message": "User permission/error-code matrix should be API, not E2E",
-  "auto_fix_allowed": true
+  "auto_fix_allowed": true,
+  "fix_scope": ["automation_targets"]
 }
 ```
 
+`fix_scope` 是 `layering` finding 的专有字段,明确限定 fixer 允许触碰的字段。reviewer 必须在每条 `auto_fix_allowed: true` 的 layering finding 中写入此字段;fixer 遇到无 `fix_scope` 的 layering finding 应 STOP。
+
 ### 3.3 `aws-case-fixer`(机械修分层)
 
-- 对 `category: layering` 且 `auto_fix_allowed: true` 的 finding,**唯一允许**的机械动作:调整 `case.yaml` 的 `automation_targets`(如 `e2e → api` 或 `api → e2e`)。
+- 对 `category: layering` 且 `auto_fix_allowed: true` 的 finding:
+  - 必须有 `fix_scope` 字段;无此字段则 STOP。
+  - **唯一允许**的机械动作:按 `fix_scope` 列表操作,目前 `fix_scope` 仅为 `["automation_targets"]`,即只调整 `automation_targets`(如 `e2e → api` 或 `api → e2e`)。
+  - **Type 1 自动修严格限于单条 case 内**:不得拆分 case、不得合并 case、不得迁移 assertions。
 - 严格继承现有安全规则:`severity in [high, critical]` 直接 STOP,绝不触碰 Type 2 分层问题。
-- 不得借分层修复之名改动 case 的标题、断言、范围等语义内容。
+- 不得借分层修复之名改动 case 的 title、steps、assertions、scope 等任何语义内容。
 
 ## 4. C4 — 测试数据原则澄清
 
