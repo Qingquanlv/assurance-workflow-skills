@@ -194,6 +194,7 @@ Do not delete cases unless the review explicitly marks them as duplicate and aut
 
 Do not overwrite existing case files wholesale. Prefer minimal diffs.
 
+For `layering` findings specifically:
 - Do not use a `layering` finding to split, merge, or restructure cases — that is a Type 2 design issue requiring human review.
 - Do not change any field other than `automation_targets` when applying a `layering` fix.
 

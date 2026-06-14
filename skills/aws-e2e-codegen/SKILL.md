@@ -193,7 +193,7 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 - **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory rather than a static dict.
 
 Rules:
-- When authorized to generate a new fixture, implement it as a Playwright factory: each test receives an independent data state.
+- When authorized to generate a new fixture, implement it as a factory (callable fixture pattern): each test receives an independent data state.
 - Do not hard-code user credentials, entity IDs, or environment-specific URLs in fixture bodies.
 - Derive all data capabilities from `.aws/data-knowledge.yaml`.
 - Shared mutable state between Playwright tests causes flaky results — always set up and tear down per test.

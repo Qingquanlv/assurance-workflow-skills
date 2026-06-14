@@ -130,7 +130,7 @@ Behavior to verify:
 Hard rules:
 - If API can cover it, do NOT design it as E2E.
 - Error-code matrices go to API.
-- E2E keeps 1 happy-path case + at most a few critical exception flows.
+- E2E keeps 1 happy-path case + at most 2–3 critical exception flows.
 - The same assertion point MUST NOT appear in both API and E2E cases.
 
 **Good question example:**

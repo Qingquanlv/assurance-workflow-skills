@@ -352,10 +352,10 @@ Compare `proposal.md` `## Layer Rationale` entries against each case's `automati
 
 Flag these anti-patterns:
 
-- A case verifiable by a single HTTP request is assigned `e2e` instead of `api`
-- Error-code / field-validation matrix is in E2E
-- Full CRUD flow uses E2E for every scenario (no API cases)
-- The same assertion point appears in both API and E2E cases
+- A case verifiable by a single HTTP request is assigned `e2e` instead of `api` → **Type 1**
+- Error-code / field-validation matrix is in E2E → **Type 1**
+- Full CRUD flow uses E2E for every scenario (no API cases) → **Type 1** per scenario, or **Type 2** if assertions must migrate
+- The same assertion point appears in both API and E2E cases → **Type 2**
 
 **Classification:**
 
