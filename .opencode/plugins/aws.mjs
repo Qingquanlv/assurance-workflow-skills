@@ -105,7 +105,7 @@ ${skills.join('\n')}
   return _bootstrapCache;
 };
 
-export const AwsPlugin = async ({ client, directory }) => {
+export default async ({ client, directory }) => {
   return {
     // Register AWS skills directory so OpenCode discovers all skills
     config: async (config) => {
