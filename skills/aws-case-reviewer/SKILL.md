@@ -112,6 +112,7 @@ Review the generated case artifacts for:
 - Traceability
 - Risk and ambiguity
 - Duplicate or conflicting cases
+- Test layer assignments (API vs E2E per the decision tree in `aws-case-design`)
 
 ---
 
@@ -345,6 +346,49 @@ If the target stable case file cannot be found, record as a warning (not a block
 - Check whether `risk.rationale` is meaningful (not a generic placeholder).
 - Flag vague risk rationale as low/medium finding. Flag missing risk block as blocker.
 
+### 13. Layering Review
+
+Compare `proposal.md` `## Layer Rationale` entries against each case's `automation_targets`.
+
+Flag these anti-patterns:
+
+- A case verifiable by a single HTTP request is assigned `e2e` instead of `api`
+- Error-code / field-validation matrix is in E2E
+- Full CRUD flow uses E2E for every scenario (no API cases)
+- The same assertion point appears in both API and E2E cases
+
+**Classification:**
+
+**Type 1 — Mechanical fix** (layer label is wrong; test target and assertions are unchanged):
+- Examples: error-code matrix assigned `e2e`, field validation assigned `e2e`
+- `severity: low | medium`
+- `auto_fix_allowed: true`
+- `fix_scope: ["automation_targets"]`
+- Reviewer MUST include `fix_scope` for every layering finding with `auto_fix_allowed: true`
+
+**Type 2 — Design-level issue** (case must be split / refactored / assertions migrated):
+- Examples: one E2E scenario wraps both API logic and UI interaction — needs decomposition
+- `severity: high`
+- `auto_fix_allowed: false`
+- `human_review_required: true`
+- next_action: `human_review` — return to `aws-case-design` or human redesign
+
+Finding example (Type 1):
+
+```json
+{
+  "id": "CASE-FINDING-LAYER-001",
+  "severity": "medium",
+  "category": "layering",
+  "file": "qa/changes/<change-id>/cases/<module>/case.yaml",
+  "message": "CASE-001 validation is verifiable via single API request; assign api not e2e.",
+  "suggestion": "Change automation_targets from [e2e] to [api].",
+  "auto_fix_allowed": true,
+  "fix_scope": ["automation_targets"],
+  "human_review_required": false
+}
+```
+
 ---
 
 ## Decision Rules
@@ -530,14 +574,19 @@ Each finding must use:
 {
   "id": "CASE-FINDING-001",
   "severity": "low|medium|high|critical",
-  "category": "coverage|schema|clarity|testability|data|assertion|traceability|scope|duplication",
+  "category": "coverage|schema|clarity|testability|data|assertion|traceability|scope|duplication|layering",
   "file": "qa/changes/<change-id>/cases/...",
   "message": "What is wrong.",
   "suggestion": "How to fix it.",
   "auto_fix_allowed": true,
+  "fix_scope": ["automation_targets"],
   "human_review_required": false
 }
 ```
+
+`fix_scope` is REQUIRED when `category == "layering"` and `auto_fix_allowed == true`.
+It lists the exact case fields the fixer is permitted to touch.
+For all other categories, `fix_scope` is omitted.
 
 Each `needs_review` item must use:
 
