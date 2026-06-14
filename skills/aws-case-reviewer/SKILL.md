@@ -370,8 +370,7 @@ Flag these anti-patterns:
 - Examples: one E2E scenario wraps both API logic and UI interaction — needs decomposition
 - `severity: high`
 - `auto_fix_allowed: false`
-- `human_review_required: true`
-- next_action: `human_review` — return to `aws-case-design` or human redesign
+- `human_review_required: true` (workflow: return to `aws-case-design` for redesign)
 
 Finding example (Type 1):
 
@@ -579,7 +578,6 @@ Each finding must use:
   "message": "What is wrong.",
   "suggestion": "How to fix it.",
   "auto_fix_allowed": true,
-  "fix_scope": ["automation_targets"],
   "human_review_required": false
 }
 ```
