@@ -344,6 +344,25 @@ qa/changes/<change-id>/codegen/api-codegen-summary.md
 - Do not write any execution result files (api-result.json, summary.md, etc.).
 - Do not create `known-product-issues.md` as the first acknowledgment of an endpoint coverage gap — that belongs to human + `aws-api-plan-reviewer` before pass.
 
+### Test Failure Integrity
+
+Generated tests MUST fail for the right reason.
+
+Rules:
+- Every assertion MUST map to a case assertion or plan assertion.
+- Do not use `assert True`, placeholder assertions, or empty expectations.
+- Do not swallow failures with empty `try/except` or `except Exception: pass`.
+- Do not add fallback logic that hides product failures.
+- Do not use `skip`, `xfail`, or conditional early return to make generated tests green.
+- Do not loosen expected values after observing failures.
+- Do not mock the behavior under test unless the plan explicitly authorizes it.
+- Setup may be flexible; assertions must be strict.
+
+Self-check before finishing codegen:
+1. Would this test fail if the product behavior is wrong?
+2. Does every assertion trace back to the case or plan?
+3. Are setup failures reported instead of hidden?
+
 ## Workaround Policy
 
 Do not silently change tests to avoid product bugs.
