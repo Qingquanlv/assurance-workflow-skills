@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Harden AWS QA skills with explicit test layering rules (C1) and test data factory clarifications (C4) by incrementally updating five SKILL.md files, with no changes to case.yaml schema, workflow-schema, DSL, or the orchestration engine.
+**Goal:** Harden AWS QA skills with explicit test layering rules (C1), test data factory clarifications (C4), and test failure integrity rules (C5) by incrementally updating five SKILL.md files, with no changes to case.yaml schema, workflow-schema, DSL, or the orchestration engine.
 
-**Architecture:** Pure skill-rule additions. C1 spans three skills (case-design → case-reviewer → case-fixer) to form a complete lint+fix loop. C4 is a documentation-only amendment to the two codegen skills. No new gates, no new phases, no new files except this plan.
+**Architecture:** Pure skill-rule additions. C1 spans three skills (case-design → case-reviewer → case-fixer) to form a complete lint+fix loop. C4 and C5 are documentation-only amendments to the two codegen skills. No new gates, no new phases, no new files except this plan.
 
 **Tech Stack:** Markdown only. No TypeScript changes. All five target files are SKILL.md files under `skills/`.
 
@@ -17,8 +17,8 @@
 | `skills/aws-case-design/SKILL.md` | Add two-layer decision tree + `## Layer Rationale` format to `proposal.md` template |
 | `skills/aws-case-reviewer/SKILL.md` | Add `layering` category to enum + Layering Review section + finding schema with `fix_scope` |
 | `skills/aws-case-fixer/SKILL.md` | Add layering-specific allowed-action rules (`fix_scope`, single-case boundary) |
-| `skills/aws-api-codegen/SKILL.md` | Add Test Data Strategy section clarifying pytest fixture vs factory pattern |
-| `skills/aws-e2e-codegen/SKILL.md` | Same Test Data Strategy section as api-codegen |
+| `skills/aws-api-codegen/SKILL.md` | Add Test Data Strategy section (C4) + Test Failure Integrity rules (C5) |
+| `skills/aws-e2e-codegen/SKILL.md` | Same Test Data Strategy (C4) + Test Failure Integrity rules (C5) |
 
 ---
 
@@ -408,6 +408,129 @@ Expected: at least 1 hit.
 
 ---
 
+---
+
+## Task 7: `aws-api-codegen` — Test Failure Integrity rules (C5)
+
+**Files:**
+- Modify: `skills/aws-api-codegen/SKILL.md`
+
+### Step 7a: Append `### Test Failure Integrity` subsection inside `## Hard Rules`
+
+The `## Hard Rules` section ends with:
+```
+- Do not create `known-product-issues.md` as the first acknowledgment of an endpoint coverage gap — that belongs to human + `aws-api-plan-reviewer` before pass.
+```
+(Immediately followed by `## Workaround Policy`.)
+
+Append directly after that last bullet, before `## Workaround Policy`:
+
+```markdown
+### Test Failure Integrity
+
+Generated tests MUST fail for the right reason.
+
+Rules:
+- Every assertion MUST map to a case assertion or plan assertion.
+- Do not use `assert True`, placeholder assertions, or empty expectations.
+- Do not swallow failures with empty `try/except` or `except Exception: pass`.
+- Do not add fallback logic that hides product failures.
+- Do not use `skip`, `xfail`, or conditional early return to make generated tests green.
+- Do not loosen expected values after observing failures.
+- Do not mock the behavior under test unless the plan explicitly authorizes it.
+- Setup may be flexible; assertions must be strict.
+
+Self-check before finishing codegen:
+1. Would this test fail if the product behavior is wrong?
+2. Does every assertion trace back to the case or plan?
+3. Are setup failures reported instead of hidden?
+```
+
+- [ ] Open `skills/aws-api-codegen/SKILL.md`
+- [ ] Find the last bullet of `## Hard Rules`: `- Do not create \`known-product-issues.md\` as the first acknowledgment…`
+- [ ] Insert the `### Test Failure Integrity` block after that bullet, before `## Workaround Policy`
+
+### Step 7b: Commit
+
+- [ ] `git add skills/aws-api-codegen/SKILL.md`
+- [ ] `git commit -m "feat(skill): add Test Failure Integrity rules to aws-api-codegen"`
+
+---
+
+## Task 8: `aws-e2e-codegen` — Test Failure Integrity rules (C5)
+
+**Files:**
+- Modify: `skills/aws-e2e-codegen/SKILL.md`
+
+### Step 8a: Append `### Test Failure Integrity` subsection inside `## Hard Rules`
+
+The `## Hard Rules` section ends with:
+```
+- Do not generate locators without confirmed Source and Confidence in `e2e-codegen-plan.md`.
+```
+(Immediately followed by `## Stop Conditions`.)
+
+Append directly after that last bullet, before `## Stop Conditions`:
+
+```markdown
+### Test Failure Integrity
+
+Generated tests MUST fail for the right reason.
+
+Rules:
+- Every assertion MUST map to a case assertion or plan assertion.
+- Do not use `assert True`, placeholder assertions, or empty expectations.
+- Do not swallow failures with empty `try/except` or `except Exception: pass`.
+- Do not add fallback logic that hides product failures.
+- Do not use `skip`, `xfail`, `pytest.mark.skip`, or `test.fixme` to make generated tests green.
+- Do not loosen expected values after observing failures.
+- Do not mock the behavior under test unless the plan explicitly authorizes it.
+- Do not fall back to a generic locator if the primary locator fails — report the failure instead.
+- Setup may be flexible; assertions must be strict.
+
+Self-check before finishing codegen:
+1. Would this test fail if the product behavior is wrong?
+2. Does every assertion trace back to the case or plan?
+3. Are setup failures reported instead of hidden?
+```
+
+Note: E2E version adds one extra rule (no locator fallback) and explicitly lists `pytest.mark.skip` / `test.fixme` which are common Playwright Python patterns.
+
+- [ ] Open `skills/aws-e2e-codegen/SKILL.md`
+- [ ] Find the last bullet of `## Hard Rules`: `- Do not generate locators without confirmed Source and Confidence…`
+- [ ] Insert the `### Test Failure Integrity` block after that bullet, before `## Stop Conditions`
+
+### Step 8b: Commit
+
+- [ ] `git add skills/aws-e2e-codegen/SKILL.md`
+- [ ] `git commit -m "feat(skill): add Test Failure Integrity rules to aws-e2e-codegen"`
+
+---
+
+## Task 9: Final verification + push (C5)
+
+- [ ] Run grep to confirm both files contain the new section:
+
+```bash
+grep -l "Test Failure Integrity" \
+  skills/aws-api-codegen/SKILL.md \
+  skills/aws-e2e-codegen/SKILL.md
+```
+
+Expected: both paths printed.
+
+- [ ] Confirm self-check is present in both:
+
+```bash
+grep -n "Self-check" skills/aws-api-codegen/SKILL.md skills/aws-e2e-codegen/SKILL.md
+```
+
+Expected: at least 1 hit per file.
+
+- [ ] `git push`
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
@@ -417,9 +540,13 @@ Expected: at least 1 hit.
 - C1 Fixer fix_scope guard + single-case boundary → Task 3 ✓
 - C4 api-codegen fixture/factory clarification → Task 4 ✓
 - C4 e2e-codegen fixture/factory clarification → Task 5 ✓
+- C5 api-codegen Test Failure Integrity → Task 7 ✓
+- C5 e2e-codegen Test Failure Integrity → Task 8 ✓
 
 **No placeholders:** All steps include exact file paths, exact text to insert, and verification commands.
 
 **Type consistency:** `fix_scope: ["automation_targets"]` is introduced in Task 2 (reviewer) and consumed in Task 3 (fixer) — names match.
+
+**E2E adaptation:** Task 8 adds one extra rule (no locator fallback) and lists `test.fixme`/`pytest.mark.skip` explicitly to cover Playwright Python patterns not present in API tests.
 
 **Spec non-goals honored:** No changes to case.yaml schema, workflow-schema.yaml, DSL, engine, or any TypeScript files.
