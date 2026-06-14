@@ -103,7 +103,9 @@ To:
 **Files:**
 - Modify: `skills/aws-case-reviewer/SKILL.md` (three insertion points)
 
-### Step 2a: Add `layering` to the category enum (line ~533)
+### Step 2a: Add `layering` to the category enum AND add `fix_scope` to the finding schema (line ~530)
+
+**Change 1 — category enum:**
 
 Current:
 ```
@@ -114,8 +116,36 @@ Change to:
 "category": "coverage|schema|clarity|testability|data|assertion|traceability|scope|duplication|layering",
 ```
 
-- [ ] Find the finding schema block in the JSON format section (around line 530)
+**Change 2 — add `fix_scope` field to the finding schema block:**
+
+The full finding schema block (around line 529) currently ends with `"human_review_required": false`. Insert `fix_scope` as an optional field with a doc comment immediately after `auto_fix_allowed`:
+
+```json
+{
+  "id": "CASE-FINDING-001",
+  "severity": "low|medium|high|critical",
+  "category": "coverage|schema|clarity|testability|data|assertion|traceability|scope|duplication|layering",
+  "file": "qa/changes/<change-id>/cases/...",
+  "message": "What is wrong.",
+  "suggestion": "How to fix it.",
+  "auto_fix_allowed": true,
+  "fix_scope": ["automation_targets"],
+  "human_review_required": false
+}
+```
+
+Add a note below the schema block:
+
+```
+`fix_scope` is REQUIRED when `category == "layering"` and `auto_fix_allowed == true`.
+It lists the exact case fields the fixer is permitted to touch.
+For all other categories, `fix_scope` is omitted.
+```
+
+- [ ] Find the finding schema block in the JSON format section (around line 529)
 - [ ] Add `|layering` to the category enum string
+- [ ] Add `"fix_scope": ["automation_targets"],` field after `"auto_fix_allowed"` in the finding schema
+- [ ] Add the `fix_scope` doc note below the schema block
 
 ### Step 2b: Add `layering` to the Review Scope list (line ~101–114)
 
@@ -177,8 +207,8 @@ Finding example (Type 1):
 ```
 ```
 
-- [ ] Find the last `### N.` criterion section (likely `### 9. Duplicate or Conflicting Cases`)
-- [ ] Insert the full `### 10. Layering Review` block immediately after it
+- [ ] Find the last `### N.` criterion section in `aws-case-reviewer/SKILL.md` — count the existing numbered criteria to determine the correct next number (likely `### 9.` or `### 10.`). If a `### 10.` already exists, renumber the new section accordingly.
+- [ ] Insert the full Layering Review criterion block immediately after the last existing criterion, before `## Required JSON Format`
 
 ### Step 2d: Commit
 
@@ -251,23 +281,25 @@ Rules:
 
 ```python
 # Preferred: factory-as-fixture (each test gets independent data)
+# NOTE: Adapt `entity_factory`, `/api/entities`, and field names
+#       to the actual module per data-knowledge.yaml and the plan.
 @pytest.fixture
-def menu_factory(api_client):
+def entity_factory(api_client):
     created = []
-    def _create(name="Test Menu", **kwargs):
-        payload = {"name": name, **kwargs}
-        r = api_client.post("/api/menus", json=payload)
+    def _create(**overrides):
+        payload = {"name": "Test Entity", **overrides}
+        r = api_client.post("/api/entities", json=payload)
         r.raise_for_status()
         created.append(r.json()["id"])
         return r.json()
     yield _create
-    for id_ in created:
-        api_client.delete(f"/api/menus/{id_}")
+    for entity_id in created:
+        api_client.delete(f"/api/entities/{entity_id}")
 
 # Avoid: static fixture returning a fixed dict
 @pytest.fixture
-def menu_data():
-    return {"name": "固定菜单名"}  # shared, not parameterizable
+def entity_data():
+    return {"name": "固定实体名"}  # shared, not parameterizable
 ```
 ```
 
@@ -309,14 +341,24 @@ Rules:
 
 ```python
 # Preferred: factory-as-fixture for E2E data setup
+# NOTE: Adapt `entity_factory`, `/api/entities`, and field names
+#       to the actual module per data-knowledge.yaml and the plan.
 @pytest.fixture
-def created_menu(page, api_client):
-    """Create a menu via API and delete after test."""
-    r = api_client.post("/api/menus", json={"name": "E2E Test Menu"})
-    r.raise_for_status()
-    menu_id = r.json()["id"]
-    yield r.json()
-    api_client.delete(f"/api/menus/{menu_id}")
+def entity_factory(api_client):
+    created = []
+
+    def _create(**overrides):
+        payload = {"name": "E2E Test Entity", **overrides}
+        r = api_client.post("/api/entities", json=payload)
+        r.raise_for_status()
+        entity = r.json()
+        created.append(entity["id"])
+        return entity
+
+    yield _create
+
+    for entity_id in created:
+        api_client.delete(f"/api/entities/{entity_id}")
 ```
 ```
 
