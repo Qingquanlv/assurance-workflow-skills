@@ -84,7 +84,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 5. **Analyze risks internally** — do NOT dump full risk analysis to the user
 6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
 7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md`
+8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section with a line per case)
 9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
 10. **Self-review case delta YAML** — validate schema, required fields, delta operation rules, semantic rules
 11. **Hand off** — report completion; the orchestrator or user will invoke `aws-case-reviewer`
@@ -114,6 +114,24 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 | 6 | Exception scenarios | Edge cases and error paths to include |
 | 7 | Automation target | Should `tests/api` or `tests/e2e` be generated or updated? |
 | 8 | Out of scope | Explicit exclusions |
+
+### Test Layer Decision Tree
+
+For every case, apply this two-level rule before assigning `automation_targets`:
+
+```
+Behavior to verify:
+├─ Verifiable by a single HTTP request + response assertion → API test (tests/api/)
+│    e.g. status codes, response body, permission codes, field validation, error-code matrix
+└─ Requires multi-step browser interaction + UI feedback / cross-page state → E2E test (tests/e2e/)
+     e.g. form submission triggers live list refresh, confirmation dialog interaction
+```
+
+Hard rules:
+- If API can cover it, do NOT design it as E2E.
+- Error-code matrices go to API.
+- E2E keeps 1 happy-path case + at most a few critical exception flows.
+- The same assertion point MUST NOT appear in both API and E2E cases.
 
 **Good question example:**
 
@@ -414,6 +432,17 @@ Example:
 
 - API
 - E2E
+
+## Layer Rationale
+
+For each case in this change, record the layer assignment and rationale.
+Format is fixed — reviewer uses `case_id` to cross-check `automation_targets`.
+
+- CASE-001: API
+  - reason: <why API is sufficient, e.g. validates status code / response body directly>
+
+- CASE-002: E2E
+  - reason: <why E2E is required, e.g. validates browser interaction and live UI update>
 
 ## Data Needs
 
