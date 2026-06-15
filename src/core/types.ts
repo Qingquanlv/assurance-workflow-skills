@@ -162,8 +162,14 @@ export interface FailureAnalysis {
   source_batch_id: string;
   /** High-level outcome consumed by healing gates in workflow-state.yaml */
   final_status: InspectFinalStatus;
-  /** Always "primary" when produced by the CLI */
-  inspect_mode: 'primary';
+  /**
+   * "primary" — manifest present, batch-scoped, fully trusted.
+   * "compat_fallback" — no execution-manifest.yaml; inspected latest pointer files as compatibility fallback.
+   *   Results are informational only; healing gate should not treat them as primary evidence.
+   */
+  inspect_mode: 'primary' | 'compat_fallback';
+  /** Non-empty only in compat_fallback mode — explains why fallback was used. */
+  warnings?: string[];
   classification_performed: boolean;
   status: AnalysisStatus;
   failures: FailureEntry[];
@@ -201,6 +207,13 @@ export interface CoverageResult {
   branch_coverage: number;
   threshold: CoverageThreshold;
   status: 'PASS' | 'PASS_WITH_WARNINGS' | 'SKIPPED';
+  /**
+   * Present when status == SKIPPED. Explains why coverage was not collected.
+   * "api_unselected" — the API target was not in selectedTargets for this run.
+   * "pytest_cov_unavailable" — pytest-cov plugin was not installed.
+   * "disabled" — coverage.enabled=false in .aws/config.yaml.
+   */
+  skip_reason?: 'api_unselected' | 'pytest_cov_unavailable' | 'disabled';
   uncovered_critical_files: UncoveredFile[];
   source: {
     coverage_json: string;

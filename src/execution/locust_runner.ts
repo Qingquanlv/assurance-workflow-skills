@@ -99,7 +99,7 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
   const rawDir = path.join(batchDir, RAW_DIR);
   ensureDir(rawDir);
   const logPath = path.join(rawDir, 'performance.log');
-  const csvPrefix = path.join(rawDir, 'locust');
+  const csvPrefixBase = path.join(rawDir, 'locust');
 
   const changeBase = path.join(cwd, 'qa', 'changes', changeId);
   const config = loadPerformanceConfig(cwd);
@@ -110,7 +110,7 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
     return {
       schema_version: '1.0', change_id: changeId, batch_id: batchId, kind: 'performance',
       available: false, status: 'SKIPPED', scenarios: [],
-      command: '', source: { raw_log: logPath, csv_prefix: csvPrefix },
+      command: '', source: { raw_log: logPath, csv_prefix: csvPrefixBase },
     };
   };
 
@@ -123,36 +123,70 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
   const runner = resolveLocustRunner(cwd);
   if (!runner) return skipped('locust not found. Tried: uv run locust, python3 -m locust, locust. Performance SKIPPED.');
 
-  // Run each locustfile headless and accumulate stats keyed by request Name.
-  const statsByName = new Map<string, { p95: number; requests: number; failures: number }>();
-  const commands: string[] = [];
+  // Group scenarios by their resolved load profile.
+  // Scenarios sharing the same (users, spawn_rate, run_time_s) can share one locust run;
+  // scenarios with different loads MUST run separately so each is judged against its own traffic.
+  const loadGroups = groupScenariosByLoad(scenarios, config.default_load);
+
+  const allVerdicts: PerformanceScenarioVerdict[] = [];
+  const allCommands: string[] = [];
   let anyTraffic = false;
 
-  for (const file of locustfiles) {
-    const load = resolveLoadProfile(scenarios, config.default_load);
-    const args = [
-      ...runner.baseArgs,
-      '-f', file,
-      '--headless',
-      '-u', String(load.users),
-      '-r', String(load.spawn_rate),
-      '-t', `${load.run_time_s}s`,
-      '--host', config.base_url,
-      '--csv', csvPrefix,
-      '--only-summary',
-    ];
-    const cmdStr = `${runner.label} -f ${file} --headless -u ${load.users} -r ${load.spawn_rate} -t ${load.run_time_s}s --host ${config.base_url}`;
-    commands.push(cmdStr);
+  for (const locustfile of locustfiles) {
+    const fileStem = path.basename(locustfile, '.py').replace(/[^a-z0-9_-]/gi, '_');
 
-    const proc = spawnSync(runner.exe, args, { cwd, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
-    fs.appendFileSync(logPath, [`$ ${cmdStr}`, '', proc.stdout ?? '', proc.stderr ?? '', '', ''].join('\n'), 'utf-8');
+    for (let gi = 0; gi < loadGroups.length; gi++) {
+      const { load, scenarios: groupScenarios } = loadGroups[gi];
+      // Unique CSV prefix per locustfile + load group to avoid overwrites between groups.
+      const csvPrefix = `${csvPrefixBase}_${fileStem}_g${gi}`;
 
-    const statsCsv = `${csvPrefix}_stats.csv`;
-    if (fs.existsSync(statsCsv)) {
-      const rows = parseLocustStats(statsCsv);
-      for (const row of rows) {
-        if (row.requests > 0) anyTraffic = true;
-        statsByName.set(row.name, row);
+      const args = [
+        ...runner.baseArgs,
+        '-f', locustfile,
+        '--headless',
+        '-u', String(load.users),
+        '-r', String(load.spawn_rate),
+        '-t', `${load.run_time_s}s`,
+        '--host', config.base_url,
+        '--csv', csvPrefix,
+        '--only-summary',
+      ];
+      const cmdStr = `${runner.label} -f ${locustfile} --headless -u ${load.users} -r ${load.spawn_rate} -t ${load.run_time_s}s --host ${config.base_url}`;
+      allCommands.push(cmdStr);
+
+      const proc = spawnSync(runner.exe, args, { cwd, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
+      fs.appendFileSync(logPath, [`$ ${cmdStr}`, '', proc.stdout ?? '', proc.stderr ?? '', '', ''].join('\n'), 'utf-8');
+
+      // Parse stats for THIS group's run only.
+      const statsByName = new Map<string, { p95: number; requests: number; failures: number }>();
+      const statsCsv = `${csvPrefix}_stats.csv`;
+      if (fs.existsSync(statsCsv)) {
+        for (const row of parseLocustStats(statsCsv)) {
+          if (row.requests > 0) anyTraffic = true;
+          statsByName.set(row.name, row);
+        }
+      }
+
+      // Judge only the scenarios in this group against this run's stats.
+      for (const sc of groupScenarios) {
+        const stat = statsByName.get(sc.capability) ?? statsByName.get(sc.endpoint);
+        if (!stat || stat.requests === 0) {
+          allVerdicts.push({
+            capability: sc.capability, endpoint: sc.endpoint,
+            measured_p95_ms: null, threshold_p95_ms: sc.thresholds.p95_ms,
+            measured_error_rate: null, threshold_error_rate_max: sc.thresholds.error_rate_max,
+            verdict: 'SKIPPED',
+          });
+        } else {
+          const errorRate = stat.failures / stat.requests;
+          const pass = stat.p95 <= sc.thresholds.p95_ms && errorRate <= sc.thresholds.error_rate_max;
+          allVerdicts.push({
+            capability: sc.capability, endpoint: sc.endpoint,
+            measured_p95_ms: stat.p95, threshold_p95_ms: sc.thresholds.p95_ms,
+            measured_error_rate: round4(errorRate), threshold_error_rate_max: sc.thresholds.error_rate_max,
+            verdict: pass ? 'PASS' : 'FAIL',
+          });
+        }
       }
     }
   }
@@ -161,35 +195,15 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
     return skipped('Locust ran but recorded no successful traffic (environment likely unreachable) — performance SKIPPED.');
   }
 
-  const verdicts: PerformanceScenarioVerdict[] = scenarios.map(sc => {
-    const stat = statsByName.get(sc.capability) ?? statsByName.get(sc.endpoint);
-    if (!stat || stat.requests === 0) {
-      return {
-        capability: sc.capability, endpoint: sc.endpoint,
-        measured_p95_ms: null, threshold_p95_ms: sc.thresholds.p95_ms,
-        measured_error_rate: null, threshold_error_rate_max: sc.thresholds.error_rate_max,
-        verdict: 'SKIPPED',
-      };
-    }
-    const errorRate = stat.failures / stat.requests;
-    const pass = stat.p95 <= sc.thresholds.p95_ms && errorRate <= sc.thresholds.error_rate_max;
-    return {
-      capability: sc.capability, endpoint: sc.endpoint,
-      measured_p95_ms: stat.p95, threshold_p95_ms: sc.thresholds.p95_ms,
-      measured_error_rate: round4(errorRate), threshold_error_rate_max: sc.thresholds.error_rate_max,
-      verdict: pass ? 'PASS' : 'FAIL',
-    };
-  });
-
   const status: PerformanceResult['status'] =
-    verdicts.some(v => v.verdict === 'FAIL') ? 'FAIL'
-    : verdicts.some(v => v.verdict === 'PASS') ? 'PASS'
+    allVerdicts.some(v => v.verdict === 'FAIL') ? 'FAIL'
+    : allVerdicts.some(v => v.verdict === 'PASS') ? 'PASS'
     : 'SKIPPED';
 
   return {
     schema_version: '1.0', change_id: changeId, batch_id: batchId, kind: 'performance',
-    available: true, status, scenarios: verdicts,
-    command: commands.join(' && '), source: { raw_log: logPath, csv_prefix: csvPrefix },
+    available: true, status, scenarios: allVerdicts,
+    command: allCommands.join(' && '), source: { raw_log: logPath, csv_prefix: csvPrefixBase },
   };
 }
 
@@ -236,6 +250,40 @@ export function resolveLoadProfile(
     spawn_rate: scenarioLoad?.spawn_rate || defaults.spawn_rate,
     run_time_s: scenarioLoad?.run_time_s || defaults.run_time_s,
   };
+}
+
+interface LoadGroup {
+  load: PerfConfig['default_load'];
+  scenarios: PerfScenario[];
+}
+
+/**
+ * Groups scenarios by their resolved load profile (users × spawn_rate × run_time_s).
+ * Scenarios in the same group share one Locust invocation; scenarios with different
+ * load profiles get separate invocations so each is judged against its own traffic.
+ */
+export function groupScenariosByLoad(
+  scenarios: PerfScenario[],
+  defaults: PerfConfig['default_load'],
+): LoadGroup[] {
+  const groups: LoadGroup[] = [];
+  for (const sc of scenarios) {
+    const load: PerfConfig['default_load'] = {
+      users: sc.load.users || defaults.users,
+      spawn_rate: sc.load.spawn_rate || defaults.spawn_rate,
+      run_time_s: sc.load.run_time_s || defaults.run_time_s,
+    };
+    const key = `${load.users}:${load.spawn_rate}:${load.run_time_s}`;
+    const existing = groups.find(
+      g => `${g.load.users}:${g.load.spawn_rate}:${g.load.run_time_s}` === key,
+    );
+    if (existing) {
+      existing.scenarios.push(sc);
+    } else {
+      groups.push({ load, scenarios: [sc] });
+    }
+  }
+  return groups;
 }
 
 interface LocustStatRow { name: string; requests: number; failures: number; p95: number; }

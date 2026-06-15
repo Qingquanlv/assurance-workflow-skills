@@ -66,16 +66,27 @@ export function registerRunCommand(program: Command): void {
         logBlank();
 
         if (result.qualityGate.final_status === 'FAIL') {
-          console.log(chalk.yellow(`→ Quality gate failed. Run: aws report inspect --change ${changeId}`));
+          console.log(chalk.red(`→ Quality gate failed. Run: aws report inspect --change ${changeId}`));
           process.exit(1);
         } else if (result.qualityGate.final_status === 'PASS') {
           console.log(chalk.green('→ Quality gate passed. Proceed to archive-for-qa.'));
           process.exit(0);
         } else if (result.qualityGate.final_status === 'PASS_WITH_WARNINGS') {
           console.log(chalk.yellow(`→ Quality gate passed with warnings. Run: aws report inspect --change ${changeId}`));
-        } else {
-          console.log(chalk.cyan(`→ Run: aws report inspect --change ${changeId}`));
           process.exit(0);
+        } else {
+          // final_status === 'SKIPPED'
+          const anyTargetSelected = Object.values(result.selectedTargets).some(Boolean);
+          if (!anyTargetSelected) {
+            // All targets explicitly unselected — treat as a no-op run, not a failure.
+            console.log(chalk.cyan('→ No targets selected — run skipped. Pass --change with selected targets.'));
+            process.exit(0);
+          } else {
+            // Some targets were selected but all ran as SKIPPED (environment issue, missing fixtures, etc.).
+            // Exit 1 so CI does not silently pass when tests never actually ran.
+            console.log(chalk.yellow(`→ All selected targets were skipped (environment may be unreachable). Run: aws report inspect --change ${changeId}`));
+            process.exit(1);
+          }
         }
       } catch (err) {
         logError(`Run failed: ${(err as Error).message}`);

@@ -29,7 +29,8 @@ export interface RunnerOptions {
 export interface RunnerResult {
   api: ApiResult | null;
   e2e: E2eResult | null;
-  coverage: CoverageResult | null;
+  /** Always present — SKIPPED(api_unselected) when api=false, so downstream never reads a stale file. */
+  coverage: CoverageResult;
   fuzz: FuzzResult | null;
   performance: PerformanceResult | null;
   qualityGate: QualityGateResult;
@@ -108,6 +109,23 @@ export function run(opts: RunnerOptions): RunnerResult {
       threshold: coverageConfig.threshold,
       targetPackage: coverageConfig.target_package,
     });
+  } else {
+    // Coverage is derived from API pytest; write an explicit SKIPPED result so
+    // downstream inspect/report stages never read a stale file.
+    coverageResult = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: batchId,
+      kind: 'coverage',
+      available: false,
+      line_coverage: 0,
+      branch_coverage: 0,
+      threshold: coverageConfig.threshold,
+      status: 'SKIPPED',
+      skip_reason: 'api_unselected',
+      uncovered_critical_files: [],
+      source: { coverage_json: '', coverage_xml: '' },
+    };
   }
 
   if (selectedTargets.e2e) {
@@ -169,10 +187,9 @@ export function run(opts: RunnerOptions): RunnerResult {
     fs.writeFileSync(batchE2eResultPath, JSON.stringify(e2eResult, null, 2), 'utf-8');
     resultFiles.e2e = `runs/${batchId}/e2e-result.json`;
   }
-  if (coverageResult) {
-    fs.writeFileSync(batchCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
-    resultFiles.coverage = `runs/${batchId}/coverage-result.json`;
-  }
+  // Coverage is always written — either a real result when api=true, or SKIPPED(api_unselected).
+  fs.writeFileSync(batchCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
+  resultFiles.coverage = `runs/${batchId}/coverage-result.json`;
   if (fuzzResult) {
     fs.writeFileSync(batchFuzzPath, JSON.stringify(fuzzResult, null, 2), 'utf-8');
     resultFiles.fuzz = `runs/${batchId}/fuzz-result.json`;
@@ -203,7 +220,14 @@ export function run(opts: RunnerOptions): RunnerResult {
   const batchManifestPath = path.join(batchDir, 'execution-manifest.yaml');
   fs.writeFileSync(batchManifestPath, yaml.dump(manifest), 'utf-8');
 
+  // Write quality-gate to batch dir so inspector can read rather than re-compute.
+  const batchGatePath = path.join(batchDir, 'quality-gate-result.json');
+  fs.writeFileSync(batchGatePath, JSON.stringify(qualityGate, null, 2), 'utf-8');
+  resultFiles.summary = `runs/${batchId}/summary.md`;
+
   // ── Write top-level "latest" pointer files (backward compat) ─────────────
+  // Only top-level execution/*.json files are replaced — execution/runs/** is an
+  // append-only audit archive and is NEVER deleted or overwritten here.
   const latestApiPath      = path.join(executionDir, 'api-result.json');
   const latestE2ePath      = path.join(executionDir, 'e2e-result.json');
   const latestCoveragePath = path.join(executionDir, 'coverage-result.json');
@@ -219,11 +243,13 @@ export function run(opts: RunnerOptions): RunnerResult {
 
   if (apiResult) fs.writeFileSync(latestApiPath, JSON.stringify(apiResult, null, 2), 'utf-8');
   if (e2eResult) fs.writeFileSync(latestE2ePath, JSON.stringify(e2eResult, null, 2), 'utf-8');
-  if (coverageResult) fs.writeFileSync(latestCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
+  // Coverage always written (may be SKIPPED with reason=api_unselected).
+  fs.writeFileSync(latestCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
   if (fuzzResult) fs.writeFileSync(latestFuzzPath, JSON.stringify(fuzzResult, null, 2), 'utf-8');
   if (performanceResult) fs.writeFileSync(latestPerfPath, JSON.stringify(performanceResult, null, 2), 'utf-8');
   fs.writeFileSync(latestSummaryPath, summaryMd, 'utf-8');
   fs.writeFileSync(path.join(executionDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
+  fs.writeFileSync(path.join(executionDir, 'quality-gate-result.json'), JSON.stringify(qualityGate, null, 2), 'utf-8');
 
   return {
     api: apiResult,

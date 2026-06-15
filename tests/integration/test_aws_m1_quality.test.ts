@@ -215,7 +215,7 @@ describe('M1 runner coverage output', () => {
     fs.mkdirSync(path.join(projectRoot, 'qa', 'perf'), { recursive: true });
     fs.writeFileSync(path.join(projectRoot, 'qa', 'perf', 'locustfile.py'), '# historical perf asset\n');
 
-    run({
+    const result = run({
       changeId,
       projectRoot,
       selectedTargets: { api: false, e2e: false, fuzz: false, performance: false },
@@ -223,10 +223,14 @@ describe('M1 runner coverage output', () => {
 
     const execDir = path.join(projectRoot, 'qa', 'changes', changeId, 'execution');
     expect(fs.existsSync(path.join(execDir, 'execution-manifest.yaml'))).toBe(true);
+    // api=false, e2e=false, fuzz=false, performance=false → these files must not exist
     expect(fs.existsSync(path.join(execDir, 'api-result.json'))).toBe(false);
     expect(fs.existsSync(path.join(execDir, 'e2e-result.json'))).toBe(false);
-    expect(fs.existsSync(path.join(execDir, 'coverage-result.json'))).toBe(false);
     expect(fs.existsSync(path.join(execDir, 'fuzz-result.json'))).toBe(false);
     expect(fs.existsSync(path.join(execDir, 'performance-result.json'))).toBe(false);
+    // coverage is always written — SKIPPED with reason=api_unselected when api=false
+    expect(fs.existsSync(path.join(execDir, 'coverage-result.json'))).toBe(true);
+    expect(result.coverage.status).toBe('SKIPPED');
+    expect(result.coverage.skip_reason).toBe('api_unselected');
   });
 });

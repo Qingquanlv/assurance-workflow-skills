@@ -36,8 +36,12 @@ export function inspect(opts: InspectOptions): InspectResult {
   const manifestInfo = loadExecutionManifest(executionDir);
   const manifest = manifestInfo?.manifest ?? null;
   const sourceManifest = manifestInfo?.path ?? '';
+  const isCompatFallback = manifest === null;
   const selectedTargets = manifest?.selected_targets ?? { api: true, e2e: true, fuzz: true, performance: true };
   const resultRoot = manifest ? path.join(executionDir, 'runs', manifest.batch_id) : executionDir;
+  const compatWarnings: string[] = isCompatFallback
+    ? ['execution-manifest.yaml missing; inspected latest pointer files as compatibility fallback. Results are informational — healing gate should not treat this as primary evidence.']
+    : [];
 
   const apiResult = selectedTargets.api ? loadJson<ApiResult>(resultFilePath(executionDir, resultRoot, manifest, 'api', 'api-result.json')) : null;
   const e2eResult = selectedTargets.e2e ? loadJson<E2eResult>(resultFilePath(executionDir, resultRoot, manifest, 'e2e', 'e2e-result.json')) : null;
@@ -62,6 +66,12 @@ export function inspect(opts: InspectOptions): InspectResult {
     performanceResult,
   });
 
+  // Prefer the gate pre-computed by runner (written to batch dir) so run and inspect
+  // always use the same computation. Fall back to re-computing if not available.
+  const loadedGate = manifest
+    ? loadJson<QualityGateResult>(path.join(resultRoot, 'quality-gate-result.json'))
+    : null;
+
   if (!apiResult && !e2eResult && !fuzzResult && !performanceResult) {
     const analysis: FailureAnalysis = {
       schema_version: '1.0',
@@ -71,7 +81,7 @@ export function inspect(opts: InspectOptions): InspectResult {
       batch_id: batchId,
       source_batch_id: batchId,
       final_status: 'SKIPPED',
-      inspect_mode: 'primary',
+      inspect_mode: isCompatFallback ? 'compat_fallback' : 'primary',
       classification_performed: false,
       status: 'skipped',
       failures: [],
@@ -79,8 +89,9 @@ export function inspect(opts: InspectOptions): InspectResult {
       needs_review: [],
       known_product_issues: [],
       coverage_gaps: coverageGaps,
+      ...(compatWarnings.length > 0 ? { warnings: compatWarnings } : {}),
     };
-    const qualityGate = buildGate();
+    const qualityGate = loadedGate ?? buildGate();
     write(analysisPath, summaryPath, changeId, analysis);
     writeQualityGate(qualityGatePath, qualityGate);
     return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
@@ -251,7 +262,7 @@ export function inspect(opts: InspectOptions): InspectResult {
     }
   }
 
-  const qualityGate = buildGate();
+  const qualityGate = loadedGate ?? buildGate();
 
   if (qualityGate.dimensions.coverage.status === 'FAIL') {
     const gaps = coverageGaps.length > 0
@@ -295,7 +306,7 @@ export function inspect(opts: InspectOptions): InspectResult {
     batch_id: batchId,
     source_batch_id: batchId,
     final_status: finalStatus,
-    inspect_mode: 'primary',
+    inspect_mode: isCompatFallback ? 'compat_fallback' : 'primary',
     classification_performed: true,
     status,
     failures,
@@ -303,6 +314,7 @@ export function inspect(opts: InspectOptions): InspectResult {
     needs_review: needsReview,
     known_product_issues: knownProductIssues,
     coverage_gaps: coverageGaps,
+    ...(compatWarnings.length > 0 ? { warnings: compatWarnings } : {}),
   };
 
   write(analysisPath, summaryPath, changeId, analysis);

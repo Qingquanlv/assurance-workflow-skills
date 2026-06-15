@@ -83,15 +83,19 @@ export function registerReportCommand(program: Command): void {
           process.exit(1);
         } else if (gate.final_status === 'PASS_WITH_WARNINGS') {
           console.log(chalk.yellow('→ Quality gate passed with warnings. Proceed to report generate / archive with warnings.'));
+          process.exit(0);
         } else if (analysis.status === 'no_failures') {
           console.log(chalk.green('→ No failures. Proceed to archive-for-qa.'));
+          process.exit(0);
         } else if (analysis.hard_fails.length > 0) {
           console.log(chalk.red('→ Hard failures detected. Investigate product or environment issues.'));
           process.exit(1);
         } else if (analysis.failures.some(f => f.fix_proposal_eligible)) {
           console.log(chalk.yellow('→ Fixable failures found. Proceed to fix-proposal-for-qa.'));
+          process.exit(0);
         } else {
           console.log(chalk.yellow('→ Review failures manually — no automatic fixes available.'));
+          process.exit(0);
         }
       } catch (err) {
         logError(`Inspect failed: ${(err as Error).message}`);

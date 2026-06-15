@@ -56,7 +56,21 @@ describe('aws report inspect integration', () => {
   it('failure-analysis.json has required schema fields', () => {
     const execDir = makeExecDir(projectRoot, changeId);
     const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'failed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-D-001', status: 'failed', file: 'tests/api/test_d.py', test_name: 'TC-D-001 test_d', duration_ms: 50, message: 'AssertionError: expected 200, got 404', raw_log_ref: '' }], unmapped_tests: [] };
-    fs.writeFileSync(path.join(execDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+
+    // Write result file under the batch dir and point a manifest at it, to simulate a real runner output.
+    const batchDir = path.join(execDir, 'runs', 'test-batch');
+    fs.mkdirSync(batchDir, { recursive: true });
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+    const manifest = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'test-batch',
+      selected_targets: { api: true, e2e: false, fuzz: false, performance: false },
+      result_files: { api: 'runs/test-batch/api-result.json' },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const yaml = require('js-yaml');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
 
     const result = inspect({ changeId, projectRoot });
     // failure-analysis.json is written under inspect/, not execution/
