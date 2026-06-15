@@ -28,6 +28,7 @@ const FIX_PROPOSAL_ALLOWED: Record<FailureCategory, boolean | 'review'> = {
   perf_script_error: false,        // locustfile error — fix the script, not auto-fixable
   perf_threshold_exceeded: 'review', // absolute threshold exceeded — human review
   perf_environment: false,         // environment unreachable — not a product bug
+  manifest_asset_missing: false,   // selected target declared in manifest but file absent — execution asset corrupted
   unknown: false,               // needs_review
 };
 
@@ -141,6 +142,8 @@ function computeSeverity(category: FailureCategory): 'low' | 'medium' | 'high' |
     case 'perf_script_error':
     case 'perf_environment':
       return 'medium';
+    case 'manifest_asset_missing':
+      return 'critical';
     case 'assertion_failure':
     case 'case_semantic_failure':
       return 'high';

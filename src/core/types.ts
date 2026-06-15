@@ -111,6 +111,8 @@ export type FailureCategory =
   | 'perf_script_error'         // locustfile error / could not run — fix the script, not auto-fixable
   | 'perf_threshold_exceeded'   // measured p95/error_rate exceeded the absolute threshold — needs review
   | 'perf_environment'          // target environment unreachable / no traffic — environment, not a product bug
+  // Manifest integrity (M1/M3):
+  | 'manifest_asset_missing'   // selected_targets declares a target but its result file is absent — execution asset corrupted
   | 'unknown';
 
 export type FailureSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -146,7 +148,7 @@ export interface CoverageGapEntry {
   threshold: number;
 }
 
-export type AnalysisStatus = 'analyzed' | 'no_failures' | 'skipped';
+export type AnalysisStatus = 'analyzed' | 'no_failures' | 'skipped' | 'failed';
 
 /** High-level workflow status emitted in failure-analysis.json, consumed by healing gates */
 export type InspectFinalStatus = 'PASS' | 'PASS_WITH_WARNINGS' | 'FAIL' | 'SKIPPED';
@@ -155,7 +157,7 @@ export interface FailureAnalysis {
   schema_version: '1.0';
   change_id: string;
   source_manifest: string;
-  inspection_status: 'completed' | 'skipped';
+  inspection_status: 'completed' | 'skipped' | 'failed';
   /** Batch ID of the execution run this analysis is based on */
   batch_id: string;
   /** Same as batch_id for primary inspect; kept for healing re-inspect compatibility */

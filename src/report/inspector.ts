@@ -72,6 +72,40 @@ export function inspect(opts: InspectOptions): InspectResult {
     ? loadJson<QualityGateResult>(path.join(resultRoot, 'quality-gate-result.json'))
     : null;
 
+  // ── Manifest integrity guard ───────────────────────────────────────────────
+  // If manifest is present (primary mode) and declares a target as selected, but
+  // its result file is absent, the execution asset is corrupted — not just SKIPPED.
+  if (manifest && !isCompatFallback) {
+    const integrityFailures = buildIntegrityFailures(
+      manifest, selectedTargets, executionDir, resultRoot,
+      { apiResult, e2eResult, coverageResult, fuzzResult, performanceResult },
+      batchId,
+    );
+    if (integrityFailures.length > 0) {
+      const analysis: FailureAnalysis = {
+        schema_version: '1.0',
+        change_id: changeId,
+        source_manifest: sourceManifest,
+        inspection_status: 'failed',
+        batch_id: batchId,
+        source_batch_id: batchId,
+        final_status: 'FAIL',
+        inspect_mode: 'primary',
+        classification_performed: false,
+        status: 'failed',
+        failures: integrityFailures,
+        hard_fails: integrityFailures,
+        needs_review: [],
+        known_product_issues: [],
+        coverage_gaps: [],
+      };
+      const qualityGate = loadedGate ?? buildGate();
+      write(analysisPath, summaryPath, changeId, analysis);
+      writeQualityGate(qualityGatePath, qualityGate);
+      return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
+    }
+  }
+
   if (!apiResult && !e2eResult && !fuzzResult && !performanceResult) {
     const analysis: FailureAnalysis = {
       schema_version: '1.0',
@@ -371,6 +405,76 @@ function completeFailureEntries(failures: FailureEntry[]): void {
     failure.test = failure.test ?? failure.evidence.test_file ?? failure.case_id;
     failure.recommended_next_action = failure.recommended_next_action ?? failure.recommended_action;
   });
+}
+
+/**
+ * Checks that every target declared in `manifest.selected_targets` has its
+ * result file actually present on disk.  Returns FailureEntry objects for each
+ * missing file so inspect can surface them as hard failures.
+ */
+function buildIntegrityFailures(
+  manifest: ExecutionManifest,
+  selectedTargets: ExecutionManifest['selected_targets'],
+  executionDir: string,
+  resultRoot: string,
+  loaded: {
+    apiResult: unknown | null;
+    e2eResult: unknown | null;
+    coverageResult: unknown | null;
+    fuzzResult: unknown | null;
+    performanceResult: unknown | null;
+  },
+  batchId: string,
+): FailureEntry[] {
+  const checks: Array<{
+    target: FailureEntry['target'];
+    selected: boolean;
+    result: unknown | null;
+    manifestKey: keyof ExecutionManifest['result_files'];
+    fallbackName: string;
+  }> = [
+    { target: 'api',         selected: selectedTargets.api,         result: loaded.apiResult,         manifestKey: 'api',         fallbackName: 'api-result.json'         },
+    { target: 'e2e',         selected: selectedTargets.e2e,         result: loaded.e2eResult,         manifestKey: 'e2e',         fallbackName: 'e2e-result.json'         },
+    { target: 'coverage',    selected: selectedTargets.api,         result: loaded.coverageResult,    manifestKey: 'coverage',    fallbackName: 'coverage-result.json'    },
+    { target: 'fuzz',        selected: selectedTargets.fuzz,        result: loaded.fuzzResult,        manifestKey: 'fuzz',        fallbackName: 'fuzz-result.json'        },
+    { target: 'performance', selected: selectedTargets.performance, result: loaded.performanceResult, manifestKey: 'performance', fallbackName: 'performance-result.json' },
+  ];
+
+  const failures: FailureEntry[] = [];
+  let idx = 1;
+
+  for (const { target, selected, result, manifestKey, fallbackName } of checks) {
+    if (!selected) continue;
+    if (result !== null) continue; // file loaded successfully — OK
+
+    // File was selected in manifest but could not be loaded.
+    const expectedPath = resultFilePath(executionDir, resultRoot, manifest, manifestKey, fallbackName);
+    const id = `INTEGRITY-${String(idx++).padStart(3, '0')}`;
+    const entry: FailureEntry = {
+      id,
+      case_id: `manifest:${target}`,
+      test: expectedPath,
+      target,
+      category: 'manifest_asset_missing',
+      fix_proposal_eligible: false,
+      severity: 'critical',
+      evidence: {
+        result_file: expectedPath,
+        test_file: '',
+        trace: '',
+        screenshot: '',
+        video: '',
+        raw_log: '',
+        log_excerpt: `Manifest batch_id=${batchId} declares selected_targets.${target}=true but ${expectedPath} is absent or unreadable.`,
+      },
+      diagnosis: `Execution asset missing for target '${target}'. The result file declared in execution-manifest.yaml does not exist: ${expectedPath}`,
+      recommended_action: 'Re-run aws run for this change to regenerate the missing execution asset. Do not archive until all selected target result files are present.',
+      recommended_next_action: 're_run',
+    };
+    failures.push(entry);
+  }
+
+  return failures;
 }
 
 function loadJson<T>(filePath: string): T | null {

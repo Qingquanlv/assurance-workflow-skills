@@ -142,6 +142,8 @@ describe('M3 inspector — perf threshold failures classified', () => {
     fs.writeFileSync(path.join(execution, 'e2e-result.json'), JSON.stringify(e2eResult(1)));
     fs.writeFileSync(path.join(execution, 'performance-result.json'), JSON.stringify(perfResult('FAIL')));
     fs.writeFileSync(path.join(batch, 'api-result.json'), JSON.stringify(apiResult(0)));
+    // Coverage is derived from api=true — write a SKIPPED result so integrity guard is satisfied.
+    fs.writeFileSync(path.join(batch, 'coverage-result.json'), JSON.stringify(coverageResult('SKIPPED')));
     fs.writeFileSync(path.join(execution, 'execution-manifest.yaml'), [
       'schema_version: "1.0"',
       `change_id: ${changeId}`,
@@ -153,6 +155,7 @@ describe('M3 inspector — perf threshold failures classified', () => {
       '  performance: false',
       'result_files:',
       '  api: runs/B2/api-result.json',
+      '  coverage: runs/B2/coverage-result.json',
     ].join('\n'));
 
     const result = inspect({ changeId, projectRoot });
