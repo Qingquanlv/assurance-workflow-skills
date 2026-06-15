@@ -1,6 +1,6 @@
 ---
 name: aws-case-design
-description: "MUST use to design QA scope and generate proposal.md plus semantic case delta YAML before aws-case-reviewer. Clarifies requirements, target module, QA scope, test types, data needs, assertions, automation targets, and coverage approach through collaborative dialogue."
+description: "MUST use to design QA scope and generate proposal.md plus semantic case delta YAML before aws-case-reviewer. Clarifies requirements, target module, QA scope, test target selection (API/E2E/Fuzz/Performance), data needs, assertions, and coverage approach through collaborative dialogue."
 ---
 
 ## Context Contract
@@ -108,30 +108,39 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 |---|---|---|
 | 1 | Module confirmation | Confirmed owner module path |
 | 2 | Change type | ADDED / MODIFIED / REMOVED |
-| 3 | Test types | API / E2E / Unit / Visual / Mixed |
+| 3 | Test types | API / E2E / Fuzz / Performance |
 | 4 | Data needs | Required entities and their states |
 | 5 | Success assertions | Observable outcomes for each test type |
 | 6 | Exception scenarios | Edge cases and error paths to include |
-| 7 | Automation target | Should `tests/api` or `tests/e2e` be generated or updated? |
+| 7 | Target selection + depth | Which test types (`type`) to generate? For Fuzz: which endpoints? For Performance: which capability + what P95 / error-rate thresholds? |
 | 8 | Out of scope | Explicit exclusions |
+
+> When the user selects **Fuzz**, ask which input endpoints need robustness testing. When the user selects **Performance**, ask which capability is high-frequency/core and what the acceptable P95 latency and error-rate thresholds are (no defaults — thresholds must be user-confirmed).
 
 ### Test Layer Decision Tree
 
-For every case targeting `tests/api/` or `tests/e2e/`, apply this rule before assigning `automation_targets`:
+For every case, apply this rule before assigning its `type`:
 
 ```
 Behavior to verify:
-├─ Verifiable by a single HTTP request + response assertion → API test (tests/api/)
-│    e.g. status codes, response body, permission codes, field validation, error-code matrix
-└─ Requires multi-step browser interaction + UI feedback / cross-page state → E2E test (tests/e2e/)
-     e.g. form submission triggers live list refresh, confirmation dialog interaction
+├─ Single HTTP request + response assertion          → type: API         (tests/api/)
+│    status codes / response body / permission codes / field validation / error-code matrix
+├─ Multi-step browser interaction + UI feedback      → type: E2E         (tests/e2e/)
+│    form submission triggers live list refresh / confirmation dialog interaction
+├─ Complex input / schema / boundary / parser        → type: Fuzz        (tests/fuzz/)
+│    robustness of a user-input endpoint (no crash, no 5xx, schema-valid input not wrongly rejected)
+└─ High-frequency / core / heavy query / key path    → type: Performance (qa/perf/)
+     absolute thresholds (P95 / error_rate), no historical baseline
 ```
 
 Hard rules:
-- If API can cover it, do NOT design it as E2E.
+- If API can cover a functional assertion, do NOT design it as E2E.
 - Error-code matrices go to API.
 - E2E keeps 1 happy-path case + at most 2–3 critical exception flows.
-- The same assertion point MUST NOT appear in both API and E2E cases.
+- The same assertion point MUST NOT appear across cases of different `type`.
+- **Fuzz does not replace functional assertions**: every Fuzz case MUST set `related_cases` pointing at the corresponding functional (API) case.
+- **Performance MUST carry thresholds**: a Performance case without `automation.performance.scenario.thresholds` is invalid (reviewer blocker).
+- **Fuzz / Performance are additive cases** — they do not cancel the API/E2E functional coverage of the same endpoint.
 
 **Good question example:**
 
@@ -140,7 +149,8 @@ Hard rules:
 > A. E2E only
 > B. API only
 > C. API + E2E
-> D. API + E2E + exception cases"
+> D. API + E2E + exception cases
+> E. Add Fuzz (input robustness) and/or Performance (high-frequency endpoints)"
 
 **Forbidden:**
 
@@ -436,13 +446,19 @@ Example:
 ## Layer Rationale
 
 For each case in this change, record the layer assignment and rationale.
-Format is fixed — reviewer uses `case_id` to cross-check `automation_targets`.
+Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
-- CASE-001: API
+- TC-MENU-001: API
   - reason: <why API is sufficient, e.g. validates status code / response body directly>
 
-- CASE-002: E2E
+- TC-MENU-E2E-001: E2E
   - reason: <why E2E is required, e.g. validates browser interaction and live UI update>
+
+- TC-MENU-FUZZ-001: Fuzz
+  - reason: <endpoint accepts user-input schema, needs robustness; relates TC-MENU-001>
+
+- TC-MENU-PERF-001: Performance
+  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC-MENU-002>
 
 ## Data Needs
 
@@ -468,7 +484,7 @@ Approved exception cases, or explicitly excluded ones.
 - `proposal.md` is written.
 - `cases/<module>/case.yaml` is generated and self-reviewed.
 - Each case is traceable to `requirement_id` and `test_condition_id`.
-- Required automation targets are identified.
+- Test targets (`type`) are identified and confirmed by the user (`automation.confirmed_by`).
 - Ready for `aws-case-reviewer`.
 
 ## Downstream Exit Criteria
@@ -675,12 +691,12 @@ removed: []
 **Every case under `added` or `modified` MUST include all of these fields:**
 
 ```yaml
-case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-API-V2-001
+case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-MENU-FUZZ-001, TC-MENU-PERF-001
 title: <human-readable-title>
 status: draft | active | deprecated
 priority: P0 | P1 | P2 | P3
 severity: blocker | critical | major | minor
-type: API | E2E | Unit | Visual | Mixed
+type: API | E2E | Fuzz | Performance    # single source of truth for the test target (one case, one target)
 module: <module-id>
 requirement_id: <requirement-id>
 feature_name: <feature-name>
@@ -721,10 +737,27 @@ related_cases:
 
 automation:
   required: true | false
-  target: API | E2E | Unit | Visual | Mixed
-  framework: pytest | pytest-playwright | null
+  # NOTE: there is NO `target` field. The top-level `type` is the single source of
+  # truth for the test target (one case, one target). `automation` only says HOW.
+  framework: pytest | pytest-playwright | schemathesis | locust | null
   suggested_file: <optional-test-file-path>
   status: not_automated | planned | automated | flaky | deprecated
+
+  # Selection lock: written when the user confirms the target selection. Downstream
+  # Plan/Codegen/Run skills read these as read-only and MUST NOT override the choice.
+  confirmed_by: user | null
+  confirmed_at: <ISO-8601 | null>
+
+  # Target-specific config — present ONLY when `type` matches.
+  fuzz:                          # only when type: Fuzz
+    endpoints: ["/api/v1/menu/create"]
+    expectations: ["no 5xx", "schema-valid input not rejected with 400"]
+  performance:                   # only when type: Performance
+    scenario:
+      capability: "menu-list-query"
+      endpoint: "/api/v1/menu/list"
+      thresholds: { p95_ms: 200, error_rate_max: 0.01 }   # absolute, user-confirmed (no defaults)
+      load: { users: 50, spawn_rate: 10, run_time_s: 60 }
 
 regression:
   candidate: true | false
@@ -740,6 +773,17 @@ trace:
 ```
 
 `trace` is required on every case but **may be `{}` or partially empty during case design**. Downstream archive / execution may enrich it. Reviewers should treat empty `trace` as compliant at case-design time.
+
+**`type` → `framework` → output directory (must match):**
+
+| `type` | `automation.framework` | output dir |
+|--------|------------------------|------------|
+| API | pytest | `tests/api/` |
+| E2E | pytest-playwright | `tests/e2e/` |
+| Fuzz | schemathesis | `tests/fuzz/` |
+| Performance | locust | `qa/perf/` |
+
+One case has exactly one `type`. Fuzz and Performance are **independent cases** (`type: Fuzz` / `type: Performance`) that link the functional case they harden via `related_cases`. They do **not** replace the functional API/E2E coverage of that endpoint.
 
 **Example case (natural language + ISTQB fields):**
 
@@ -803,10 +847,11 @@ modified:
 
     automation:
       required: true
-      target: API
       framework: pytest
       suggested_file: tests/api/test_auth_api.py
       status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
 
     regression:
       candidate: true
@@ -1174,7 +1219,7 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 12. `status` — one of draft, active, deprecated.
 13. `priority` — one of P0, P1, P2, P3.
 14. `severity` — one of blocker, critical, major, minor.
-15. `type` — exists.
+15. `type` — exists and is one of `API`, `E2E`, `Fuzz`, `Performance`.
 16. `module` — exists.
 17. `requirement_id` — exists.
 18. `feature_name` — exists.
@@ -1191,10 +1236,11 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 29. `postconditions` — exists (may be empty list, but must be present).
 30. `edge_cases` — exists (may be empty list, but must be present).
 31. `related_cases` — exists (may be empty list, but must be present).
-32. `automation` — has `required`, `target`, `framework`, `status`.
-    - `automation.framework` — one of `pytest`, `pytest-playwright`, `null`.
-    - `automation.target` — one of `API`, `E2E`, `Unit`, `Visual`, `Mixed`.
+32. `automation` — has `required`, `framework`, `status` (there is **no** `automation.target` — `type` is the single source of truth).
+    - `automation.framework` — one of `pytest`, `pytest-playwright`, `schemathesis`, `locust`, `null`, and MUST match `type`: API→pytest, E2E→pytest-playwright, Fuzz→schemathesis, Performance→locust.
     - `automation.status` — one of `not_automated`, `planned`, `automated`, `flaky`, `deprecated`.
+    - When `type == Fuzz`: `automation.fuzz.endpoints` is present and non-empty, and `related_cases` points at ≥1 non-Fuzz case.
+    - When `type == Performance`: `automation.performance.scenario.thresholds` has non-empty `p95_ms` and `error_rate_max` (no placeholders).
 33. `regression` — has `candidate`, `tier`, `rationale`.
 34. `regression.selection_reason` — present (may be empty list).
 35. `regression.maintenance_rule` — present and non-empty.

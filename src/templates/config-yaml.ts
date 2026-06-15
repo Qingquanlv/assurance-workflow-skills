@@ -25,6 +25,7 @@ tests:
   root: ./tests
   api: ./tests/api
   e2e: ./tests/e2e
+  fuzz: ./tests/fuzz
   fixtures: ./tests/fixtures
   helpers: ./tests/helpers
   reports: ./tests/reports
@@ -74,5 +75,29 @@ review:
 archive:
   enable_trace_check: true
   regression_default: true
+
+coverage:
+  enabled: true
+  target_package: app          # --cov=<target_package>
+  threshold:
+    line: 70
+    branch: 60
+  gate_mode: warn              # warn: below threshold → PASS_WITH_WARNINGS (default). block: below → FAIL.
+
+# M3 — Fuzz layer (schemathesis via pytest). Tests live under tests/fuzz/.
+# Cases opt in with type: Fuzz; this block only configures the runner.
+fuzz:
+  enabled: true
+  schema_source: ""            # OpenAPI URL or file; codegen uses from_uri/from_asgi accordingly
+
+# M3 — Performance layer (Locust, absolute thresholds, no baseline). Locustfiles live under qa/perf/.
+# Cases opt in with type: Performance and confirmed thresholds; SKIPPED if locust is unavailable.
+performance:
+  enabled: true
+  base_url: http://localhost:8000   # target host for Locust --host
+  default_load:                      # used when a scenario omits its own load profile
+    users: 10                        # concurrent users
+    spawn_rate: 2                    # users spawned per second
+    run_time_s: 30                   # headless run duration per scenario (seconds)
 `;
 }

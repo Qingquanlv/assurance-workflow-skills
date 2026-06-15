@@ -56,7 +56,24 @@ describe('aws report inspect integration', () => {
   it('failure-analysis.json has required schema fields', () => {
     const execDir = makeExecDir(projectRoot, changeId);
     const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'failed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-D-001', status: 'failed', file: 'tests/api/test_d.py', test_name: 'TC-D-001 test_d', duration_ms: 50, message: 'AssertionError: expected 200, got 404', raw_log_ref: '' }], unmapped_tests: [] };
-    fs.writeFileSync(path.join(execDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+
+    // Write result file under the batch dir and point a manifest at it, to simulate a real runner output.
+    const batchDir = path.join(execDir, 'runs', 'test-batch');
+    fs.mkdirSync(batchDir, { recursive: true });
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+    // Coverage is derived from api=true; write a minimal file so integrity guard is satisfied.
+    const coverageSkipped = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', kind: 'coverage', available: false, line_coverage: 0, branch_coverage: 0, threshold: { line: 0, branch: 0 }, status: 'SKIPPED', skip_reason: 'api_unselected', uncovered_critical_files: [], source: { coverage_json: '', coverage_xml: '' } };
+    fs.writeFileSync(path.join(batchDir, 'coverage-result.json'), JSON.stringify(coverageSkipped), 'utf-8');
+    const manifest = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'test-batch',
+      selected_targets: { api: true, e2e: false, fuzz: false, performance: false },
+      result_files: { api: 'runs/test-batch/api-result.json', coverage: 'runs/test-batch/coverage-result.json' },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const yaml = require('js-yaml');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
 
     const result = inspect({ changeId, projectRoot });
     // failure-analysis.json is written under inspect/, not execution/
@@ -88,5 +105,41 @@ describe('aws report inspect integration', () => {
     const summary = fs.readFileSync(result.summaryPath, 'utf-8');
     expect(summary).toContain(changeId);
     expect(summary).toContain('Failure Analysis Summary');
+  });
+
+  it('manifest integrity guard: FAIL when selected target file is missing', () => {
+    const execDir = makeExecDir(projectRoot, changeId);
+    const batchDir = path.join(execDir, 'runs', 'batch-integrity');
+    fs.mkdirSync(batchDir, { recursive: true });
+
+    // Manifest declares api=true AND e2e=true, but only api result is written.
+    const manifest = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'batch-integrity',
+      selected_targets: { api: true, e2e: true, fuzz: false, performance: false },
+      result_files: {
+        api: 'runs/batch-integrity/api-result.json',
+        e2e: 'runs/batch-integrity/e2e-result.json',  // declared but file will NOT exist
+        coverage: 'runs/batch-integrity/coverage-result.json',
+      },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const yaml = require('js-yaml');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
+
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'batch-integrity', target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [], unmapped_tests: [] };
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+    // e2e-result.json intentionally NOT written (and no coverage-result.json either)
+
+    const result = inspect({ changeId, projectRoot });
+    expect(result.analysis.inspection_status).toBe('failed');
+    expect(result.analysis.final_status).toBe('FAIL');
+    expect(result.analysis.inspect_mode).toBe('primary');
+    expect(result.analysis.classification_performed).toBe(false);
+    // Should produce at least one integrity failure (e2e missing, coverage missing)
+    expect(result.analysis.hard_fails.length).toBeGreaterThanOrEqual(1);
+    expect(result.analysis.hard_fails[0].category).toBe('manifest_asset_missing');
+    expect(result.analysis.hard_fails[0].fix_proposal_eligible).toBe(false);
   });
 });
