@@ -74,8 +74,9 @@ describe('aws run integration', () => {
 
   it('when pytest unavailable, api-result.json.status is skipped not passed', () => {
     const result = run({ changeId: 'REQ-TEST-001', projectRoot });
-    expect(['skipped', 'failed']).toContain(result.api.status);
-    expect(result.api.status).not.toBe('passed');
+    expect(result.api).not.toBeNull();
+    expect(['skipped', 'failed']).toContain(result.api!.status);
+    expect(result.api!.status).not.toBe('passed');
   });
 
   it('summary.md contains change-id and result table', () => {

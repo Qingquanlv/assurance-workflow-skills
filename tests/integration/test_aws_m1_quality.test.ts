@@ -153,8 +153,9 @@ describe('M1 report_generator', () => {
     };
     const analysis: FailureAnalysis = {
       schema_version: '1.0', change_id: changeId, batch_id: 'B1', source_batch_id: 'B1',
+      source_manifest: '', inspection_status: 'completed',
       final_status: 'PASS', inspect_mode: 'primary', classification_performed: true, status: 'no_failures',
-      failures: [], hard_fails: [], needs_review: [],
+      failures: [], hard_fails: [], needs_review: [], known_product_issues: [],
     };
     const coverage: CoverageResult = {
       schema_version: '1.0', change_id: changeId, batch_id: 'B1', kind: 'coverage', available: true,
@@ -201,8 +202,31 @@ describe('M1 runner coverage output', () => {
     const result = run({ changeId: 'REQ-COV-001', projectRoot });
     const execDir = path.join(projectRoot, 'qa', 'changes', 'REQ-COV-001', 'execution');
     expect(fs.existsSync(path.join(execDir, 'coverage-result.json'))).toBe(true);
-    expect(result.coverage.kind).toBe('coverage');
+    expect(result.coverage?.kind).toBe('coverage');
     // In CI without pytest-cov, coverage is SKIPPED — never fabricated as PASS.
-    expect(['SKIPPED', 'PASS', 'PASS_WITH_WARNINGS']).toContain(result.coverage.status);
+    expect(['SKIPPED', 'PASS', 'PASS_WITH_WARNINGS']).toContain(result.coverage?.status);
+  });
+
+  it('does not execute or write result files for unselected targets', () => {
+    const changeId = 'REQ-SELECTED-001';
+    fs.mkdirSync(path.join(projectRoot, 'qa', 'changes', changeId, 'plans'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'e2e'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'fuzz'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'qa', 'perf'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'qa', 'perf', 'locustfile.py'), '# historical perf asset\n');
+
+    run({
+      changeId,
+      projectRoot,
+      selectedTargets: { api: false, e2e: false, fuzz: false, performance: false },
+    });
+
+    const execDir = path.join(projectRoot, 'qa', 'changes', changeId, 'execution');
+    expect(fs.existsSync(path.join(execDir, 'execution-manifest.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(execDir, 'api-result.json'))).toBe(false);
+    expect(fs.existsSync(path.join(execDir, 'e2e-result.json'))).toBe(false);
+    expect(fs.existsSync(path.join(execDir, 'coverage-result.json'))).toBe(false);
+    expect(fs.existsSync(path.join(execDir, 'fuzz-result.json'))).toBe(false);
+    expect(fs.existsSync(path.join(execDir, 'performance-result.json'))).toBe(false);
   });
 });

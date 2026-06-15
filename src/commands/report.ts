@@ -78,7 +78,12 @@ export function registerReportCommand(program: Command): void {
         logOk(`quality-gate-result.json → ${result.qualityGatePath}`);
         logBlank();
 
-        if (analysis.status === 'no_failures') {
+        if (gate.final_status === 'FAIL') {
+          console.log(chalk.red('→ Quality gate failed. Do not archive/release.'));
+          process.exit(1);
+        } else if (gate.final_status === 'PASS_WITH_WARNINGS') {
+          console.log(chalk.yellow('→ Quality gate passed with warnings. Proceed to report generate / archive with warnings.'));
+        } else if (analysis.status === 'no_failures') {
           console.log(chalk.green('→ No failures. Proceed to archive-for-qa.'));
         } else if (analysis.hard_fails.length > 0) {
           console.log(chalk.red('→ Hard failures detected. Investigate product or environment issues.'));

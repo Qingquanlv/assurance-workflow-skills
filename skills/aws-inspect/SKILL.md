@@ -17,10 +17,14 @@ Do not rely on prior conversation context.
      - Primary CLI inspect **cannot** run.
      - Use fallback partial inspect **only if** allowed (see **Inspector Mode**).
      - Otherwise **STOP** and ask to re-run execution with valid Assurance Workflow Skills CLI.
-5. Read result files based on `execution-manifest.yaml` `selected_targets` — **primary mode only**:
-   - If `selected_targets.api == true`, require `execution/api-result.json`.
-   - If `selected_targets.e2e == true`, require `execution/e2e-result.json`.
+5. Read result files based on `execution-manifest.yaml` `batch_id` and `selected_targets` — **primary mode only**:
+   - Resolve `execution/runs/<batch-id>/` from the manifest.
+   - If `selected_targets.api == true`, require `execution/runs/<batch-id>/api-result.json`.
+   - If `selected_targets.e2e == true`, require `execution/runs/<batch-id>/e2e-result.json`.
+   - If `selected_targets.fuzz == true`, require `execution/runs/<batch-id>/fuzz-result.json`.
+   - If `selected_targets.performance == true`, require `execution/runs/<batch-id>/performance-result.json`.
    - Do not require result files for targets that were not selected.
+   - Latest pointer files under `execution/*.json` are fallback/compatibility only and must not override manifest batch files.
    - In fallback partial mode with no normalised results, skip this requirement and use raw logs / manifest / `run-summary-note.md` instead.
 6. Read `execution/known-product-issues.md` if present (execution snapshot — do not overwrite).
 7. Run **AWS CLI Identity Check** before primary inspect (see below).
@@ -184,7 +188,7 @@ MCP is optional and must not replace the CLI execution chain.
 `aws report inspect` reads execution artifacts and classifies each failure:
 
 1. Reads `execution/execution-manifest.yaml` to determine selected targets and runner context.
-2. Reads `execution/api-result.json` and/or `execution/e2e-result.json` (per selected targets).
+2. Reads `execution/runs/<batch-id>/*-result.json` according to manifest `selected_targets`.
 3. Reads `execution/coverage-result.json` (M1), `execution/fuzz-result.json`, and `execution/performance-result.json` (M3) when present.
 4. Reads raw logs, traces, screenshots, and videos.
 5. Reads associated `case.yaml` and test source files.

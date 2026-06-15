@@ -65,12 +65,12 @@ Execute generated API and E2E tests for a specific change, produce normalised ex
 
 ## Skill vs CLI Boundary
 
-This skill **does not synthesize normalised result files itself**. It invokes the Assurance Workflow Skills CLI (or permitted fallback), then verifies outputs and writes `execution-manifest.yaml`.
+This skill **does not synthesize normalised result files itself**. It invokes the Assurance Workflow Skills CLI (or permitted fallback), then verifies the CLI-owned outputs including `execution-manifest.yaml`.
 
 **Primary mode (CLI):**
 
-- The CLI (`aws run`) is the trusted execution layer for normalised `api-result.json` / `e2e-result.json` / `summary.md`.
-- The skill reads those files, writes `execution-manifest.yaml`, snapshots `known-product-issues.md`, and reports.
+- The CLI (`aws run`) is the trusted execution layer for normalised `api-result.json` / `e2e-result.json` / `fuzz-result.json` / `performance-result.json` / `summary.md`.
+- The CLI writes `execution-manifest.yaml` in primary mode. The skill reads and verifies it, snapshots `known-product-issues.md`, and reports.
 
 **Fallback mode (direct pytest):**
 
@@ -211,7 +211,7 @@ MCP is optional and must not replace the CLI execution chain.
 3. Executes **API tests** via pytest with JUnit XML output. When `coverage.enabled` and `pytest-cov` is detected (via `pytest --help`), it also passes `--cov=<target_package> --cov-branch --cov-report=json:... --cov-report=xml:...` and normalises the result into `coverage-result.json`. **Coverage is collected only during the API pytest run** — E2E (playwright) is not counted.
 4. Executes **E2E tests** via **pytest-playwright** (`pytest tests/e2e/ -v --headed`), **NOT** `npx playwright test`.
 5. Executes **Fuzz tests** (M3) via pytest against `tests/fuzz/` (schemathesis runs on the pytest infra). Requires `schemathesis` to be importable; if `tests/fuzz/` is empty or schemathesis is missing, `fuzz-result.json` is `SKIPPED`.
-6. Executes **Performance tests** (M3) via **Locust headless** against locustfiles under `qa/perf/`. The runner resolves Locust as `uv run locust` → `python3 -m locust` → `locust`. Each scenario's verdict is derived from the Locust `_stats.csv` (measured p95 / error_rate) vs. the case's absolute thresholds. If Locust is unavailable, `qa/perf/` is empty, or no traffic is recorded, `performance-result.json` is `SKIPPED`.
+6. Executes **Performance tests** (M3) via **Locust headless** against locustfiles under `qa/perf/`. The runner resolves Locust as `uv run locust` → `python3 -m locust` → `locust`. It discovers execution files from `qa/perf/locustfile*.py`, not from `performance-codegen-plan.md`; thresholds and load profile come from selected `type: Performance` cases, with `.aws/config.yaml` defaults used only for missing load fields. Each scenario's verdict is derived from the Locust `_stats.csv` (measured p95 / error_rate) vs. the case's absolute thresholds. If Locust is unavailable, `qa/perf/` is empty, or no traffic is recorded, `performance-result.json` is `SKIPPED`.
 7. Preserves each run under `execution/runs/<batch-id>/` — consecutive runs never overwrite previous results.
 8. Parses real execution results — **never fabricates** passed / failed / skipped or performance measurements.
 9. Writes normalised result files and a human-readable summary.
@@ -225,7 +225,7 @@ Primary mode (CLI) — per selected targets:
 | API | `selected_targets.api == true` | `uv run pytest tests/api/test_*.py --junitxml=...` |
 | E2E | `selected_targets.e2e == true` | `uv run pytest tests/e2e/test_*.py -v --headed --junitxml=...` |
 | Fuzz | `layers.fuzz == true` | `uv run pytest tests/fuzz/ --junitxml=...` (M3) |
-| Performance | `layers.performance == true` | `uv run locust -f qa/perf/locustfile*.py --headless -u <users> -r <rate> -t <run_time>s --host <base_url> --csv ...` (M3) |
+| Performance | `selected_targets.performance == true` | `uv run locust -f qa/perf/locustfile*.py --headless -u <case users> -r <case rate> -t <case run_time>s --host <base_url> --csv ...` (M3) |
 
 Required Python packages by layer: API/E2E → `pytest`, `pytest-playwright`; coverage → `pytest-cov`; Fuzz → `schemathesis`; Performance → `locust`. Missing packages degrade the corresponding layer to `SKIPPED` (a warning), never a hard `FAIL`.
 
@@ -242,20 +242,20 @@ Per-run files depend on `selected_targets`. Unselected target result files may b
 qa/changes/<change-id>/execution/
 ├── api-result.json              ← latest (if selected_targets.api)
 ├── e2e-result.json              ← latest (if selected_targets.e2e)
-├── coverage-result.json         ← latest (primary mode; status SKIPPED if pytest-cov unavailable)
-├── fuzz-result.json             ← latest (M3; schemathesis via pytest; SKIPPED if no tests/fuzz)
-├── performance-result.json      ← latest (M3; Locust absolute thresholds; SKIPPED if no qa/perf or locust)
+├── coverage-result.json         ← latest (if selected_targets.api; status SKIPPED if pytest-cov unavailable)
+├── fuzz-result.json             ← latest (if selected_targets.fuzz; schemathesis via pytest; SKIPPED if no tests/fuzz)
+├── performance-result.json      ← latest (if selected_targets.performance; Locust absolute thresholds; SKIPPED if no qa/perf or locust)
 ├── summary.md                   ← latest (CLI-owned; skill verifies, does not rewrite)
-├── execution-manifest.yaml      ← latest pointer (skill-written)
+├── execution-manifest.yaml      ← latest pointer (CLI-written in primary mode)
 ├── run-summary-note.md          ← optional skill-owned fallback note
 ├── known-product-issues.md      ← snapshot of change-level record (if present)
 └── runs/
     └── <batch-id>/               ← resolved from CLI output, not guessed
         ├── api-result.json       ← if selected_targets.api (primary mode only)
         ├── e2e-result.json       ← if selected_targets.e2e (primary mode only)
-        ├── coverage-result.json  ← primary mode only (status SKIPPED if pytest-cov unavailable)
-        ├── fuzz-result.json       ← primary mode only (M3; SKIPPED if no tests/fuzz)
-        ├── performance-result.json ← primary mode only (M3; SKIPPED if no qa/perf or locust)
+        ├── coverage-result.json  ← if selected_targets.api (primary mode only)
+        ├── fuzz-result.json       ← if selected_targets.fuzz (primary mode only)
+        ├── performance-result.json ← if selected_targets.performance (primary mode only)
         ├── summary.md            ← primary mode only
         ├── execution-manifest.yaml
         ├── known-product-issues.md   ← per-run snapshot (if present)

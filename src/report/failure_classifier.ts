@@ -21,6 +21,8 @@ const FIX_PROPOSAL_ALLOWED: Record<FailureCategory, boolean | 'review'> = {
   assertion_failure: false,
   business_logic_failure: false,
   case_semantic_failure: false,
+  known_product_issue: false,
+  coverage_gap: false,
   fuzz_configuration_error: false, // config/schema/auth misconfig — fix the setup, not auto-fixable
   fuzz_stateful_failure: 'review', // product fault surfaced by fuzzing — human review
   perf_script_error: false,        // locustfile error — fix the script, not auto-fixable

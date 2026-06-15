@@ -5,9 +5,12 @@ import { buildQualityGate } from '../../src/report/quality_gate';
 import { computeQualityScore } from '../../src/report/quality_score';
 import { inspect } from '../../src/report/inspector';
 import { generateReport } from '../../src/report/report_generator';
-import { parseLocustStats } from '../../src/execution/locust_runner';
+import { parseLocustStats, resolveLoadProfile } from '../../src/execution/locust_runner';
+import { buildSummaryMd } from '../../src/execution/summary_writer';
 import {
   ApiResult,
+  CoverageResult,
+  E2eResult,
   FuzzResult,
   PerformanceResult,
 } from '../../src/core/types';
@@ -39,6 +42,18 @@ const perfResult = (verdict: 'PASS' | 'FAIL' | 'SKIPPED', available = true): Per
       }]
     : [],
   command: '', source: { raw_log: '', csv_prefix: '' },
+});
+
+const e2eResult = (failed: number): E2eResult => ({
+  schema_version: '1.0', change_id: 'R', batch_id: 'B', target: 'e2e', status: failed ? 'failed' : 'passed',
+  command: '', source: { framework: 'pytest-playwright', raw_log: '', json_report: '', html_report: '' },
+  total: 2, passed: 2 - failed, failed, skipped: 0, cases: [], unmapped_tests: [],
+});
+
+const coverageResult = (status: CoverageResult['status']): CoverageResult => ({
+  schema_version: '1.0', change_id: 'R', batch_id: 'B', kind: 'coverage', available: status !== 'SKIPPED',
+  line_coverage: 80, branch_coverage: 70, threshold: { line: 70, branch: 60 }, status,
+  uncovered_critical_files: [], source: { coverage_json: '', coverage_xml: '' },
 });
 
 describe('M3 quality_gate — fuzz + non_functional dimensions', () => {
@@ -116,6 +131,62 @@ describe('M3 inspector — perf threshold failures classified', () => {
     expect(result.qualityGate.final_status).toBe('FAIL');
     expect(fs.existsSync(result.qualityGatePath)).toBe(true);
   });
+
+  it('uses execution-manifest batch and selected targets instead of stale latest pointers', () => {
+    const changeId = 'REQ-MANIFEST-001';
+    const base = path.join(projectRoot, 'qa', 'changes', changeId);
+    const execution = path.join(base, 'execution');
+    const batch = path.join(execution, 'runs', 'B2');
+    fs.mkdirSync(batch, { recursive: true });
+
+    fs.writeFileSync(path.join(execution, 'e2e-result.json'), JSON.stringify(e2eResult(1)));
+    fs.writeFileSync(path.join(execution, 'performance-result.json'), JSON.stringify(perfResult('FAIL')));
+    fs.writeFileSync(path.join(batch, 'api-result.json'), JSON.stringify(apiResult(0)));
+    fs.writeFileSync(path.join(execution, 'execution-manifest.yaml'), [
+      'schema_version: "1.0"',
+      `change_id: ${changeId}`,
+      'batch_id: B2',
+      'selected_targets:',
+      '  api: true',
+      '  e2e: false',
+      '  fuzz: false',
+      '  performance: false',
+      'result_files:',
+      '  api: runs/B2/api-result.json',
+    ].join('\n'));
+
+    const result = inspect({ changeId, projectRoot });
+    expect(result.analysis.batch_id).toBe('B2');
+    expect(result.analysis.failures).toEqual([]);
+    expect(result.qualityGate.dimensions.functional.e2e).toEqual({ total: 0, passed: 0, failed: 0 });
+    expect(result.qualityGate.dimensions.non_functional).toBeUndefined();
+    expect(result.qualityGate.final_status).toBe('PASS');
+  });
+});
+
+describe('M3 execution summary', () => {
+  it('uses quality gate status for final next step instead of API/E2E only', () => {
+    const gate = buildQualityGate({
+      changeId: 'R', batchId: 'B', apiResult: apiResult(0), e2eResult: e2eResult(0),
+      coverageResult: coverageResult('PASS'), coverageGateMode: 'warn',
+      fuzzResult: null, performanceResult: perfResult('FAIL'),
+    });
+
+    const md = buildSummaryMd('R', 'B', {
+      api: apiResult(0),
+      e2e: e2eResult(0),
+      coverage: coverageResult('PASS'),
+      fuzz: null,
+      performance: perfResult('FAIL'),
+      qualityGate: gate,
+      selectedTargets: { api: true, e2e: true, fuzz: false, performance: true },
+    });
+
+    expect(md).toMatch(/Final Gate\s+\| FAIL/);
+    expect(md).toMatch(/Performance\s+\| FAIL/);
+    expect(md).toMatch(/Quality gate failed/);
+    expect(md).not.toMatch(/All tests passed/);
+  });
 });
 
 describe('M3 report_generator — fuzz line + non-functional chapter', () => {
@@ -174,5 +245,18 @@ describe('M3 parseLocustStats', () => {
     // Aggregated row excluded.
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({ name: 'checkout', requests: 100, failures: 2, p95: 420 });
+  });
+});
+
+describe('M3 performance runner', () => {
+  it('uses case load profile before .aws default_load', () => {
+    const load = resolveLoadProfile([{
+      capability: 'checkout',
+      endpoint: 'POST /api/checkout',
+      thresholds: { p95_ms: 800, error_rate_max: 0.01 },
+      load: { users: 50, spawn_rate: 10, run_time_s: 60 },
+    }], { users: 10, spawn_rate: 2, run_time_s: 30 });
+
+    expect(load).toEqual({ users: 50, spawn_rate: 10, run_time_s: 60 });
   });
 });

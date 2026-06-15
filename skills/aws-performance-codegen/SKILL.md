@@ -57,6 +57,7 @@ class MenuListUser(HttpUser):
 - Endpoints, task weights, and the `name=` labels come from the plan and MUST match the scenario `capability` so the runner can map measured stats back to thresholds.
 - The locustfile declares **load behavior only**; absolute thresholds (`p95_ms`, `error_rate_max`) live in the case/plan and are enforced by the CLI runner against Locust output — do **not** re-encode thresholds inside the locustfile.
 - Output exactly to `qa/perf/locustfile_<module>.py`.
+- `performance-codegen-plan.md` is a codegen guidance artifact, not the runner's execution target list. Phase 8 `aws-run` discovers executable Locust files via `qa/perf/locustfile*.py` and reads thresholds/load from selected `type: Performance` cases.
 
 ## Test Failure Integrity
 

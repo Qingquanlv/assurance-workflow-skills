@@ -76,6 +76,21 @@ export interface E2eResult {
   unmapped_tests: E2eCaseResult[];
 }
 
+export interface SelectedTargets {
+  api: boolean;
+  e2e: boolean;
+  fuzz: boolean;
+  performance: boolean;
+}
+
+export interface ExecutionManifest {
+  schema_version: '1.0';
+  change_id: string;
+  batch_id: string;
+  selected_targets: SelectedTargets;
+  result_files: Partial<Record<keyof SelectedTargets | 'coverage' | 'summary', string>>;
+}
+
 // ─── Failure analysis types (M5) ─────────────────────────────────────────────
 
 export type FailureCategory =
@@ -87,6 +102,8 @@ export type FailureCategory =
   | 'business_logic_failure'
   | 'case_semantic_failure'
   | 'test_code_error'
+  | 'known_product_issue'
+  | 'coverage_gap'
   // Fuzz-specific (M3 Phase B):
   | 'fuzz_configuration_error'  // schema fetch / auth / setup misconfig — not a product bug, not auto-fixable
   | 'fuzz_stateful_failure'     // stateful sequence revealed a server fault — product issue, needs review
@@ -109,8 +126,10 @@ export interface FailureEvidence {
 }
 
 export interface FailureEntry {
+  id?: string;
   case_id: string;
-  target: 'api' | 'e2e' | 'fuzz' | 'performance';
+  test?: string;
+  target: 'api' | 'e2e' | 'fuzz' | 'performance' | 'coverage';
   category: FailureCategory;
   /** Whether the CLI considers this failure eligible for an automated fix proposal */
   fix_proposal_eligible: boolean;
@@ -118,6 +137,7 @@ export interface FailureEntry {
   evidence: FailureEvidence;
   diagnosis: string;
   recommended_action: string;
+  recommended_next_action?: string;
 }
 
 export interface CoverageGapEntry {
@@ -129,11 +149,13 @@ export interface CoverageGapEntry {
 export type AnalysisStatus = 'analyzed' | 'no_failures' | 'skipped';
 
 /** High-level workflow status emitted in failure-analysis.json, consumed by healing gates */
-export type InspectFinalStatus = 'PASS' | 'FAIL' | 'SKIPPED';
+export type InspectFinalStatus = 'PASS' | 'PASS_WITH_WARNINGS' | 'FAIL' | 'SKIPPED';
 
 export interface FailureAnalysis {
   schema_version: '1.0';
   change_id: string;
+  source_manifest: string;
+  inspection_status: 'completed' | 'skipped';
   /** Batch ID of the execution run this analysis is based on */
   batch_id: string;
   /** Same as batch_id for primary inspect; kept for healing re-inspect compatibility */
@@ -147,6 +169,7 @@ export interface FailureAnalysis {
   failures: FailureEntry[];
   hard_fails: FailureEntry[];
   needs_review: FailureEntry[];
+  known_product_issues: FailureEntry[];
   /** Low-coverage files surfaced from coverage-result.json (M1). Never a Fix Proposal source. */
   coverage_gaps?: CoverageGapEntry[];
 }

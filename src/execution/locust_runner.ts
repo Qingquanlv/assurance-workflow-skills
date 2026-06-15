@@ -129,7 +129,7 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
   let anyTraffic = false;
 
   for (const file of locustfiles) {
-    const load = config.default_load;
+    const load = resolveLoadProfile(scenarios, config.default_load);
     const args = [
       ...runner.baseArgs,
       '-f', file,
@@ -222,6 +222,20 @@ function discoverLocustfiles(cwd: string): string[] {
   return fs.readdirSync(perfDir)
     .filter(f => /^locustfile.*\.py$/.test(f))
     .map(f => path.join('qa', 'perf', f));
+}
+
+export function resolveLoadProfile(
+  scenarios: PerfScenario[],
+  defaults: PerfConfig['default_load'],
+): PerfConfig['default_load'] {
+  const scenarioLoad = scenarios.find(sc =>
+    sc.load.users > 0 || sc.load.spawn_rate > 0 || sc.load.run_time_s > 0
+  )?.load;
+  return {
+    users: scenarioLoad?.users || defaults.users,
+    spawn_rate: scenarioLoad?.spawn_rate || defaults.spawn_rate,
+    run_time_s: scenarioLoad?.run_time_s || defaults.run_time_s,
+  };
 }
 
 interface LocustStatRow { name: string; requests: number; failures: number; p95: number; }

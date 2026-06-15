@@ -4,7 +4,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiResult, CoverageGapEntry, CoverageResult, E2eResult, FailureAnalysis, FailureEntry, FuzzResult, PerformanceResult, QualityGateResult } from '../core/types';
+import * as yaml from 'js-yaml';
+import { ApiResult, CoverageGapEntry, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, FailureEntry, FuzzResult, PerformanceResult, QualityGateResult } from '../core/types';
 import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
 import { buildQualityGate } from './quality_gate';
@@ -32,16 +33,20 @@ export function inspect(opts: InspectOptions): InspectResult {
   const analysisPath = path.join(inspectDir, 'failure-analysis.json');
   const summaryPath = path.join(inspectDir, 'failure-summary.md');
   const qualityGatePath = path.join(inspectDir, 'quality-gate-result.json');
+  const manifestInfo = loadExecutionManifest(executionDir);
+  const manifest = manifestInfo?.manifest ?? null;
+  const sourceManifest = manifestInfo?.path ?? '';
+  const selectedTargets = manifest?.selected_targets ?? { api: true, e2e: true, fuzz: true, performance: true };
+  const resultRoot = manifest ? path.join(executionDir, 'runs', manifest.batch_id) : executionDir;
 
-  // Load result files (always read from execution/ where runner writes them)
-  const apiResult = loadJson<ApiResult>(path.join(executionDir, 'api-result.json'));
-  const e2eResult = loadJson<E2eResult>(path.join(executionDir, 'e2e-result.json'));
-  const coverageResult = loadJson<CoverageResult>(path.join(executionDir, 'coverage-result.json'));
-  const fuzzResult = loadJson<FuzzResult>(path.join(executionDir, 'fuzz-result.json'));
-  const performanceResult = loadJson<PerformanceResult>(path.join(executionDir, 'performance-result.json'));
+  const apiResult = selectedTargets.api ? loadJson<ApiResult>(resultFilePath(executionDir, resultRoot, manifest, 'api', 'api-result.json')) : null;
+  const e2eResult = selectedTargets.e2e ? loadJson<E2eResult>(resultFilePath(executionDir, resultRoot, manifest, 'e2e', 'e2e-result.json')) : null;
+  const coverageResult = selectedTargets.api ? loadJson<CoverageResult>(resultFilePath(executionDir, resultRoot, manifest, 'coverage', 'coverage-result.json')) : null;
+  const fuzzResult = selectedTargets.fuzz ? loadJson<FuzzResult>(resultFilePath(executionDir, resultRoot, manifest, 'fuzz', 'fuzz-result.json')) : null;
+  const performanceResult = selectedTargets.performance ? loadJson<PerformanceResult>(resultFilePath(executionDir, resultRoot, manifest, 'performance', 'performance-result.json')) : null;
 
   // Extract batch_id from any result file (all carry the same batch_id per run)
-  const batchId = apiResult?.batch_id ?? e2eResult?.batch_id ?? coverageResult?.batch_id ?? fuzzResult?.batch_id ?? performanceResult?.batch_id ?? '';
+  const batchId = manifest?.batch_id ?? apiResult?.batch_id ?? e2eResult?.batch_id ?? coverageResult?.batch_id ?? fuzzResult?.batch_id ?? performanceResult?.batch_id ?? '';
 
   const coverageGateMode = loadCoverageConfig(projectRoot).gate_mode;
   const coverageGaps = buildCoverageGaps(coverageResult);
@@ -61,6 +66,8 @@ export function inspect(opts: InspectOptions): InspectResult {
     const analysis: FailureAnalysis = {
       schema_version: '1.0',
       change_id: changeId,
+      source_manifest: sourceManifest,
+      inspection_status: 'skipped',
       batch_id: batchId,
       source_batch_id: batchId,
       final_status: 'SKIPPED',
@@ -70,6 +77,7 @@ export function inspect(opts: InspectOptions): InspectResult {
       failures: [],
       hard_fails: [],
       needs_review: [],
+      known_product_issues: [],
       coverage_gaps: coverageGaps,
     };
     const qualityGate = buildGate();
@@ -78,10 +86,10 @@ export function inspect(opts: InspectOptions): InspectResult {
     return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
   }
 
-  const rawLogDir = path.join(executionDir, 'raw');
-  const tracesDir = path.join(executionDir, 'traces');
-  const screenshotsDir = path.join(executionDir, 'screenshots');
-  const videosDir = path.join(executionDir, 'videos');
+  const rawLogDir = path.join(resultRoot, 'raw');
+  const tracesDir = path.join(resultRoot, 'traces');
+  const screenshotsDir = path.join(resultRoot, 'screenshots');
+  const videosDir = path.join(resultRoot, 'videos');
 
   const failures: FailureEntry[] = [];
   const hardFails: FailureEntry[] = [];
@@ -107,7 +115,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: path.join(executionDir, 'api-result.json'),
+          result_file: resultFilePath(executionDir, resultRoot, manifest, 'api', 'api-result.json'),
           test_file: c.file,
           trace: '',
           screenshot: '',
@@ -154,7 +162,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: path.join(executionDir, 'e2e-result.json'),
+          result_file: resultFilePath(executionDir, resultRoot, manifest, 'e2e', 'e2e-result.json'),
           test_file: c.file,
           trace,
           screenshot,
@@ -195,7 +203,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: path.join(executionDir, 'fuzz-result.json'),
+          result_file: resultFilePath(executionDir, resultRoot, manifest, 'fuzz', 'fuzz-result.json'),
           test_file: c.file,
           trace: '',
           screenshot: '',
@@ -227,7 +235,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: false,
         severity: 'high',
         evidence: {
-          result_file: path.join(executionDir, 'performance-result.json'),
+          result_file: resultFilePath(executionDir, resultRoot, manifest, 'performance', 'performance-result.json'),
           test_file: sc.endpoint,
           trace: '',
           screenshot: '',
@@ -243,12 +251,47 @@ export function inspect(opts: InspectOptions): InspectResult {
     }
   }
 
+  const qualityGate = buildGate();
+
+  if (qualityGate.dimensions.coverage.status === 'FAIL') {
+    const gaps = coverageGaps.length > 0
+      ? coverageGaps
+      : [{ file: 'coverage', line_coverage: coverageResult?.line_coverage ?? 0, threshold: coverageResult?.threshold.line ?? 0 }];
+    for (const gap of gaps) {
+      const entry: FailureEntry = {
+        case_id: gap.file,
+        target: 'coverage',
+        category: 'coverage_gap',
+        fix_proposal_eligible: false,
+        severity: 'high',
+        evidence: {
+          result_file: resultFilePath(executionDir, resultRoot, manifest, 'coverage', 'coverage-result.json'),
+          test_file: gap.file,
+          trace: '',
+          screenshot: '',
+          video: '',
+          raw_log: '',
+          log_excerpt: `line coverage ${gap.line_coverage}% below threshold ${gap.threshold}%`,
+        },
+        diagnosis: `Coverage gate failed for ${gap.file}: ${gap.line_coverage}% is below threshold ${gap.threshold}%.`,
+        recommended_action: 'Add or improve tests for the uncovered critical file. Coverage gaps are never auto-fixed.',
+      };
+      failures.push(entry);
+      hardFails.push(entry);
+    }
+  }
+
+  completeFailureEntries(failures);
+
   const status = failures.length === 0 ? 'no_failures' : 'analyzed';
-  const finalStatus = failures.length === 0 ? 'PASS' : 'FAIL';
+  const finalStatus = qualityGate.final_status;
+  const knownProductIssues = failures.filter(f => f.category === 'known_product_issue');
 
   const analysis: FailureAnalysis = {
     schema_version: '1.0',
     change_id: changeId,
+    source_manifest: sourceManifest,
+    inspection_status: 'completed',
     batch_id: batchId,
     source_batch_id: batchId,
     final_status: finalStatus,
@@ -258,10 +301,10 @@ export function inspect(opts: InspectOptions): InspectResult {
     failures,
     hard_fails: hardFails,
     needs_review: needsReview,
+    known_product_issues: knownProductIssues,
     coverage_gaps: coverageGaps,
   };
 
-  const qualityGate = buildGate();
   write(analysisPath, summaryPath, changeId, analysis);
   writeQualityGate(qualityGatePath, qualityGate);
   return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
@@ -284,6 +327,39 @@ function writeQualityGate(qualityGatePath: string, qualityGate: QualityGateResul
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function loadExecutionManifest(executionDir: string): { manifest: ExecutionManifest; path: string } | null {
+  const manifestPath = path.join(executionDir, 'execution-manifest.yaml');
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const manifest = yaml.load(fs.readFileSync(manifestPath, 'utf-8')) as ExecutionManifest;
+    if (!manifest?.batch_id || !manifest.selected_targets) return null;
+    return { manifest, path: manifestPath };
+  } catch {
+    return null;
+  }
+}
+
+function resultFilePath(
+  executionDir: string,
+  resultRoot: string,
+  manifest: ExecutionManifest | null,
+  key: keyof ExecutionManifest['result_files'],
+  fallbackName: string,
+): string {
+  const manifestPath = manifest?.result_files?.[key];
+  if (manifestPath) return path.join(executionDir, manifestPath);
+  return path.join(resultRoot, fallbackName);
+}
+
+function completeFailureEntries(failures: FailureEntry[]): void {
+  failures.forEach((failure, index) => {
+    const id = `FAIL-${String(index + 1).padStart(3, '0')}`;
+    failure.id = failure.id ?? id;
+    failure.test = failure.test ?? failure.evidence.test_file ?? failure.case_id;
+    failure.recommended_next_action = failure.recommended_next_action ?? failure.recommended_action;
+  });
+}
 
 function loadJson<T>(filePath: string): T | null {
   if (!fs.existsSync(filePath)) return null;
