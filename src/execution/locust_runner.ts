@@ -132,12 +132,14 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
   const allCommands: string[] = [];
   let anyTraffic = false;
 
-  for (const locustfile of locustfiles) {
-    const fileStem = path.basename(locustfile, '.py').replace(/[^a-z0-9_-]/gi, '_');
+  // One verdict per scenario per load group. Run all locustfiles for each group,
+  // merge stats, then judge once — never push verdicts inside the locustfile loop.
+  for (let gi = 0; gi < loadGroups.length; gi++) {
+    const { load, scenarios: groupScenarios } = loadGroups[gi];
+    const mergedStats = new Map<string, { p95: number; requests: number; failures: number }>();
 
-    for (let gi = 0; gi < loadGroups.length; gi++) {
-      const { load, scenarios: groupScenarios } = loadGroups[gi];
-      // Unique CSV prefix per locustfile + load group to avoid overwrites between groups.
+    for (const locustfile of locustfiles) {
+      const fileStem = path.basename(locustfile, '.py').replace(/[^a-z0-9_-]/gi, '_');
       const csvPrefix = `${csvPrefixBase}_${fileStem}_g${gi}`;
 
       const args = [
@@ -157,38 +159,18 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
       const proc = spawnSync(runner.exe, args, { cwd, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
       fs.appendFileSync(logPath, [`$ ${cmdStr}`, '', proc.stdout ?? '', proc.stderr ?? '', '', ''].join('\n'), 'utf-8');
 
-      // Parse stats for THIS group's run only.
-      const statsByName = new Map<string, { p95: number; requests: number; failures: number }>();
       const statsCsv = `${csvPrefix}_stats.csv`;
       if (fs.existsSync(statsCsv)) {
+        const fileStats = new Map<string, { p95: number; requests: number; failures: number }>();
         for (const row of parseLocustStats(statsCsv)) {
           if (row.requests > 0) anyTraffic = true;
-          statsByName.set(row.name, row);
+          fileStats.set(row.name, row);
         }
-      }
-
-      // Judge only the scenarios in this group against this run's stats.
-      for (const sc of groupScenarios) {
-        const stat = statsByName.get(sc.capability) ?? statsByName.get(sc.endpoint);
-        if (!stat || stat.requests === 0) {
-          allVerdicts.push({
-            capability: sc.capability, endpoint: sc.endpoint,
-            measured_p95_ms: null, threshold_p95_ms: sc.thresholds.p95_ms,
-            measured_error_rate: null, threshold_error_rate_max: sc.thresholds.error_rate_max,
-            verdict: 'SKIPPED',
-          });
-        } else {
-          const errorRate = stat.failures / stat.requests;
-          const pass = stat.p95 <= sc.thresholds.p95_ms && errorRate <= sc.thresholds.error_rate_max;
-          allVerdicts.push({
-            capability: sc.capability, endpoint: sc.endpoint,
-            measured_p95_ms: stat.p95, threshold_p95_ms: sc.thresholds.p95_ms,
-            measured_error_rate: round4(errorRate), threshold_error_rate_max: sc.thresholds.error_rate_max,
-            verdict: pass ? 'PASS' : 'FAIL',
-          });
-        }
+        mergeLocustStatsMaps(mergedStats, fileStats);
       }
     }
+
+    allVerdicts.push(...buildScenarioVerdicts(groupScenarios, mergedStats));
   }
 
   if (!anyTraffic) {
@@ -284,6 +266,47 @@ export function groupScenariosByLoad(
     }
   }
   return groups;
+}
+
+type LocustStatEntry = { p95: number; requests: number; failures: number };
+
+/** Merges locust stats from one run into target; keeps the row with higher request count per name. */
+export function mergeLocustStatsMaps(
+  target: Map<string, LocustStatEntry>,
+  source: Map<string, LocustStatEntry>,
+): void {
+  for (const [name, row] of source) {
+    const existing = target.get(name);
+    if (!existing || row.requests > existing.requests) {
+      target.set(name, row);
+    }
+  }
+}
+
+/** Builds one verdict per scenario from merged locust stats (pure, testable). */
+export function buildScenarioVerdicts(
+  scenarios: PerfScenario[],
+  statsByName: Map<string, LocustStatEntry>,
+): PerformanceScenarioVerdict[] {
+  return scenarios.map(sc => {
+    const stat = statsByName.get(sc.capability) ?? statsByName.get(sc.endpoint);
+    if (!stat || stat.requests === 0) {
+      return {
+        capability: sc.capability, endpoint: sc.endpoint,
+        measured_p95_ms: null, threshold_p95_ms: sc.thresholds.p95_ms,
+        measured_error_rate: null, threshold_error_rate_max: sc.thresholds.error_rate_max,
+        verdict: 'SKIPPED' as const,
+      };
+    }
+    const errorRate = stat.failures / stat.requests;
+    const pass = stat.p95 <= sc.thresholds.p95_ms && errorRate <= sc.thresholds.error_rate_max;
+    return {
+      capability: sc.capability, endpoint: sc.endpoint,
+      measured_p95_ms: stat.p95, threshold_p95_ms: sc.thresholds.p95_ms,
+      measured_error_rate: round4(errorRate), threshold_error_rate_max: sc.thresholds.error_rate_max,
+      verdict: pass ? 'PASS' as const : 'FAIL' as const,
+    };
+  });
 }
 
 interface LocustStatRow { name: string; requests: number; failures: number; p95: number; }
