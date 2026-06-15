@@ -10,6 +10,7 @@ import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
 import { buildQualityGate } from './quality_gate';
 import { loadCoverageConfig } from '../execution/coverage_parser';
+import { normalizeExecutionManifest } from '../execution/manifest_parser';
 
 export interface InspectOptions {
   changeId: string;
@@ -82,6 +83,7 @@ export function inspect(opts: InspectOptions): InspectResult {
       batchId,
     );
     if (integrityFailures.length > 0) {
+      completeFailureEntries(integrityFailures);
       const analysis: FailureAnalysis = {
         schema_version: '1.0',
         change_id: changeId,
@@ -99,7 +101,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         known_product_issues: [],
         coverage_gaps: [],
       };
-      const qualityGate = loadedGate ?? buildGate();
+      const qualityGate = gateWithFinalStatus(loadedGate ?? buildGate(), 'FAIL');
       write(analysisPath, summaryPath, changeId, analysis);
       writeQualityGate(qualityGatePath, qualityGate);
       return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
@@ -372,14 +374,19 @@ function writeQualityGate(qualityGatePath: string, qualityGate: QualityGateResul
   fs.writeFileSync(qualityGatePath, JSON.stringify(qualityGate, null, 2), 'utf-8');
 }
 
+function gateWithFinalStatus(gate: QualityGateResult, finalStatus: QualityGateResult['final_status']): QualityGateResult {
+  return { ...gate, final_status: finalStatus };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function loadExecutionManifest(executionDir: string): { manifest: ExecutionManifest; path: string } | null {
   const manifestPath = path.join(executionDir, 'execution-manifest.yaml');
   if (!fs.existsSync(manifestPath)) return null;
   try {
-    const manifest = yaml.load(fs.readFileSync(manifestPath, 'utf-8')) as ExecutionManifest;
-    if (!manifest?.batch_id || !manifest.selected_targets) return null;
+    const raw = yaml.load(fs.readFileSync(manifestPath, 'utf-8'));
+    const manifest = normalizeExecutionManifest(raw, executionDir);
+    if (!manifest) return null;
     return { manifest, path: manifestPath };
   } catch {
     return null;
@@ -408,9 +415,9 @@ function completeFailureEntries(failures: FailureEntry[]): void {
 }
 
 /**
- * Checks that every target declared in `manifest.selected_targets` has its
- * result file actually present on disk.  Returns FailureEntry objects for each
- * missing file so inspect can surface them as hard failures.
+ * Checks that every selected execution target has its result file on disk.
+ * Coverage is excluded — it is a derivative of API pytest, not a first-class target,
+ * and missing coverage must never escalate to a critical hard fail here.
  */
 function buildIntegrityFailures(
   manifest: ExecutionManifest,
@@ -435,7 +442,6 @@ function buildIntegrityFailures(
   }> = [
     { target: 'api',         selected: selectedTargets.api,         result: loaded.apiResult,         manifestKey: 'api',         fallbackName: 'api-result.json'         },
     { target: 'e2e',         selected: selectedTargets.e2e,         result: loaded.e2eResult,         manifestKey: 'e2e',         fallbackName: 'e2e-result.json'         },
-    { target: 'coverage',    selected: selectedTargets.api,         result: loaded.coverageResult,    manifestKey: 'coverage',    fallbackName: 'coverage-result.json'    },
     { target: 'fuzz',        selected: selectedTargets.fuzz,        result: loaded.fuzzResult,        manifestKey: 'fuzz',        fallbackName: 'fuzz-result.json'        },
     { target: 'performance', selected: selectedTargets.performance, result: loaded.performanceResult, manifestKey: 'performance', fallbackName: 'performance-result.json' },
   ];
@@ -469,7 +475,6 @@ function buildIntegrityFailures(
       },
       diagnosis: `Execution asset missing for target '${target}'. The result file declared in execution-manifest.yaml does not exist: ${expectedPath}`,
       recommended_action: 'Re-run aws run for this change to regenerate the missing execution asset. Do not archive until all selected target result files are present.',
-      recommended_next_action: 're_run',
     };
     failures.push(entry);
   }

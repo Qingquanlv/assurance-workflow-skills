@@ -5,7 +5,7 @@ import { buildQualityGate } from '../../src/report/quality_gate';
 import { computeQualityScore } from '../../src/report/quality_score';
 import { inspect } from '../../src/report/inspector';
 import { generateReport } from '../../src/report/report_generator';
-import { parseLocustStats, resolveLoadProfile } from '../../src/execution/locust_runner';
+import { parseLocustStats, resolveLoadProfile, buildScenarioVerdicts, mergeLocustStatsMaps } from '../../src/execution/locust_runner';
 import { buildSummaryMd } from '../../src/execution/summary_writer';
 import {
   ApiResult,
@@ -261,5 +261,27 @@ describe('M3 performance runner', () => {
     }], { users: 10, spawn_rate: 2, run_time_s: 30 });
 
     expect(load).toEqual({ users: 50, spawn_rate: 10, run_time_s: 60 });
+  });
+
+  it('buildScenarioVerdicts produces one verdict per scenario', () => {
+    const scenarios = [
+      { capability: 'role-list', endpoint: 'GET /roles', thresholds: { p95_ms: 200, error_rate_max: 0.01 }, load: { users: 10, spawn_rate: 2, run_time_s: 30 } },
+      { capability: 'role-create', endpoint: 'POST /roles', thresholds: { p95_ms: 300, error_rate_max: 0.02 }, load: { users: 10, spawn_rate: 2, run_time_s: 30 } },
+    ];
+    const stats = new Map([
+      ['role-list', { p95: 150, requests: 100, failures: 0 }],
+      ['role-create', { p95: 400, requests: 50, failures: 1 }],
+    ]);
+    const verdicts = buildScenarioVerdicts(scenarios, stats);
+    expect(verdicts).toHaveLength(2);
+    expect(verdicts[0].verdict).toBe('PASS');
+    expect(verdicts[1].verdict).toBe('FAIL');
+  });
+
+  it('mergeLocustStatsMaps keeps higher request count per name', () => {
+    const merged = new Map<string, { p95: number; requests: number; failures: number }>();
+    mergeLocustStatsMaps(merged, new Map([['checkout', { p95: 100, requests: 10, failures: 0 }]]));
+    mergeLocustStatsMaps(merged, new Map([['checkout', { p95: 200, requests: 50, failures: 1 }]]));
+    expect(merged.get('checkout')).toEqual({ p95: 200, requests: 50, failures: 1 });
   });
 });

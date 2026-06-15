@@ -135,11 +135,70 @@ describe('aws report inspect integration', () => {
     const result = inspect({ changeId, projectRoot });
     expect(result.analysis.inspection_status).toBe('failed');
     expect(result.analysis.final_status).toBe('FAIL');
+    expect(result.qualityGate.final_status).toBe('FAIL');
     expect(result.analysis.inspect_mode).toBe('primary');
     expect(result.analysis.classification_performed).toBe(false);
-    // Should produce at least one integrity failure (e2e missing, coverage missing)
-    expect(result.analysis.hard_fails.length).toBeGreaterThanOrEqual(1);
+    expect(result.analysis.hard_fails).toHaveLength(1);
+    expect(result.analysis.hard_fails[0].target).toBe('e2e');
     expect(result.analysis.hard_fails[0].category).toBe('manifest_asset_missing');
     expect(result.analysis.hard_fails[0].fix_proposal_eligible).toBe(false);
+    expect(result.analysis.hard_fails[0].recommended_next_action).toContain('Re-run aws run');
+  });
+
+  it('manifest integrity guard: missing coverage alone does not hard-fail', () => {
+    const execDir = makeExecDir(projectRoot, changeId);
+    const batchDir = path.join(execDir, 'runs', 'batch-cov');
+    fs.mkdirSync(batchDir, { recursive: true });
+
+    const manifest = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'batch-cov',
+      selected_targets: { api: true, e2e: false, fuzz: false, performance: false },
+      result_files: { api: 'runs/batch-cov/api-result.json' },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const yaml = require('js-yaml');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
+
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'batch-cov', target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [], unmapped_tests: [] };
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+    // coverage-result.json intentionally absent — must not trigger integrity guard
+
+    const result = inspect({ changeId, projectRoot });
+    expect(result.analysis.inspection_status).not.toBe('failed');
+    expect(result.analysis.hard_fails.filter(f => f.category === 'manifest_asset_missing')).toHaveLength(0);
+  });
+
+  it('uses skill extended manifest primary_runner.result_files for result routing', () => {
+    const execDir = makeExecDir(projectRoot, changeId);
+    const batchDir = path.join(execDir, 'runs', 'batch-skill');
+    fs.mkdirSync(batchDir, { recursive: true });
+
+    const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'batch-skill', target: 'api', status: 'passed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 1, failed: 0, skipped: 0, cases: [], unmapped_tests: [] };
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(apiResult), 'utf-8');
+
+    // Skill-shaped manifest: no top-level result_files map, only primary_runner array
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const yaml = require('js-yaml');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump({
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'batch-skill',
+      primary_runner: {
+        command: `aws run --change ${changeId}`,
+        status: 'passed',
+        result_files: [
+          path.join(execDir, 'runs/batch-skill/api-result.json'),
+        ],
+      },
+      selected_targets: { api: true, e2e: false, fuzz: false, performance: false },
+      final_status: 'PASS',
+    }), 'utf-8');
+
+    const result = inspect({ changeId, projectRoot });
+    expect(result.analysis.batch_id).toBe('batch-skill');
+    expect(result.analysis.status).toBe('no_failures');
+    expect(result.analysis.inspect_mode).toBe('primary');
   });
 });
