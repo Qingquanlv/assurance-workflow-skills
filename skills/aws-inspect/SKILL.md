@@ -185,10 +185,13 @@ MCP is optional and must not replace the CLI execution chain.
 
 1. Reads `execution/execution-manifest.yaml` to determine selected targets and runner context.
 2. Reads `execution/api-result.json` and/or `execution/e2e-result.json` (per selected targets).
-3. Reads raw logs, traces, screenshots, and videos.
-4. Reads associated `case.yaml` and test source files.
-5. Classifies each failure into a defined category.
-6. Writes `failure-analysis.json`, `failure-summary.md`, and (if applicable) `inspect/known-product-issues.md`.
+3. Reads `execution/coverage-result.json` (M1), `execution/fuzz-result.json`, and `execution/performance-result.json` (M3) when present.
+4. Reads raw logs, traces, screenshots, and videos.
+5. Reads associated `case.yaml` and test source files.
+6. Classifies each failure into a defined category.
+7. Populates `coverage_gaps[]` in `failure-analysis.json` from the coverage result's low-coverage files (never a Fix Proposal source).
+8. Synthesises the unified gate conclusion into `inspect/quality-gate-result.json` (M1) — deterministic, worst-wins across dimensions.
+9. Writes `failure-analysis.json`, `failure-summary.md`, `quality-gate-result.json`, and (if applicable) `inspect/known-product-issues.md`.
 
 ## failure-analysis.json Schema
 
@@ -237,15 +240,77 @@ Primary inspect output written by the CLI (skill verifies; does not fabricate). 
     }
   ],
   "known_product_issues": [],
-  "coverage_gaps": []
+  "coverage_gaps": [
+    { "file": "app/api/v1/menu.py", "line_coverage": 41.0, "threshold": 70 }
+  ]
 }
 ```
+
+> `coverage_gaps[]` is populated by the CLI from `execution/coverage-result.json` (files below the line threshold). It is informational — `coverage_gap` is **never** a Fix Proposal source.
+
+## quality-gate-result.json Schema (M1)
+
+The unified, deterministic gate conclusion. CLI-written; the skill verifies and **must not** fabricate or alter `final_status`.
+
+```json
+{
+  "schema_version": "1.0",
+  "change_id": "<change-id>",
+  "batch_id": "<batch-id>",
+  "dimensions": {
+    "functional": {
+      "status": "PASS",
+      "api": { "total": 36, "passed": 36, "failed": 0 },
+      "e2e": { "total": 8, "passed": 8, "failed": 0 },
+      "fuzz": { "total": 12, "passed": 12, "failed": 0 }
+    },
+    "coverage": {
+      "status": "PASS_WITH_WARNINGS",
+      "available": true,
+      "line_coverage": 76.2,
+      "branch_coverage": 58.0,
+      "threshold": { "line": 70, "branch": 60 }
+    },
+    "non_functional": {
+      "status": "PASS",
+      "performance": [
+        {
+          "capability": "checkout-throughput",
+          "endpoint": "POST /api/checkout",
+          "measured_p95_ms": 420,
+          "threshold_p95_ms": 800,
+          "measured_error_rate": 0.0,
+          "threshold_error_rate_max": 0.01,
+          "verdict": "PASS"
+        }
+      ]
+    }
+  },
+  "final_status": "PASS_WITH_WARNINGS"
+}
+```
+
+`final_status` is computed worst-wins (`FAIL > PASS_WITH_WARNINGS > PASS > SKIPPED`):
+- Functional: any failed API / E2E / **fuzz** test → `FAIL`; ran & none failed → `PASS`; nothing ran → `SKIPPED`. Fuzz folds into the functional dimension (input-robustness is functional correctness); `functional.fuzz` is present only when fuzz actually ran.
+- Coverage: below threshold → `PASS_WITH_WARNINGS` (default `gate_mode: warn`) or `FAIL` (`gate_mode: block`); `available == false` → `SKIPPED`.
+- Non-functional (performance): any scenario `verdict == FAIL` → `FAIL`; ran & all pass → `PASS`; locust unavailable / no measurements → `SKIPPED`. The `non_functional` block is present only when a performance result exists.
+
+> M1 emits only `functional` + `coverage`. M3 Phase D adds `dimensions.functional.fuzz` (when fuzz ran) and `dimensions.non_functional` (when performance ran).
 
 Failure `category` enum:
 
 ```text
-locator_failure | wait_strategy_failure | test_code_error | test_data_failure | environment_failure | assertion_failure | business_logic_failure | case_semantic_failure | known_product_issue | coverage_gap | unknown
+locator_failure | wait_strategy_failure | test_code_error | test_data_failure | environment_failure | assertion_failure | business_logic_failure | case_semantic_failure | fuzz_configuration_error | fuzz_stateful_failure | perf_script_error | perf_threshold_exceeded | perf_environment | known_product_issue | coverage_gap | unknown
 ```
+
+**Fuzz categories (M3, `target == fuzz`):**
+- `fuzz_configuration_error` — schema fetch / auth / hypothesis health-check / setup misconfig. **Not** a product bug, **not** auto-fixable; fix the fuzz setup and rerun.
+- `fuzz_stateful_failure` — schemathesis surfaced a server fault (5xx / schema violation) under generated input. Treated as a product robustness issue → `needs_review` (never auto-fixed).
+
+**Performance categories (M3, `target == performance`):**
+- `perf_script_error` — locustfile error / could not run. Fix the script; not auto-fixable.
+- `perf_threshold_exceeded` — measured p95 / error_rate exceeded the absolute threshold from the case. → `needs_review` (never auto-fixed). Review whether the endpoint regressed or the threshold is too strict.
+- `perf_environment` — target environment unreachable / no traffic recorded. Environment issue (overall performance status SKIPPED), not a product bug.
 
 Failure `recommended_next_action` enum:
 
@@ -285,6 +350,11 @@ Known issue entry in `known_product_issues[]` (within failure-analysis.json):
 | case_semantic_failure | ✗ |
 | known_product_issue | ✗ |
 | coverage_gap | ✗ |
+| fuzz_configuration_error | ✗ |
+| fuzz_stateful_failure | review |
+| perf_script_error | ✗ |
+| perf_threshold_exceeded | review |
+| perf_environment | ✗ |
 | unknown | review |
 
 ## Known Product Issue Classification
@@ -346,6 +416,7 @@ If known product issues exist, the workflow final summary must **not** say `no r
 qa/changes/<change-id>/inspect/           ← primary analysis outputs (source of truth)
 ├── failure-analysis.json                ← primary mode only (CLI-written)
 ├── failure-summary.md
+├── quality-gate-result.json             ← unified gate conclusion (M1; CLI-written)
 ├── known-product-issues.md              ← inspect analysis (if issues found; not change-level)
 ├── inspection-partial.json              ← fallback partial mode only
 └── inspection-error.json              ← primary CLI failed / outputs missing

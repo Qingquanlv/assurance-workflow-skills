@@ -7,7 +7,7 @@ import { FailureCategory } from '../core/types';
 interface ClassifyInput {
   message: string;
   logExcerpt: string;
-  target: 'api' | 'e2e';
+  target: 'api' | 'e2e' | 'fuzz';
   hasTrace: boolean;
   hasScreenshot: boolean;
 }
@@ -21,6 +21,11 @@ const FIX_PROPOSAL_ALLOWED: Record<FailureCategory, boolean | 'review'> = {
   assertion_failure: false,
   business_logic_failure: false,
   case_semantic_failure: false,
+  fuzz_configuration_error: false, // config/schema/auth misconfig — fix the setup, not auto-fixable
+  fuzz_stateful_failure: 'review', // product fault surfaced by fuzzing — human review
+  perf_script_error: false,        // locustfile error — fix the script, not auto-fixable
+  perf_threshold_exceeded: 'review', // absolute threshold exceeded — human review
+  perf_environment: false,         // environment unreachable — not a product bug
   unknown: false,               // needs_review
 };
 
@@ -34,6 +39,24 @@ export function classifyFailure(input: ClassifyInput): {
   const { target } = input;
 
   let category: FailureCategory = 'unknown';
+
+  // Fuzz classification (M3 Phase B): distinguish setup/config errors from
+  // server faults surfaced by schemathesis. A real 5xx is a product issue.
+  if (target === 'fuzz') {
+    if (isFuzzConfigurationError(text)) category = 'fuzz_configuration_error';
+    else if (isEnvironmentFailure(text)) category = 'environment_failure';
+    else if (isFuzzStatefulFailure(text)) category = 'fuzz_stateful_failure';
+    else if (isBusinessLogicFailure(text) || /server error|5\d\d|internal server/i.test(text)) category = 'business_logic_failure';
+    else if (isTestCodeError(text)) category = 'test_code_error';
+    else category = 'fuzz_stateful_failure';
+    const allowedF = FIX_PROPOSAL_ALLOWED[category];
+    return {
+      category,
+      fixProposalEligible: allowedF === true,
+      severity: computeSeverity(category),
+      needsReview: allowedF === 'review',
+    };
+  }
 
   if (isEnvironmentFailure(text)) {
     category = 'environment_failure';
@@ -66,14 +89,22 @@ function isEnvironmentFailure(text: string): boolean {
   return /connection refused|cannot connect|econnrefused|service unavailable|host not found|timeout connecting|failed to start server|502 bad gateway|503 service|no such file or directory.*server/i.test(text);
 }
 
-function isLocatorFailure(text: string, target: 'api' | 'e2e'): boolean {
+function isLocatorFailure(text: string, target: 'api' | 'e2e' | 'fuzz'): boolean {
   if (target !== 'e2e') return false;
   return /locator|selector|element not found|no element|waiting for selector|unable to find element|strict mode violation|ambiguous|getbytext|getbyrole|getbylabel|getbyplaceholder|getbytestid/i.test(text);
 }
 
-function isWaitStrategyFailure(text: string, target: 'api' | 'e2e'): boolean {
+function isWaitStrategyFailure(text: string, target: 'api' | 'e2e' | 'fuzz'): boolean {
   if (target !== 'e2e') return false;
   return /timed? ?out|timeout exceeded|exceeded.*ms|waitfor|networkidle|domcontentloaded|load.*event/i.test(text);
+}
+
+function isFuzzConfigurationError(text: string): boolean {
+  return /schemathesis|openapi|schema.*not found|failed to load schema|cannot fetch schema|invalid schema|no api definition|hypothesis.*could not|unsatisfied|failed health check|filtered out|base url/i.test(text);
+}
+
+function isFuzzStatefulFailure(text: string): boolean {
+  return /stateful|state machine|apistatemachine|sequence|transition|link|rule .* failed/i.test(text);
 }
 
 function isTestDataFailure(text: string): boolean {
@@ -101,6 +132,13 @@ function computeSeverity(category: FailureCategory): 'low' | 'medium' | 'high' |
     case 'environment_failure':
     case 'business_logic_failure':
       return 'critical';
+    case 'fuzz_stateful_failure':
+    case 'perf_threshold_exceeded':
+      return 'high';
+    case 'fuzz_configuration_error':
+    case 'perf_script_error':
+    case 'perf_environment':
+      return 'medium';
     case 'assertion_failure':
     case 'case_semantic_failure':
       return 'high';

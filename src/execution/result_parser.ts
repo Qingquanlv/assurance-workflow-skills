@@ -16,6 +16,27 @@ function extractCaseId(text: string): string {
   return m ? m[1] : '';
 }
 
+/**
+ * Reads case_id from a JUnit XML <testcase> <properties> block.
+ * Handles pytest user_properties written via:
+ *   item.user_properties.append(("case_id", "TC-MENU-001"))
+ * which produces: <property name="case_id" value="TC-MENU-001"/>
+ */
+function extractCaseIdFromProperties(t: Record<string, unknown>): string {
+  const props = t.properties as Record<string, unknown> | undefined;
+  if (!props) return '';
+  const propList = props.property;
+  const propArray: unknown[] = Array.isArray(propList) ? propList : propList ? [propList] : [];
+  for (const prop of propArray) {
+    const p = prop as Record<string, unknown>;
+    const attrs = (p['$'] ?? p) as Record<string, string>;
+    if (attrs.name === 'case_id' && attrs.value) {
+      return attrs.value;
+    }
+  }
+  return '';
+}
+
 // ─── pytest (JUnit XML) parser ────────────────────────────────────────────────
 
 export interface ParsePytestXmlOptions {
@@ -97,7 +118,7 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
         : '';
 
       const fullText = `${name} ${classname}`;
-      const caseId = extractCaseId(fullText);
+      const caseId = extractCaseId(fullText) || extractCaseIdFromProperties(t);
 
       const entry: ApiCaseResult = {
         case_id: caseId,
@@ -244,7 +265,7 @@ export function parsePytestXmlForE2e(opts: ParsePytestE2eXmlOptions): E2eResult 
       }
 
       const filePath = classname ? classname.replace(/\./g, '/') + '.py' : '';
-      const caseId = extractCaseId(`${name} ${classname}`);
+      const caseId = extractCaseId(`${name} ${classname}`) || extractCaseIdFromProperties(t);
 
       const entry: E2eCaseResult = {
         case_id: caseId,

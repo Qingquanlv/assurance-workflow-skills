@@ -219,9 +219,13 @@ regression:
   rationale: "..."
 automation:
   required: true|false
-  target: API|E2E|Unit|Visual|Mixed
-  framework: pytest|pytest-playwright|null
+  # no `target` field — top-level `type` (API|E2E|Fuzz|Performance) is the single source of truth
+  framework: pytest|pytest-playwright|schemathesis|locust|null
   status: not_automated|planned|automated|flaky|deprecated
+  confirmed_by: user|null
+  confirmed_at: <ISO-8601|null>
+  fuzz: { endpoints: [...], expectations: [...] }          # only when type: Fuzz
+  performance: { scenario: { capability, endpoint, thresholds, load } }   # only when type: Performance
 trace: {}
 ```
 
@@ -346,28 +350,37 @@ If the target stable case file cannot be found, record as a warning (not a block
 - Check whether `risk.rationale` is meaningful (not a generic placeholder).
 - Flag vague risk rationale as low/medium finding. Flag missing risk block as blocker.
 
-### 13. Layering Review
+### 13. Layering Review (four-layer)
 
-Compare `proposal.md` `## Layer Rationale` entries against each case's `automation_targets`.
+Compare `proposal.md` `## Layer Rationale` entries against each case's `type` (the single source of truth; there is no `automation.target`).
 
 Flag these anti-patterns:
 
-- A case verifiable by a single HTTP request is assigned `e2e` instead of `api` → **Type 1**
+**API / E2E (functional layering):**
+- A case verifiable by a single HTTP request is assigned `E2E` instead of `API` → **Type 1**
 - Error-code / field-validation matrix is in E2E → **Type 1**
 - Full CRUD flow uses E2E for every scenario (no API cases) → **Type 1** per scenario, or **Type 2** if assertions must migrate
-- The same assertion point appears in both API and E2E cases → **Type 2**
+- The same assertion point appears in cases of two different `type` → **Type 2** (assertion migration)
+
+**Fuzz selection:**
+- A `type: Fuzz` case has no `related_cases` pointing at a functional (API) case, i.e. Fuzz is used to replace functional assertions → **Type 2** (`human_review_required`, return to `aws-case-design`)
+- `type: Fuzz` assigned to a pure read endpoint with no user input → **Type 1**, `fix_scope: ["type", "automation.fuzz"]`
+
+**Performance selection:**
+- `type: Performance` assigned to a low-frequency / non-core endpoint → **Type 1**, `fix_scope: ["type", "automation.performance"]`
+- `type: Performance` case missing `automation.performance.scenario.thresholds` (p95_ms / error_rate_max) or using placeholder thresholds → **Type 2** blocker (thresholds must be user-confirmed)
 
 **Classification:**
 
-**Type 1 — Mechanical fix** (layer label is wrong; test target and assertions are unchanged):
-- Examples: error-code matrix assigned `e2e`, field validation assigned `e2e`
+**Type 1 — Mechanical fix** (target label is wrong; assertions unchanged):
+- Examples: error-code matrix assigned `E2E`; Fuzz on a no-input read endpoint
 - `severity: low | medium`
 - `auto_fix_allowed: true`
-- `fix_scope: ["automation_targets"]`
+- `fix_scope: ["type"]` (plus `["automation.fuzz"]` / `["automation.performance"]` when the target sub-block must change)
 - Reviewer MUST include `fix_scope` for every layering finding with `auto_fix_allowed: true`
 
-**Type 2 — Design-level issue** (case must be split / refactored / assertions migrated):
-- Examples: one E2E scenario wraps both API logic and UI interaction — needs decomposition
+**Type 2 — Design-level issue** (case must be split / refactored / assertions migrated, or Fuzz/Performance misused):
+- Examples: one E2E scenario wraps both API logic and UI interaction; Fuzz replacing functional assertions; Performance without thresholds
 - `severity: high`
 - `auto_fix_allowed: false`
 - `human_review_required: true` (workflow: return to `aws-case-design` for redesign)
@@ -380,10 +393,10 @@ Finding example (Type 1):
   "severity": "medium",
   "category": "layering",
   "file": "qa/changes/<change-id>/cases/<module>/case.yaml",
-  "message": "CASE-001 validation is verifiable via single API request; assign api not e2e.",
-  "suggestion": "Change automation_targets from [e2e] to [api].",
+  "message": "TC-MENU-001 validation is verifiable via single API request; set type to API not E2E.",
+  "suggestion": "Change type from E2E to API.",
   "auto_fix_allowed": true,
-  "fix_scope": ["automation_targets"],
+  "fix_scope": ["type"],
   "human_review_required": false
 }
 ```

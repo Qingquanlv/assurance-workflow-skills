@@ -1,6 +1,6 @@
 ---
 name: aws-run
-description: "AWS M5: Execute API and E2E tests for a change via `aws run --change <change-id>`. Use when the user asks to run tests, execute test suite, or verify a change. Calls pytest for API tests and pytest + Python Playwright (uv run pytest tests/e2e/ -v --headed) for E2E tests. Writes api-result.json, e2e-result.json, summary.md. Never fabricates test results."
+description: "AWS M5: Execute API and E2E tests for a change via `aws run --change <change-id>`. Use when the user asks to run tests, execute test suite, or verify a change. Calls pytest for API tests (with coverage when pytest-cov is available) and pytest + Python Playwright (uv run pytest tests/e2e/ -v --headed) for E2E tests. Writes api-result.json, e2e-result.json, coverage-result.json, summary.md. Never fabricates test results or coverage numbers."
 ---
 
 ## Context Contract
@@ -25,6 +25,11 @@ Do not rely on prior conversation context.
    **Always required:**
    - `qa/changes/<change-id>/execution/runs/<batch-id>/summary.md`
    - `qa/changes/<change-id>/execution/summary.md` (latest pointer)
+
+   **Primary mode, always written by CLI (M1 coverage):**
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/coverage-result.json`
+   - `qa/changes/<change-id>/execution/coverage-result.json` (latest pointer)
+   - When `pytest-cov` is unavailable or `coverage.enabled == false`, this file is still written with `available: false` / `status: SKIPPED`. Coverage absence is a **warning**, never a failure.
 
    **If `selected_targets.api == true`:**
    - `qa/changes/<change-id>/execution/runs/<batch-id>/api-result.json`
@@ -203,11 +208,13 @@ MCP is optional and must not replace the CLI execution chain.
    - `uv run pytest` (when `pyproject.toml` or `uv.lock` exists)
    - `python3 -m pytest`
    - `python -m pytest`
-3. Executes **API tests** via pytest with JUnit XML output.
+3. Executes **API tests** via pytest with JUnit XML output. When `coverage.enabled` and `pytest-cov` is detected (via `pytest --help`), it also passes `--cov=<target_package> --cov-branch --cov-report=json:... --cov-report=xml:...` and normalises the result into `coverage-result.json`. **Coverage is collected only during the API pytest run** — E2E (playwright) is not counted.
 4. Executes **E2E tests** via **pytest-playwright** (`pytest tests/e2e/ -v --headed`), **NOT** `npx playwright test`.
-5. Preserves each run under `execution/runs/<batch-id>/` — consecutive runs never overwrite previous results.
-6. Parses real execution results — **never fabricates** passed / failed / skipped.
-7. Writes normalised result files and a human-readable summary.
+5. Executes **Fuzz tests** (M3) via pytest against `tests/fuzz/` (schemathesis runs on the pytest infra). Requires `schemathesis` to be importable; if `tests/fuzz/` is empty or schemathesis is missing, `fuzz-result.json` is `SKIPPED`.
+6. Executes **Performance tests** (M3) via **Locust headless** against locustfiles under `qa/perf/`. The runner resolves Locust as `uv run locust` → `python3 -m locust` → `locust`. Each scenario's verdict is derived from the Locust `_stats.csv` (measured p95 / error_rate) vs. the case's absolute thresholds. If Locust is unavailable, `qa/perf/` is empty, or no traffic is recorded, `performance-result.json` is `SKIPPED`.
+7. Preserves each run under `execution/runs/<batch-id>/` — consecutive runs never overwrite previous results.
+8. Parses real execution results — **never fabricates** passed / failed / skipped or performance measurements.
+9. Writes normalised result files and a human-readable summary.
 
 ### Runner Commands (actual)
 
@@ -217,6 +224,10 @@ Primary mode (CLI) — per selected targets:
 |--------|------|---------|
 | API | `selected_targets.api == true` | `uv run pytest tests/api/test_*.py --junitxml=...` |
 | E2E | `selected_targets.e2e == true` | `uv run pytest tests/e2e/test_*.py -v --headed --junitxml=...` |
+| Fuzz | `layers.fuzz == true` | `uv run pytest tests/fuzz/ --junitxml=...` (M3) |
+| Performance | `layers.performance == true` | `uv run locust -f qa/perf/locustfile*.py --headless -u <users> -r <rate> -t <run_time>s --host <base_url> --csv ...` (M3) |
+
+Required Python packages by layer: API/E2E → `pytest`, `pytest-playwright`; coverage → `pytest-cov`; Fuzz → `schemathesis`; Performance → `locust`. Missing packages degrade the corresponding layer to `SKIPPED` (a warning), never a hard `FAIL`.
 
 Fallback mode (direct pytest) — same target filter; run only selected targets.
 
@@ -231,6 +242,9 @@ Per-run files depend on `selected_targets`. Unselected target result files may b
 qa/changes/<change-id>/execution/
 ├── api-result.json              ← latest (if selected_targets.api)
 ├── e2e-result.json              ← latest (if selected_targets.e2e)
+├── coverage-result.json         ← latest (primary mode; status SKIPPED if pytest-cov unavailable)
+├── fuzz-result.json             ← latest (M3; schemathesis via pytest; SKIPPED if no tests/fuzz)
+├── performance-result.json      ← latest (M3; Locust absolute thresholds; SKIPPED if no qa/perf or locust)
 ├── summary.md                   ← latest (CLI-owned; skill verifies, does not rewrite)
 ├── execution-manifest.yaml      ← latest pointer (skill-written)
 ├── run-summary-note.md          ← optional skill-owned fallback note
@@ -239,6 +253,9 @@ qa/changes/<change-id>/execution/
     └── <batch-id>/               ← resolved from CLI output, not guessed
         ├── api-result.json       ← if selected_targets.api (primary mode only)
         ├── e2e-result.json       ← if selected_targets.e2e (primary mode only)
+        ├── coverage-result.json  ← primary mode only (status SKIPPED if pytest-cov unavailable)
+        ├── fuzz-result.json       ← primary mode only (M3; SKIPPED if no tests/fuzz)
+        ├── performance-result.json ← primary mode only (M3; SKIPPED if no qa/perf or locust)
         ├── summary.md            ← primary mode only
         ├── execution-manifest.yaml
         ├── known-product-issues.md   ← per-run snapshot (if present)
@@ -316,7 +333,8 @@ Manifest rule:
 - Tests passed but `known-product-issues.md` exists.
 - Primary runner failed/skipped but the fallback runner passed.
 - A partial target was skipped with an explicit non-blocking reason.
-- A coverage gap exists.
+- A coverage gap exists, i.e. `coverage-result.json.status == PASS_WITH_WARNINGS` (line/branch below threshold) **and** `coverage.gate_mode == warn` (default). When `gate_mode == block`, below-threshold coverage maps to **FAIL** instead.
+- Coverage was not collected (`available == false`) — this is a warning, never a fail.
 
 **FAIL:**
 
@@ -407,6 +425,8 @@ If known product issues exist, **do not** report the execution as `PASS`, `clean
 ## Hard Rules
 
 - **Never fabricate** PASS / FAIL / SKIPPED status or normalised result files.
+- **Never fabricate coverage numbers.** Coverage comes from the CLI (`coverage-result.json`). Missing `pytest-cov` → coverage `SKIPPED` (warning), it must **not** cause `FAIL`.
+- Coverage below threshold maps to `PASS_WITH_WARNINGS` when `coverage.gate_mode == warn` (default), or `FAIL` when `gate_mode == block`.
 - Primary mode: CLI result files are the source of truth for normalised outputs; the skill does not synthesize them.
 - Fallback mode: do **not** fabricate `api-result.json` or `e2e-result.json`; write manifest + raw logs only.
 - Run **AWS CLI Identity Check** before `aws run` — do not invoke Amazon AWS CLI.

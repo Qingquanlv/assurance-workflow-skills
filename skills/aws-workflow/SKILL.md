@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, aws-run, aws-inspect, aws-fix-proposal, aws-api-codegen-fixer, aws-e2e-codegen-fixer) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
+description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, and—when in scope—fuzz-plan/-reviewer/-codegen and performance-plan/-reviewer/-codegen, then aws-run, aws-inspect, aws-fix-proposal, aws-api-codegen-fixer, aws-e2e-codegen-fixer, aws-report-generator) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -173,7 +173,21 @@ required_skills:
   - aws-e2e-codegen
   - aws-run
   - aws-inspect
+  - aws-report-generator
   - aws-archive
+
+conditional_skills:
+  # Loaded only when the scoped cases include the matching test type (see Phase 3.6 Layer Scan).
+  # Fuzz layer (cases with type == Fuzz):
+  - aws-fuzz-plan            # Phase 4C: schemathesis fuzz plan
+  - aws-fuzz-plan-reviewer   # Phase 5C: fuzz plan review
+  - aws-fuzz-codegen         # Phase 7C: fuzz test codegen
+  # Performance layer (cases with type == Performance):
+  - aws-performance-plan            # Phase 4D: Locust performance plan
+  - aws-performance-plan-reviewer   # Phase 5D: performance plan review
+  - aws-performance-codegen         # Phase 7D: performance test codegen
+  # If a layer is in scope but its skills are missing: STOP before Phase 4 and report
+  # the missing skill — do NOT silently drop the layer (that would understate quality).
 
 healing_skills:
   - aws-fix-proposal        # Phase 10: generate fix proposals from failure-analysis.json
@@ -284,14 +298,21 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Phase 2: Case Review | `aws-case-reviewer` |
 | Phase 3: Case Fix | `aws-case-fixer` |
 | Phase 3.5: Fact Baseline | *(inline — no separate skill; primary agent reads seed/DB)* |
+| Phase 3.6: Layer Scan | *(inline — determine which test types are in scope)* |
 | Phase 4A: API Plan | `aws-api-plan` |
 | Phase 4B: E2E Plan | `aws-e2e-plan` |
+| Phase 4C: Fuzz Plan *(only if Fuzz cases exist)* | `aws-fuzz-plan` |
+| Phase 4D: Performance Plan *(only if Performance cases exist)* | `aws-performance-plan` |
 | Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
 | Phase 5B: E2E Plan Review | `aws-e2e-plan-reviewer` |
+| Phase 5C: Fuzz Plan Review *(only if Fuzz cases exist)* | `aws-fuzz-plan-reviewer` |
+| Phase 5D: Performance Plan Review *(only if Performance cases exist)* | `aws-performance-plan-reviewer` |
 | Phase 6A: API Plan Fix | `aws-api-plan-fixer` |
 | Phase 6B: E2E Plan Fix | `aws-e2e-plan-fixer` |
 | Phase 7A: API Codegen | `aws-api-codegen` |
 | Phase 7B: E2E Codegen | `aws-e2e-codegen` |
+| Phase 7C: Fuzz Codegen *(only if Fuzz cases exist)* | `aws-fuzz-codegen` |
+| Phase 7D: Performance Codegen *(only if Performance cases exist)* | `aws-performance-codegen` |
 | Phase 8: Execution | `aws-run` |
 | Phase 9: Inspect / Failure Analysis | `aws-inspect` |
 | Phase 10: Fix Proposal *(healing, optional)* | `aws-fix-proposal` |
@@ -299,6 +320,7 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Phase 11B: E2E Codegen Fix *(healing, optional)* | `aws-e2e-codegen-fixer` |
 | Phase 12: Re-run *(healing)* | `aws-run` |
 | Phase 13: Re-inspect *(healing)* | `aws-inspect` |
+| Phase 13.5: Report Generation *(terminal, non-gating)* | `aws-report-generator` |
 | Phase 14: Archive | `aws-archive` |
 | Post-workflow (optional): Dashboard | `aws-dashboard` (only when `run_dashboard = true`) |
 
@@ -380,6 +402,7 @@ phases:
       - aws-e2e-codegen
       - aws-run
       - aws-inspect
+      - aws-report-generator
       - aws-archive
 
   case_design:
@@ -399,6 +422,13 @@ phases:
     # unavailable = seed file not found AND db_probe not configured; planning continues with warning
     source: null      # seed_file | db_probe | both | unavailable
     file: facts/fact-baseline.json
+
+  # Phase 3.6 Layer Scan — which test layers are in scope (drives conditional phases 4C/4D/5C/5D/7C/7D)
+  layers:
+    api: true | false
+    e2e: true | false
+    fuzz: true | false
+    performance: true | false
 
   api_plan:
     status: pending | done | failed
@@ -468,6 +498,28 @@ phases:
       present: false
       file: null
 
+  # Fuzz layer phases — present only when layers.fuzz == true
+  fuzz_plan:
+    status: pending | done | failed | skipped
+    outputs: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md]
+  fuzz_plan_review:
+    status: pending | pass | needs_fix | reject | skipped
+    gate_file: review/fuzz-plan-review.json
+  fuzz_codegen:
+    status: pending | done | failed | stopped | skipped
+    generated_tests: { files: [] }   # tests/fuzz/**
+
+  # Performance layer phases — present only when layers.performance == true
+  performance_plan:
+    status: pending | done | failed | skipped
+    outputs: [plans/performance-plan.md, plans/performance-codegen-plan.md]
+  performance_plan_review:
+    status: pending | pass | needs_fix | reject | skipped
+    gate_file: review/performance-plan-review.json
+  performance_codegen:
+    status: pending | done | failed | stopped | skipped
+    generated_tests: { files: [] }   # qa/perf/**
+
   execution:
     status: pending | PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
     batch_id: <YYYYMMDD-HHmmss>
@@ -514,6 +566,10 @@ phases:
     # NOTE: phases.healing.status = applied is set by the orchestrator ONLY after
     #       both fixers complete (api_apply_status and e2e_apply_status resolved)
     #       and the Fixer Safety Gate passes.
+
+  report:
+    status: pending | done | failed | skipped
+    quality_score: <int 0-100 | null>   # from report/quality-report.json (CLI-computed)
 
   archive:
     status: pending | archived | archived_with_warnings | skipped
@@ -635,6 +691,32 @@ gate: facts/fact-baseline.json must exist before Phase 5A or 5B run
 ```
 
 If the seed file cannot be found and db_probe is false, write `fact-baseline.json` with `"source": "unavailable"` and record a warning — do **not** STOP; continue to Phase 4 but planners must note that fact validation is skipped.
+
+### Phase 3.6 — Layer Scan *(inline — determines which test layers run)*
+
+Before dispatching plan phases, scan the finalized scoped cases to decide which of the four test layers are in scope. Each case has a single `type` (`API | E2E | Fuzz | Performance`) and an `automation.required` flag (see `aws-case-design`).
+
+```yaml
+inputs:
+  - qa/changes/<change-id>/cases/**/case*.yaml   # finalized after Phase 3 (case fix)
+outputs:
+  - workflow-state.yaml (updated: layers block)
+```
+
+```yaml
+# workflow-state.yaml
+layers:
+  api:         true   # any case with type == API && automation.required == true
+  e2e:         true   # any case with type == E2E && automation.required == true
+  fuzz:        false  # any case with type == Fuzz && automation.required == true
+  performance: false  # any case with type == Performance && automation.required == true
+```
+
+Rules:
+- A layer is **in scope** when ≥1 finalized case has the matching `type` and `automation.required == true`.
+- For every in-scope layer, its plan / review / codegen phases (A=API, B=E2E, C=Fuzz, D=Performance) are **mandatory** — skipping an in-scope layer understates quality and is a gate violation.
+- If a layer is in scope but its `conditional_skills` are missing from the registry, **STOP** before Phase 4 and report the missing skill. Do **not** silently drop the layer.
+- Layers that are not in scope are skipped cleanly; their `aws run` results report `SKIPPED` (not a failure) and the report marks the dimension `N/A`.
 
 ### Phase 4A — API Plan
 
@@ -819,6 +901,53 @@ If a subagent or background task is used to attempt E2E codegen — **regardless
 
 If any condition fails, **STOP** and report the exact missing condition.
 
+### Phases 4C / 5C / 7C — Fuzz Layer *(only when `layers.fuzz == true`)*
+
+The fuzz layer mirrors the functional plan→review→codegen flow with schemathesis. It runs in parallel with API/E2E across the same milestone boundaries (plan → review → codegen).
+
+```yaml
+# Phase 4C — Fuzz Plan (aws-fuzz-plan)
+inputs:  [workflow-state.yaml, cases with type==Fuzz, fact-baseline.json, OpenAPI schema source]
+outputs: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md, plans/fuzz-review-summary.md]
+
+# Phase 5C — Fuzz Plan Review (aws-fuzz-plan-reviewer)
+outputs: [review/fuzz-plan-review.json]   # decision: approved | changes_requested
+gate: review/fuzz-plan-review.json must be approved before Phase 7C
+
+# Phase 7C — Fuzz Codegen (aws-fuzz-codegen)
+inputs:  [plans/fuzz-codegen-plan.md, review/fuzz-plan-review.json (approved)]
+outputs: [tests/fuzz/** (schemathesis tests), codegen/fuzz-codegen-summary.md]
+gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for fuzz tests
+```
+
+- Fuzz codegen, like all codegen, **MUST execute inline in the primary agent** (same Inline Execution Rule as 7A/7B).
+- Fuzz tests run under `aws run` via pytest (`tests/fuzz/`) and produce `execution/fuzz-result.json`.
+- A fuzz failure is **never** auto-healed: `fuzz_stateful_failure` → `needs_review`; `fuzz_configuration_error` → fix the setup and re-run.
+
+### Phases 4D / 5D / 7D — Performance Layer *(only when `layers.performance == true`)*
+
+The performance layer mirrors the same flow with Locust and absolute thresholds (no baseline comparison).
+
+```yaml
+# Phase 4D — Performance Plan (aws-performance-plan)
+inputs:  [workflow-state.yaml, cases with type==Performance (confirmed thresholds), fact-baseline.json]
+outputs: [plans/performance-plan.md, plans/performance-codegen-plan.md, plans/performance-review-summary.md]
+
+# Phase 5D — Performance Plan Review (aws-performance-plan-reviewer)
+outputs: [review/performance-plan-review.json]   # decision: approved | changes_requested
+gate: review/performance-plan-review.json must be approved before Phase 7D
+
+# Phase 7D — Performance Codegen (aws-performance-codegen)
+inputs:  [plans/performance-codegen-plan.md, review/performance-plan-review.json (approved)]
+outputs: [qa/perf/** (locustfiles), codegen/performance-codegen-summary.md]
+gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for locustfiles
+```
+
+- Performance codegen **MUST execute inline in the primary agent** (same Inline Execution Rule as 7A/7B).
+- Performance tests run under `aws run` via Locust headless and produce `execution/performance-result.json`. Each scenario's verdict is derived deterministically from measured p95 / error_rate vs. the case's absolute thresholds.
+- If Locust is unavailable or the target produced no measurements, the performance dimension is `SKIPPED` (a warning, not a failure).
+- A performance failure is **never** auto-healed: `perf_threshold_exceeded` → `needs_review`; `perf_environment` → environment issue; `perf_script_error` → fix the locustfile and re-run.
+
 ### Phase 8 — Execution
 
 ```yaml
@@ -829,10 +958,16 @@ inputs:
 outputs:
   - execution/runs/<batch-id>/api-result.json       # only if manifest.selected_targets.api == true
   - execution/runs/<batch-id>/e2e-result.json       # only if manifest.selected_targets.e2e == true
+  - execution/runs/<batch-id>/coverage-result.json   # when api ran with pytest-cov (M1)
+  - execution/runs/<batch-id>/fuzz-result.json       # only if layers.fuzz == true (M3)
+  - execution/runs/<batch-id>/performance-result.json # only if layers.performance == true (M3)
   - execution/runs/<batch-id>/summary.md              # primary mode — always in batch dir
   - execution/runs/<batch-id>/execution-manifest.yaml # skill-written, always
   - execution/api-result.json    (latest pointer — only if api selected)
   - execution/e2e-result.json    (latest pointer — only if e2e selected)
+  - execution/coverage-result.json (latest pointer — when api ran)
+  - execution/fuzz-result.json   (latest pointer — only if layers.fuzz)
+  - execution/performance-result.json (latest pointer — only if layers.performance)
   - execution/summary.md         (latest pointer — always required in primary mode)
   - execution/execution-manifest.yaml  (latest pointer, always)
   - execution/known-product-issues.md  (snapshot from qa/changes/<change-id>/known-product-issues.md if present)
@@ -977,6 +1112,36 @@ gate:
   - if final_status == FAIL and healing.attempts < max_healing_attempts and eligible failures remain:
       → loop to Phase 10
   - if healing.attempts exhausted → phases.healing.status = exhausted → STOP
+```
+
+### Phase 13.5 — Report Generation *(terminal, non-gating)*
+
+```yaml
+skill: aws-report-generator
+inputs:
+  - workflow-state.yaml
+  - inspect/quality-gate-result.json   (required — produced by Phase 9 / Phase 13)
+  - inspect/failure-analysis.json
+  - execution/api-result.json / e2e-result.json / coverage-result.json
+outputs:
+  - report/quality-report.json    (CLI-written, deterministic quality_score)
+  - report/quality-report.md
+  - report/executive-summary.md
+  - workflow-state.yaml (updated: phases.report.status = done, phases.report.quality_score = <int>)
+gate:
+  - entry: phases.inspect.status == done AND inspect/quality-gate-result.json exists
+           (after healing converges; if healing ran, use the converged re-inspect gate)
+  - this phase is a TERMINAL ARTIFACT and does NOT make gate decisions —
+    the release gate remains inspect/quality-gate-result.json.
+  - report generation does NOT block Phase 14 Archive; a report-generation
+    failure sets phases.report.status = failed and records a warning, but does
+    not change phases.execution.status or phases.inspect final_status.
+  - the workflow final summary MUST reference report/executive-summary.md when present.
+notes:
+  - Runs regardless of final_status (PASS / PASS_WITH_WARNINGS / FAIL) so a failing
+    change still gets a report; only Archive (Phase 14) is gated on PASS/PASS_WITH_WARNINGS.
+  - The CLI computes quality_score; the skill MUST NOT recompute or alter it, and
+    MUST NOT say "safe to release" on FAIL or with unresolved product defects.
 ```
 
 ### Phase 14 — Archive

@@ -33,10 +33,19 @@ export function registerRunCommand(program: Command): void {
         console.log(`  API  : ${apiColor(apiStatus.padEnd(8))}  total=${result.api.total}  passed=${result.api.passed}  failed=${result.api.failed}  skipped=${result.api.skipped}`);
         console.log(`  E2E  : ${e2eColor(e2eStatus.padEnd(8))}  total=${result.e2e.total}  passed=${result.e2e.passed}  failed=${result.e2e.failed}  skipped=${result.e2e.skipped}`);
 
+        const cov = result.coverage;
+        if (cov.available) {
+          const covColor = cov.status === 'PASS' ? chalk.green : chalk.yellow;
+          console.log(`  COV  : ${covColor(cov.status.padEnd(8))}  line=${cov.line_coverage}%  branch=${cov.branch_coverage}%  (threshold line=${cov.threshold.line}% branch=${cov.threshold.branch}%)`);
+        } else {
+          console.log(`  COV  : ${chalk.gray('SKIPPED ')}  (pytest-cov unavailable or disabled — coverage is a warning, not a failure)`);
+        }
+
         logBlank();
-        logOk(`api-result.json   → ${result.executionDir}/api-result.json`);
-        logOk(`e2e-result.json   → ${result.executionDir}/e2e-result.json`);
-        logOk(`summary.md        → ${result.executionDir}/summary.md`);
+        logOk(`api-result.json      → ${result.executionDir}/api-result.json`);
+        logOk(`e2e-result.json      → ${result.executionDir}/e2e-result.json`);
+        logOk(`coverage-result.json → ${result.executionDir}/coverage-result.json`);
+        logOk(`summary.md           → ${result.executionDir}/summary.md`);
         logBlank();
 
         const anyFailed = apiStatus === 'failed' || e2eStatus === 'failed';

@@ -35,6 +35,11 @@ export interface ApiResult {
   unmapped_tests: ApiCaseResult[];
 }
 
+/** Fuzz result reuses the pytest/ApiResult shape (schemathesis runs via pytest), but is tagged `fuzz`. */
+export interface FuzzResult extends Omit<ApiResult, 'target'> {
+  target: 'fuzz';
+}
+
 export interface E2eCaseResult {
   case_id: string;
   status: ExecutionStatus;
@@ -82,6 +87,13 @@ export type FailureCategory =
   | 'business_logic_failure'
   | 'case_semantic_failure'
   | 'test_code_error'
+  // Fuzz-specific (M3 Phase B):
+  | 'fuzz_configuration_error'  // schema fetch / auth / setup misconfig — not a product bug, not auto-fixable
+  | 'fuzz_stateful_failure'     // stateful sequence revealed a server fault — product issue, needs review
+  // Performance-specific (M3 Phase C):
+  | 'perf_script_error'         // locustfile error / could not run — fix the script, not auto-fixable
+  | 'perf_threshold_exceeded'   // measured p95/error_rate exceeded the absolute threshold — needs review
+  | 'perf_environment'          // target environment unreachable / no traffic — environment, not a product bug
   | 'unknown';
 
 export type FailureSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -98,7 +110,7 @@ export interface FailureEvidence {
 
 export interface FailureEntry {
   case_id: string;
-  target: 'api' | 'e2e';
+  target: 'api' | 'e2e' | 'fuzz' | 'performance';
   category: FailureCategory;
   /** Whether the CLI considers this failure eligible for an automated fix proposal */
   fix_proposal_eligible: boolean;
@@ -106,6 +118,12 @@ export interface FailureEntry {
   evidence: FailureEvidence;
   diagnosis: string;
   recommended_action: string;
+}
+
+export interface CoverageGapEntry {
+  file: string;
+  line_coverage: number;
+  threshold: number;
 }
 
 export type AnalysisStatus = 'analyzed' | 'no_failures' | 'skipped';
@@ -129,6 +147,158 @@ export interface FailureAnalysis {
   failures: FailureEntry[];
   hard_fails: FailureEntry[];
   needs_review: FailureEntry[];
+  /** Low-coverage files surfaced from coverage-result.json (M1). Never a Fix Proposal source. */
+  coverage_gaps?: CoverageGapEntry[];
+}
+
+// ─── Coverage / Quality Gate / Report types (M1) ─────────────────────────────
+
+/** Four-state status shared by coverage, quality-gate dimensions, and reports. */
+export type GateStatus = 'PASS' | 'PASS_WITH_WARNINGS' | 'FAIL' | 'SKIPPED';
+
+export interface CoverageThreshold {
+  line: number;
+  branch: number;
+}
+
+export interface UncoveredFile {
+  file: string;
+  line_coverage: number;
+}
+
+/** Canonical coverage result, normalised from coverage.py JSON (M1). */
+export interface CoverageResult {
+  schema_version: '1.0';
+  change_id: string;
+  batch_id: string;
+  kind: 'coverage';
+  /** false when pytest-cov is unavailable — coverage is a warning, never a hard fail. */
+  available: boolean;
+  line_coverage: number;
+  branch_coverage: number;
+  threshold: CoverageThreshold;
+  status: 'PASS' | 'PASS_WITH_WARNINGS' | 'SKIPPED';
+  uncovered_critical_files: UncoveredFile[];
+  source: {
+    coverage_json: string;
+    coverage_xml: string;
+  };
+}
+
+export interface FunctionalCounts {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+export interface FunctionalDimension {
+  status: GateStatus;
+  api: FunctionalCounts;
+  e2e: FunctionalCounts;
+  /** Added by M3 Phase D when fuzz targets exist. */
+  fuzz?: FunctionalCounts;
+}
+
+export interface CoverageDimension {
+  status: GateStatus;
+  available: boolean;
+  line_coverage: number;
+  branch_coverage: number;
+  threshold: CoverageThreshold;
+}
+
+/** Per-scenario performance verdict (M3 Phase C/D). */
+export interface PerformanceScenarioVerdict {
+  capability: string;
+  endpoint: string;
+  measured_p95_ms: number | null;
+  threshold_p95_ms: number;
+  measured_error_rate: number | null;
+  threshold_error_rate_max: number;
+  verdict: 'PASS' | 'FAIL' | 'SKIPPED';
+}
+
+/** Non-functional dimension (M3 Phase D). Optional in M1. */
+export interface NonFunctionalDimension {
+  status: GateStatus;
+  performance: PerformanceScenarioVerdict[];
+}
+
+/** Canonical performance result produced by the Locust runner (M3 Phase C). */
+export interface PerformanceResult {
+  schema_version: '1.0';
+  change_id: string;
+  batch_id: string;
+  kind: 'performance';
+  /** false when locust is unavailable or the target environment produced no measurements → SKIPPED. */
+  available: boolean;
+  status: 'PASS' | 'FAIL' | 'SKIPPED';
+  scenarios: PerformanceScenarioVerdict[];
+  command: string;
+  source: {
+    raw_log: string;
+    csv_prefix: string;
+  };
+}
+
+export interface QualityGateDimensions {
+  functional: FunctionalDimension;
+  coverage: CoverageDimension;
+  /** Added by M3 Phase D. */
+  non_functional?: NonFunctionalDimension;
+}
+
+/** Unified gate conclusion produced by `aws report inspect` (M1). */
+export interface QualityGateResult {
+  schema_version: '1.0';
+  change_id: string;
+  batch_id: string;
+  dimensions: QualityGateDimensions;
+  final_status: GateStatus;
+}
+
+export interface QualityScoreBreakdown {
+  functional: number | 'N/A';
+  coverage: number | 'N/A';
+  /** 'N/A' until M3 introduces fuzz. */
+  fuzz: number | 'N/A';
+  /** 'N/A' until M3 introduces performance. */
+  performance: number | 'N/A';
+}
+
+export interface ReportDefect {
+  case_id: string;
+  category: string;
+  diagnosis: string;
+}
+
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+/** Structured quality report produced by `aws report generate` (M1). */
+export interface QualityReport {
+  schema_version: '1.0';
+  change_id: string;
+  batch_id: string;
+  final_status: GateStatus;
+  /** Deterministic 0-100 score computed by the CLI. */
+  quality_score: number;
+  score_breakdown: QualityScoreBreakdown;
+  scope: {
+    cases: number;
+    requirements: string[];
+  };
+  functional: FunctionalDimension;
+  coverage: CoverageDimension;
+  non_functional?: NonFunctionalDimension;
+  defects: {
+    product: ReportDefect[];
+    test: ReportDefect[];
+    environment: ReportDefect[];
+  };
+  /** Initial CLI-computed risk level; skill layer may refine the rationale wording only. */
+  risk_level: RiskLevel;
+  risk_rationale: string;
+  recommendation: string;
 }
 
 // ─── Existing types ───────────────────────────────────────────────────────────
@@ -187,6 +357,15 @@ export interface AwsConfig {
     require_fix_proposal_review: boolean;
   };
   archive: { enable_trace_check: boolean; regression_default: boolean };
+  coverage?: CoverageConfig;
+}
+
+export interface CoverageConfig {
+  enabled: boolean;
+  target_package: string;
+  threshold: CoverageThreshold;
+  /** warn: below threshold → PASS_WITH_WARNINGS (default). block: below threshold → FAIL. */
+  gate_mode: 'warn' | 'block';
 }
 
 export type CheckStatus = 'ok' | 'warning' | 'error';

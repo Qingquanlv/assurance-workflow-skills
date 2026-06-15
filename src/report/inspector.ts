@@ -4,9 +4,11 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiResult, E2eResult, FailureAnalysis, FailureEntry } from '../core/types';
+import { ApiResult, CoverageGapEntry, CoverageResult, E2eResult, FailureAnalysis, FailureEntry, FuzzResult, PerformanceResult, QualityGateResult } from '../core/types';
 import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
+import { buildQualityGate } from './quality_gate';
+import { loadCoverageConfig } from '../execution/coverage_parser';
 
 export interface InspectOptions {
   changeId: string;
@@ -17,6 +19,8 @@ export interface InspectResult {
   analysis: FailureAnalysis;
   analysisPath: string;
   summaryPath: string;
+  qualityGate: QualityGateResult;
+  qualityGatePath: string;
 }
 
 export function inspect(opts: InspectOptions): InspectResult {
@@ -27,15 +31,33 @@ export function inspect(opts: InspectOptions): InspectResult {
 
   const analysisPath = path.join(inspectDir, 'failure-analysis.json');
   const summaryPath = path.join(inspectDir, 'failure-summary.md');
+  const qualityGatePath = path.join(inspectDir, 'quality-gate-result.json');
 
   // Load result files (always read from execution/ where runner writes them)
   const apiResult = loadJson<ApiResult>(path.join(executionDir, 'api-result.json'));
   const e2eResult = loadJson<E2eResult>(path.join(executionDir, 'e2e-result.json'));
+  const coverageResult = loadJson<CoverageResult>(path.join(executionDir, 'coverage-result.json'));
+  const fuzzResult = loadJson<FuzzResult>(path.join(executionDir, 'fuzz-result.json'));
+  const performanceResult = loadJson<PerformanceResult>(path.join(executionDir, 'performance-result.json'));
 
-  // Extract batch_id from either result file (both carry the same batch_id per run)
-  const batchId = apiResult?.batch_id ?? e2eResult?.batch_id ?? '';
+  // Extract batch_id from any result file (all carry the same batch_id per run)
+  const batchId = apiResult?.batch_id ?? e2eResult?.batch_id ?? coverageResult?.batch_id ?? fuzzResult?.batch_id ?? performanceResult?.batch_id ?? '';
 
-  if (!apiResult && !e2eResult) {
+  const coverageGateMode = loadCoverageConfig(projectRoot).gate_mode;
+  const coverageGaps = buildCoverageGaps(coverageResult);
+
+  const buildGate = (): QualityGateResult => buildQualityGate({
+    changeId,
+    batchId,
+    apiResult,
+    e2eResult,
+    coverageResult,
+    coverageGateMode,
+    fuzzResult,
+    performanceResult,
+  });
+
+  if (!apiResult && !e2eResult && !fuzzResult && !performanceResult) {
     const analysis: FailureAnalysis = {
       schema_version: '1.0',
       change_id: changeId,
@@ -48,9 +70,12 @@ export function inspect(opts: InspectOptions): InspectResult {
       failures: [],
       hard_fails: [],
       needs_review: [],
+      coverage_gaps: coverageGaps,
     };
+    const qualityGate = buildGate();
     write(analysisPath, summaryPath, changeId, analysis);
-    return { analysis, analysisPath, summaryPath };
+    writeQualityGate(qualityGatePath, qualityGate);
+    return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
   }
 
   const rawLogDir = path.join(executionDir, 'raw');
@@ -150,6 +175,74 @@ export function inspect(opts: InspectOptions): InspectResult {
     }
   }
 
+  // Process Fuzz failures (M3 Phase B) — schemathesis results carry the api/pytest shape.
+  if (fuzzResult) {
+    const allFuzzCases = [...(fuzzResult.cases ?? []), ...(fuzzResult.unmapped_tests ?? [])];
+    for (const c of allFuzzCases.filter(x => x.status === 'failed')) {
+      const logExcerpt = extractLogExcerpt(c.raw_log_ref, c.test_name);
+      const classification = classifyFailure({
+        message: c.message,
+        logExcerpt,
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+
+      const entry: FailureEntry = {
+        case_id: c.case_id || c.test_name,
+        target: 'fuzz',
+        category: classification.category,
+        fix_proposal_eligible: classification.fixProposalEligible,
+        severity: classification.severity,
+        evidence: {
+          result_file: path.join(executionDir, 'fuzz-result.json'),
+          test_file: c.file,
+          trace: '',
+          screenshot: '',
+          video: '',
+          raw_log: c.raw_log_ref,
+          log_excerpt: logExcerpt,
+        },
+        diagnosis: buildDiagnosis(c.message, classification.category),
+        recommended_action: buildRecommendedAction(classification.category, changeId),
+      };
+
+      failures.push(entry);
+      if (!classification.fixProposalEligible && !classification.needsReview) {
+        hardFails.push(entry);
+      } else if (classification.needsReview) {
+        needsReview.push(entry);
+      }
+    }
+  }
+
+  // Process Performance verdicts (M3 Phase C) — structured threshold verdicts, not pytest failures.
+  if (performanceResult && performanceResult.available) {
+    for (const sc of performanceResult.scenarios.filter(s => s.verdict === 'FAIL')) {
+      const measured = `measured p95=${sc.measured_p95_ms}ms (threshold ${sc.threshold_p95_ms}ms), error_rate=${sc.measured_error_rate} (threshold ${sc.threshold_error_rate_max})`;
+      const entry: FailureEntry = {
+        case_id: sc.capability,
+        target: 'performance',
+        category: 'perf_threshold_exceeded',
+        fix_proposal_eligible: false,
+        severity: 'high',
+        evidence: {
+          result_file: path.join(executionDir, 'performance-result.json'),
+          test_file: sc.endpoint,
+          trace: '',
+          screenshot: '',
+          video: '',
+          raw_log: performanceResult.source.raw_log,
+          log_excerpt: measured,
+        },
+        diagnosis: `Performance threshold exceeded for ${sc.capability} (${sc.endpoint}). ${measured}.`,
+        recommended_action: 'Review whether the endpoint regressed or the absolute threshold is too strict. Performance findings are never auto-fixed.',
+      };
+      failures.push(entry);
+      needsReview.push(entry);
+    }
+  }
+
   const status = failures.length === 0 ? 'no_failures' : 'analyzed';
   const finalStatus = failures.length === 0 ? 'PASS' : 'FAIL';
 
@@ -165,10 +258,29 @@ export function inspect(opts: InspectOptions): InspectResult {
     failures,
     hard_fails: hardFails,
     needs_review: needsReview,
+    coverage_gaps: coverageGaps,
   };
 
+  const qualityGate = buildGate();
   write(analysisPath, summaryPath, changeId, analysis);
-  return { analysis, analysisPath, summaryPath };
+  writeQualityGate(qualityGatePath, qualityGate);
+  return { analysis, analysisPath, summaryPath, qualityGate, qualityGatePath };
+}
+
+/** Surfaces low-coverage files from coverage-result.json as coverage gaps (M1). */
+function buildCoverageGaps(coverageResult: CoverageResult | null): CoverageGapEntry[] {
+  if (!coverageResult || !coverageResult.available) return [];
+  return coverageResult.uncovered_critical_files.map(f => ({
+    file: f.file,
+    line_coverage: f.line_coverage,
+    threshold: coverageResult.threshold.line,
+  }));
+}
+
+function writeQualityGate(qualityGatePath: string, qualityGate: QualityGateResult): void {
+  const dir = path.dirname(qualityGatePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(qualityGatePath, JSON.stringify(qualityGate, null, 2), 'utf-8');
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -223,6 +335,10 @@ function buildDiagnosis(message: string, category: string): string {
       return `Test data or fixture not available. ${first}`.trim();
     case 'business_logic_failure':
       return `Server returned an error suggesting a product-level issue. ${first}`.trim();
+    case 'fuzz_configuration_error':
+      return `Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. ${first}`.trim();
+    case 'fuzz_stateful_failure':
+      return `Fuzzing surfaced a server fault (e.g. 5xx or schema violation) under generated input. Likely a product robustness issue. ${first}`.trim();
     case 'test_code_error':
       return `Test code has a syntax or runtime error. ${first}`.trim();
     case 'case_semantic_failure':
@@ -246,6 +362,10 @@ function buildRecommendedAction(category: string, changeId: string): string {
       return `Review test fixtures and seed data. A Fix Proposal may be generated with manual review.`;
     case 'business_logic_failure':
       return 'File a bug against the product team. This is not a test issue.';
+    case 'fuzz_configuration_error':
+      return 'Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal.';
+    case 'fuzz_stateful_failure':
+      return 'Review the fuzz-discovered fault: confirm whether the endpoint mishandles generated/boundary input. If a real product robustness issue, file a bug. Do not auto-fix.';
     case 'test_code_error':
       return `Fix the syntax/import error in the test file and rerun. Run \`aws fix propose --change ${changeId}\`.`;
     case 'case_semantic_failure':
