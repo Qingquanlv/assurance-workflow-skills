@@ -1,6 +1,6 @@
 ---
 name: aws-report-generator
-description: "AWS M1: Generate a deterministic, human-readable quality report for a change via `aws report generate --change <change-id>`. Use after aws-inspect has produced quality-gate-result.json. Calls the CLI to compute the Quality Score and write quality-report.json, quality-report.md, and executive-summary.md. Never fabricates the score, final status, or a release recommendation."
+description: "AWS Quality Reporting: Generate a deterministic quality report via `aws report generate --change <change-id>`. Invoked in the M5 workflow after aws-inspect (post-execution inspect). Computes Quality Score across Functional, Coverage, Fuzz, and Performance dimensions and writes quality-report.json, quality-report.md, executive-summary.md. Never fabricates the score, final status, or a release recommendation."
 ---
 
 ## Context Contract
@@ -30,6 +30,10 @@ Do not rely on prior conversation context.
 
 # Skill: aws-report-generator
 
+## Workflow placement
+
+This skill runs **after M5 execution + inspect** in `aws-workflow` (Phase 10: report generate). The reporting **feature** was introduced in M1 (Quality Score, coverage gate, executive summary); M3 extended it with Fuzz and Performance dimensions. The skill name reflects the reporting capability, not the workflow phase number.
+
 ## Purpose
 
 Produce a deterministic, research-and-dev-readable quality report for a change: a 0-100 Quality Score, dimension breakdown (Functional, Coverage, Fuzz, Performance), defect buckets, and a risk/recommendation conclusion. When fuzz and/or performance ran, the report adds a **Fuzz** functional line and a **Non-Functional (Performance)** chapter with per-scenario p95 / error-rate verdicts.
@@ -57,10 +61,14 @@ aws report generate --change <change-id>
 
 ## Inputs (read by the CLI)
 
+Prefer batch-scoped files under `execution/runs/<batch-id>/` when manifest is present; latest pointers are fallback only.
+
 ```
-execution/api-result.json
-execution/e2e-result.json
-execution/coverage-result.json
+execution/runs/<batch-id>/api-result.json          (if selected_targets.api)
+execution/runs/<batch-id>/e2e-result.json          (if selected_targets.e2e)
+execution/runs/<batch-id>/coverage-result.json     (if selected_targets.api)
+execution/runs/<batch-id>/fuzz-result.json         (if selected_targets.fuzz)
+execution/runs/<batch-id>/performance-result.json  (if selected_targets.performance)
 inspect/failure-analysis.json
 inspect/quality-gate-result.json     ← required (gate conclusion + final_status, incl. fuzz/non_functional when run)
 qa/changes/<change-id>/cases/**/case*.yaml   ← best-effort scope (cases + requirements)

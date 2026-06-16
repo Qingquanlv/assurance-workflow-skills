@@ -1,6 +1,6 @@
 ---
 name: aws-run
-description: "AWS M5: Execute API and E2E tests for a change via `aws run --change <change-id>`. Use when the user asks to run tests, execute test suite, or verify a change. Calls pytest for API tests (with coverage when pytest-cov is available) and pytest + Python Playwright (uv run pytest tests/e2e/ -v --headed) for E2E tests. Writes api-result.json, e2e-result.json, coverage-result.json, summary.md. Never fabricates test results or coverage numbers."
+description: "AWS M5: Execute quality targets for a change via `aws run --change <change-id>`. Runs API (pytest + coverage), E2E (pytest-playwright), Fuzz (schemathesis via pytest), and Performance (Locust) per selected_targets. CLI writes normalised results to execution/runs/<batch-id>/ (api/e2e/fuzz/performance/coverage-result.json, summary.md, quality-gate-result.json, execution-manifest.yaml) plus latest pointers under execution/. Never fabricates test results or coverage numbers."
 ---
 
 ## Context Contract
@@ -26,26 +26,36 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/execution/runs/<batch-id>/summary.md`
    - `qa/changes/<change-id>/execution/summary.md` (latest pointer)
 
-   **Primary mode, always written by CLI (M1 coverage):**
-   - `qa/changes/<change-id>/execution/runs/<batch-id>/coverage-result.json`
-   - `qa/changes/<change-id>/execution/coverage-result.json` (latest pointer)
-   - When `pytest-cov` is unavailable or `coverage.enabled == false`, this file is still written with `available: false` / `status: SKIPPED`. Coverage absence is a **warning**, never a failure.
-
-   **If `selected_targets.api == true`:**
-   - `qa/changes/<change-id>/execution/runs/<batch-id>/api-result.json`
-   - `qa/changes/<change-id>/execution/api-result.json` (latest pointer)
-
    **If `selected_targets.e2e == true`:**
    - `qa/changes/<change-id>/execution/runs/<batch-id>/e2e-result.json`
    - `qa/changes/<change-id>/execution/e2e-result.json` (latest pointer)
 
+   **If `selected_targets.fuzz == true`:**
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/fuzz-result.json`
+   - `qa/changes/<change-id>/execution/fuzz-result.json` (latest pointer)
+
+   **If `selected_targets.performance == true`:**
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/performance-result.json`
+   - `qa/changes/<change-id>/execution/performance-result.json` (latest pointer)
+
+   **Coverage (derived from API — always written by CLI, not a separate selected target):**
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/coverage-result.json`
+   - `qa/changes/<change-id>/execution/coverage-result.json` (latest pointer)
+   - When `selected_targets.api == false`, coverage is `status: SKIPPED` with `skip_reason: api_unselected`.
+   - When `pytest-cov` is unavailable or `coverage.enabled == false`, coverage is `available: false` / `status: SKIPPED`. Coverage absence is a **warning**, never a hard failure.
+
+   **Quality gate (always written by CLI after run):**
+   - `qa/changes/<change-id>/execution/runs/<batch-id>/quality-gate-result.json`
+   - `qa/changes/<change-id>/execution/quality-gate-result.json` (latest pointer)
+
    Do **not** fail because an unselected target result file is absent.
 
-   **Fallback mode:** direct pytest fallback does **not** produce normalised `api-result.json` / `e2e-result.json`. Do not fabricate them. See **Fallback Mode Boundary**.
+   **Fallback mode:** direct pytest fallback does **not** produce normalised `api-result.json` / `e2e-result.json` / `fuzz-result.json` / `performance-result.json`. Do not fabricate them. See **Fallback Mode Boundary**.
 
-3. Write the execution manifest (always):
-   - `qa/changes/<change-id>/execution/runs/<batch-id>/execution-manifest.yaml`
-   - `qa/changes/<change-id>/execution/execution-manifest.yaml` (latest pointer)
+3. Verify or write execution manifest:
+   - **Primary mode:** CLI writes canonical `execution-manifest.yaml` (map-shaped `result_files` + `selected_targets`) to both `runs/<batch-id>/` and latest pointer. Skill **verifies** it — do not overwrite CLI paths.
+   - **Skill extended format (optional augment):** After verifying CLI batch files exist, skill may rewrite the latest pointer with `primary_runner`, `layer_results`, `warnings`, `final_status` — but `primary_runner.result_files` **must** list every batch file path under `execution/runs/<batch-id>/` for each selected target.
+   - **Fallback mode:** skill writes manifest with `fallback_runner.used: true`.
 4. Snapshot known product issues if the change-level record exists:
    - Read `qa/changes/<change-id>/known-product-issues.md` (source of truth; created before codegen by human/reviewer workflow; codegen may append implementation notes only when already acknowledged)
    - Copy into `qa/changes/<change-id>/execution/runs/<batch-id>/known-product-issues.md`
@@ -61,7 +71,7 @@ Do not rely on prior conversation context.
 
 ## Purpose
 
-Execute generated API and E2E tests for a specific change, produce normalised execution result files, and report a brief summary to the user.
+Execute generated API, E2E, Fuzz, and Performance tests for a specific change (per `selected_targets`), produce normalised execution result files under `execution/runs/<batch-id>/`, and report a brief summary to the user.
 
 ## Skill vs CLI Boundary
 
@@ -69,8 +79,8 @@ This skill **does not synthesize normalised result files itself**. It invokes th
 
 **Primary mode (CLI):**
 
-- The CLI (`aws run`) is the trusted execution layer for normalised `api-result.json` / `e2e-result.json` / `fuzz-result.json` / `performance-result.json` / `summary.md`.
-- The CLI writes `execution-manifest.yaml` in primary mode. The skill reads and verifies it, snapshots `known-product-issues.md`, and reports.
+- The CLI (`aws run`) is the trusted execution layer for normalised `api-result.json` / `e2e-result.json` / `fuzz-result.json` / `performance-result.json` / `coverage-result.json` / `summary.md` / `quality-gate-result.json`.
+- The CLI writes `execution-manifest.yaml` (canonical map format) in primary mode. The skill reads and verifies it, may augment the latest pointer with extended metadata, snapshots `known-product-issues.md`, and reports.
 
 **Fallback mode (direct pytest):**
 
@@ -224,7 +234,7 @@ Primary mode (CLI) — per selected targets:
 |--------|------|---------|
 | API | `selected_targets.api == true` | `uv run pytest tests/api/test_*.py --junitxml=...` |
 | E2E | `selected_targets.e2e == true` | `uv run pytest tests/e2e/test_*.py -v --headed --junitxml=...` |
-| Fuzz | `layers.fuzz == true` | `uv run pytest tests/fuzz/ --junitxml=...` (M3) |
+| Fuzz | `selected_targets.fuzz == true` | `uv run pytest tests/fuzz/ --junitxml=...` (M3) |
 | Performance | `selected_targets.performance == true` | `uv run locust -f qa/perf/locustfile*.py --headless -u <case users> -r <case rate> -t <case run_time>s --host <base_url> --csv ...` (M3) |
 
 Required Python packages by layer: API/E2E → `pytest`, `pytest-playwright`; coverage → `pytest-cov`; Fuzz → `schemathesis`; Performance → `locust`. Missing packages degrade the corresponding layer to `SKIPPED` (a warning), never a hard `FAIL`.
@@ -242,9 +252,10 @@ Per-run files depend on `selected_targets`. Unselected target result files may b
 qa/changes/<change-id>/execution/
 ├── api-result.json              ← latest (if selected_targets.api)
 ├── e2e-result.json              ← latest (if selected_targets.e2e)
-├── coverage-result.json         ← latest (if selected_targets.api; status SKIPPED if pytest-cov unavailable)
-├── fuzz-result.json             ← latest (if selected_targets.fuzz; schemathesis via pytest; SKIPPED if no tests/fuzz)
-├── performance-result.json      ← latest (if selected_targets.performance; Locust absolute thresholds; SKIPPED if no qa/perf or locust)
+├── coverage-result.json         ← latest (always; SKIPPED when api=false or pytest-cov unavailable)
+├── fuzz-result.json             ← latest (if selected_targets.fuzz)
+├── performance-result.json      ← latest (if selected_targets.performance)
+├── quality-gate-result.json     ← latest (always; CLI-computed gate)
 ├── summary.md                   ← latest (CLI-owned; skill verifies, does not rewrite)
 ├── execution-manifest.yaml      ← latest pointer (CLI-written in primary mode)
 ├── run-summary-note.md          ← optional skill-owned fallback note
@@ -253,9 +264,10 @@ qa/changes/<change-id>/execution/
     └── <batch-id>/               ← resolved from CLI output, not guessed
         ├── api-result.json       ← if selected_targets.api (primary mode only)
         ├── e2e-result.json       ← if selected_targets.e2e (primary mode only)
-        ├── coverage-result.json  ← if selected_targets.api (primary mode only)
-        ├── fuzz-result.json       ← if selected_targets.fuzz (primary mode only)
-        ├── performance-result.json ← if selected_targets.performance (primary mode only)
+        ├── coverage-result.json  ← always (primary mode; SKIPPED when api=false)
+        ├── fuzz-result.json       ← if selected_targets.fuzz
+        ├── performance-result.json ← if selected_targets.performance
+        ├── quality-gate-result.json ← always (primary mode)
         ├── summary.md            ← primary mode only
         ├── execution-manifest.yaml
         ├── known-product-issues.md   ← per-run snapshot (if present)
@@ -286,12 +298,25 @@ Structure:
 schema_version: "1.0"
 change_id: <change-id>
 batch_id: <YYYYMMDD-HHmmss>
+selected_targets:
+  api: true | false
+  e2e: true | false
+  fuzz: true | false
+  performance: true | false
+result_files:                    # CLI canonical map (paths relative to execution/)
+  api: runs/<batch-id>/api-result.json
+  e2e: runs/<batch-id>/e2e-result.json
+  fuzz: runs/<batch-id>/fuzz-result.json
+  performance: runs/<batch-id>/performance-result.json
+  coverage: runs/<batch-id>/coverage-result.json
+  summary: runs/<batch-id>/summary.md
 
+# Skill extended format (optional augment on latest pointer only):
 primary_runner:
   command: aws run --change <change-id>
   status: passed | failed | skipped
   exit_code: <int|null>
-  result_files: []   # list only files actually written for selected_targets
+  result_files: []   # full paths to batch files actually written for selected_targets
 
 fallback_runner:
   used: true | false
@@ -304,6 +329,8 @@ fallback_runner:
 selected_targets:
   api: true | false
   e2e: true | false
+  fuzz: true | false
+  performance: true | false
 
 known_product_issues:
   present: true | false

@@ -23,8 +23,10 @@ Do not rely on prior conversation context.
    - If `selected_targets.e2e == true`, require `execution/runs/<batch-id>/e2e-result.json`.
    - If `selected_targets.fuzz == true`, require `execution/runs/<batch-id>/fuzz-result.json`.
    - If `selected_targets.performance == true`, require `execution/runs/<batch-id>/performance-result.json`.
+   - When `selected_targets.api == true`, read `execution/runs/<batch-id>/coverage-result.json` (coverage is derived from API, not a separate target).
    - Do not require result files for targets that were not selected.
    - Latest pointer files under `execution/*.json` are fallback/compatibility only and must not override manifest batch files.
+   - The CLI (`aws run`) writes all batch result files listed above — see `aws-run` skill **Output Files**. The inspect CLI normalises both CLI map-shaped manifests and skill extended manifests (`primary_runner.result_files[]`).
    - In fallback partial mode with no normalised results, skip this requirement and use raw logs / manifest / `run-summary-note.md` instead.
 6. Read `execution/known-product-issues.md` if present (execution snapshot — do not overwrite).
 7. Run **AWS CLI Identity Check** before primary inspect (see below).
@@ -187,15 +189,15 @@ MCP is optional and must not replace the CLI execution chain.
 
 `aws report inspect` reads execution artifacts and classifies each failure:
 
-1. Reads `execution/execution-manifest.yaml` to determine selected targets and runner context.
-2. Reads `execution/runs/<batch-id>/*-result.json` according to manifest `selected_targets`.
-3. Reads `execution/coverage-result.json` (M1), `execution/fuzz-result.json`, and `execution/performance-result.json` (M3) when present.
-4. Reads raw logs, traces, screenshots, and videos.
-5. Reads associated `case.yaml` and test source files.
-6. Classifies each failure into a defined category.
-7. Populates `coverage_gaps[]` in `failure-analysis.json` from the coverage result's low-coverage files (never a Fix Proposal source).
-8. Synthesises the unified gate conclusion into `inspect/quality-gate-result.json` (M1) — deterministic, worst-wins across dimensions.
-9. Writes `failure-analysis.json`, `failure-summary.md`, `quality-gate-result.json`, and (if applicable) `inspect/known-product-issues.md`.
+1. Reads `execution/execution-manifest.yaml` to determine `batch_id`, `selected_targets`, and result file paths (normalises CLI map format and skill extended `primary_runner.result_files[]`).
+2. Reads `execution/runs/<batch-id>/*-result.json` according to manifest `selected_targets` — **never** uses latest pointers as primary source.
+3. Reads coverage from `execution/runs/<batch-id>/coverage-result.json` when `selected_targets.api == true`; skips coverage when api was unselected.
+4. Prefers `execution/runs/<batch-id>/quality-gate-result.json` written by `aws run`; recomputes only if absent.
+5. Reads raw logs, traces, screenshots, and videos under `execution/runs/<batch-id>/`.
+6. Reads associated `case.yaml` and test source files.
+7. Classifies each failure into a defined category.
+8. Populates `coverage_gaps[]` in `failure-analysis.json` from the coverage result's low-coverage files (never a Fix Proposal source).
+9. Writes `inspect/failure-analysis.json`, `failure-summary.md`, `inspect/quality-gate-result.json`, and (if applicable) `inspect/known-product-issues.md`.
 
 ## failure-analysis.json Schema
 
