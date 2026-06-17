@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aws-assurance.dev/schemas/task-brief.schema.json",
+  "title": "TaskBriefV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "change_id",
+    "phase_id",
+    "agent",
+    "allowed_writes",
+    "required_outputs",
+    "inputs",
+    "direct_run_forbidden"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "change_id": { "type": "string", "minLength": 1 },
+    "phase_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "agent": { "type": "string", "minLength": 1 },
+    "skill_ref": { "type": ["string", "null"] },
+    "command_ref": { "type": ["string", "null"] },
+    "allowed_writes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_outputs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "context_contract": { "type": "string" },
+    "output_contract": { "type": "string" },
+    "direct_run_forbidden": { "type": "boolean", "const": true }
+  }
+}

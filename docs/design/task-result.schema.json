@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aws-assurance.dev/schemas/task-result.schema.json",
+  "title": "TaskResultV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "phase_id",
+    "agent",
+    "status",
+    "loaded_skills",
+    "written_files",
+    "forbidden_write_attempts",
+    "used_tools"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "phase_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "agent": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "stopped"]
+    },
+    "loaded_skills": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "written_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "forbidden_write_attempts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "used_tools": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "error_message": { "type": "string" }
+  }
+}

@@ -4,47 +4,100 @@ import { InitAnswers } from './types';
 import { buildConfigYaml } from '../templates/config-yaml';
 import { buildExecutionPolicy } from '../templates/execution-policy';
 import { safeWriteFile, fileExists } from '../utils/fs';
+import {
+  copyOpenCodeAssets,
+  wantsOpenCode,
+  OpenCodeAssetsResult,
+  findPackageRoot,
+} from './opencode-assets';
+import { readOpenCodeConfig, writeOpenCodePlugins, OpenCodeConfigError } from './opencode-config';
+import {
+  resolveOpenCodePluginStrategy,
+  buildPluginConfigEntry,
+  copyLocalOpenCodePlugin,
+  mergeAwsPluginEntry,
+  usesConfigPluginEntry,
+  OpenCodePluginStrategy,
+  LocalPluginCopyResult,
+} from './opencode-plugin-entry';
 
+export { copyOpenCodeAssets, findPackageRoot, wantsOpenCode };
+export type { OpenCodeAssetsResult };
+export type { OpenCodePluginStrategy, LocalPluginCopyResult };
 
-// ─── OpenCode registration ────────────────────────────────────────────────────
-
-const OPENCODE_PLUGIN_ENTRY =
-  'assurance-workflow-skills@git+https://github.com/Qingquanlv/assurance-workflow-skills.git';
-
-export interface OpenCodeResult {
-  opencodejsonCreated: boolean;
+export interface OpenCodeRegisterOptions {
+  agent?: InitAnswers['agent'];
+  pluginStrategy?: OpenCodePluginStrategy;
+  gitInstallVerified?: boolean;
 }
 
-export function registerOpenCode(projectRoot: string, packageRoot: string): OpenCodeResult {
-  const result: OpenCodeResult = {
-    opencodejsonCreated: false,
-  };
+export interface OpenCodeConfigResult {
+  opencodejsonCreated: boolean;
+  configPath: string;
+  pluginEntry?: string;
+}
 
-  // 1. Write / merge opencode.json
-  const opencodejsonPath = path.join(projectRoot, 'opencode.json');
-  let config: Record<string, unknown> = {};
+export interface OpenCodeRegisterResult {
+  config: OpenCodeConfigResult;
+  assets?: OpenCodeAssetsResult;
+  plugin?: LocalPluginCopyResult;
+  strategy: OpenCodePluginStrategy;
+}
 
-  if (fs.existsSync(opencodejsonPath)) {
+export function registerOpenCode(
+  projectRoot: string,
+  packageRoot: string,
+  options?: OpenCodeRegisterOptions
+): OpenCodeRegisterResult {
+  const agent = options?.agent ?? 'opencode';
+  if (!wantsOpenCode(agent)) {
+    return {
+      config: { opencodejsonCreated: false, configPath: '' },
+      strategy: 'local-copy',
+    };
+  }
+
+  const strategy = resolveOpenCodePluginStrategy({
+    strategy: options?.pluginStrategy,
+    gitInstallVerified: options?.gitInstallVerified,
+  });
+
+  const assets = copyOpenCodeAssets(projectRoot, packageRoot, { overwrite: false });
+
+  let plugin: LocalPluginCopyResult | undefined;
+  if (strategy === 'local-copy') {
+    // Generated artifact — always refresh from dist so package upgrades take effect.
+    plugin = copyLocalOpenCodePlugin(projectRoot, packageRoot, { overwrite: true });
+  }
+
+  let configPath = '';
+  let opencodejsonCreated = false;
+  let pluginEntry: string | undefined;
+
+  const configEntry = buildPluginConfigEntry(strategy, packageRoot);
+  if (configEntry && usesConfigPluginEntry(strategy)) {
     try {
-      config = JSON.parse(fs.readFileSync(opencodejsonPath, 'utf8'));
-    } catch {
-      config = {};
+      const { config } = readOpenCodeConfig(projectRoot);
+      const plugins: string[] = Array.isArray(config.plugin)
+        ? (config.plugin as string[])
+        : [];
+      const merged = mergeAwsPluginEntry(plugins, configEntry);
+      const written = writeOpenCodePlugins(projectRoot, merged);
+      configPath = written.path;
+      opencodejsonCreated = written.created;
+      pluginEntry = configEntry;
+    } catch (err) {
+      if (err instanceof OpenCodeConfigError) throw err;
+      throw err;
     }
-  } else {
-    result.opencodejsonCreated = true;
   }
 
-  const plugins: string[] = Array.isArray(config['plugin'])
-    ? (config['plugin'] as string[])
-    : [];
-
-  if (!plugins.includes(OPENCODE_PLUGIN_ENTRY)) {
-    plugins.push(OPENCODE_PLUGIN_ENTRY);
-    config['plugin'] = plugins;
-    fs.writeFileSync(opencodejsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  }
-
-  return result;
+  return {
+    config: { opencodejsonCreated, configPath, pluginEntry },
+    assets,
+    plugin,
+    strategy,
+  };
 }
 
 const GITKEEP_DIRS = [

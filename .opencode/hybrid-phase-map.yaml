@@ -1,0 +1,555 @@
+schema_version: "1"
+phases:
+  - phase_id: skill-registry-check
+    skill_ref: null
+    command_ref: null
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires: []
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/workflow-state.yaml
+    required_outputs:
+      - qa/changes/{change_id}/workflow-state.yaml
+    skip_when: []
+
+  - phase_id: case-design
+    skill_ref: aws-case-design
+    command_ref: aws-case-design
+    subagent: aws-designer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - skill-registry-check
+    gate_after:
+      - case-review
+    allowed_writes:
+      - qa/changes/{change_id}/proposal.md
+      - qa/changes/{change_id}/cases/
+    required_outputs:
+      - qa/changes/{change_id}/proposal.md
+    skip_when: []
+
+  - phase_id: case-review
+    skill_ref: aws-case-reviewer
+    command_ref: aws-case-review
+    subagent: aws-reviewer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - case-design
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/case-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/case-review.json
+    skip_when: []
+
+  - phase_id: case-fix
+    skill_ref: aws-case-fixer
+    command_ref: aws-case-fix
+    subagent: aws-designer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - case-review
+    gate_after:
+      - case-review
+    allowed_writes:
+      - qa/changes/{change_id}/proposal.md
+      - qa/changes/{change_id}/cases/
+      - qa/changes/{change_id}/review/case-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/case-review.json
+    skip_when: []
+
+  - phase_id: fact-baseline
+    skill_ref: null
+    command_ref: aws-fact-baseline
+    subagent: aws-explorer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - case-review
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/facts/baseline-notes.md
+    required_outputs:
+      - qa/changes/{change_id}/facts/baseline-notes.md
+    skip_when: []
+
+  - phase_id: layer-scan
+    skill_ref: null
+    command_ref: null
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - case-review
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/workflow-state.yaml
+    required_outputs:
+      - qa/changes/{change_id}/workflow-state.yaml
+    skip_when: []
+
+  - phase_id: api-plan
+    skill_ref: aws-api-plan
+    command_ref: aws-api-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: api
+    requires:
+      - case-review
+    gate_after:
+      - api-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/api-plan.md
+      - qa/changes/{change_id}/plans/api-test-data-plan.md
+      - qa/changes/{change_id}/plans/api-codegen-plan.md
+      - qa/changes/{change_id}/plans/m3-review-summary.md
+      - qa/changes/{change_id}/plans/data-knowledge.proposal.yaml
+    required_outputs:
+      - qa/changes/{change_id}/plans/api-plan.md
+      - qa/changes/{change_id}/plans/api-codegen-plan.md
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-plan
+    skill_ref: aws-e2e-plan
+    command_ref: aws-e2e-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: e2e
+    requires:
+      - case-review
+    gate_after:
+      - e2e-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/e2e-plan.md
+      - qa/changes/{change_id}/plans/e2e-codegen-plan.md
+    required_outputs:
+      - qa/changes/{change_id}/plans/e2e-plan.md
+      - qa/changes/{change_id}/plans/e2e-codegen-plan.md
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: fuzz-plan
+    skill_ref: aws-fuzz-plan
+    command_ref: aws-fuzz-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: fuzz
+    requires:
+      - case-review
+    gate_after:
+      - fuzz-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/fuzz-plan.md
+      - qa/changes/{change_id}/plans/fuzz-codegen-plan.md
+    required_outputs:
+      - qa/changes/{change_id}/plans/fuzz-plan.md
+      - qa/changes/{change_id}/plans/fuzz-codegen-plan.md
+    skip_when:
+      - selected_targets.fuzz == false
+      - state.layers.fuzz != true
+
+  - phase_id: performance-plan
+    skill_ref: aws-performance-plan
+    command_ref: aws-performance-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: performance
+    requires:
+      - case-review
+    gate_after:
+      - performance-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/performance-plan.md
+      - qa/changes/{change_id}/plans/performance-codegen-plan.md
+    required_outputs:
+      - qa/changes/{change_id}/plans/performance-plan.md
+      - qa/changes/{change_id}/plans/performance-codegen-plan.md
+    skip_when:
+      - selected_targets.performance == false
+      - state.layers.performance != true
+
+  - phase_id: api-plan-review
+    skill_ref: aws-api-plan-reviewer
+    command_ref: aws-api-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: api
+    requires:
+      - api-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/api-plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/api-plan-review.json
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-plan-review
+    skill_ref: aws-e2e-plan-reviewer
+    command_ref: aws-e2e-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: e2e
+    requires:
+      - e2e-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/plan-review.json
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: fuzz-plan-review
+    skill_ref: aws-fuzz-plan-reviewer
+    command_ref: aws-fuzz-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: fuzz
+    requires:
+      - fuzz-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/fuzz-plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/fuzz-plan-review.json
+    skip_when:
+      - selected_targets.fuzz == false
+      - state.layers.fuzz != true
+
+  - phase_id: performance-plan-review
+    skill_ref: aws-performance-plan-reviewer
+    command_ref: aws-performance-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: performance
+    requires:
+      - performance-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/performance-plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/performance-plan-review.json
+    skip_when:
+      - selected_targets.performance == false
+      - state.layers.performance != true
+
+  - phase_id: api-plan-fix
+    skill_ref: aws-api-plan-fixer
+    command_ref: aws-api-plan-fix
+    subagent: aws-designer
+    parallel_group: null
+    selected_target: api
+    requires:
+      - api-plan-review
+    gate_after:
+      - api-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/api-plan.md
+      - qa/changes/{change_id}/plans/api-test-data-plan.md
+      - qa/changes/{change_id}/plans/api-codegen-plan.md
+      - qa/changes/{change_id}/review/api-plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/api-plan-review.json
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-plan-fix
+    skill_ref: aws-e2e-plan-fixer
+    command_ref: aws-e2e-plan-fix
+    subagent: aws-designer
+    parallel_group: null
+    selected_target: e2e
+    requires:
+      - e2e-plan-review
+    gate_after:
+      - e2e-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/e2e-plan.md
+      - qa/changes/{change_id}/plans/e2e-codegen-plan.md
+      - qa/changes/{change_id}/review/plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/plan-review.json
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: common-test-infra
+    skill_ref: aws-common-test-infra
+    command_ref: aws-common-test-infra
+    subagent: aws-builder
+    parallel_group: null
+    selected_target: null
+    requires:
+      - api-plan-review
+      - e2e-plan-review
+      - fuzz-plan-review
+      - performance-plan-review
+    gate_after: []
+    allowed_writes:
+      - tests/conftest.py
+      - tests/factories/common.py
+      - tests/fixtures/
+      - qa/changes/{change_id}/codegen/common-test-infra-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/common-test-infra-summary.md
+    skip_when: []
+    write_reservation:
+      writes:
+        - tests/conftest.py
+        - tests/factories/common.py
+        - tests/fixtures/
+      exclusive: true
+
+  - phase_id: api-codegen
+    skill_ref: aws-api-codegen
+    command_ref: aws-api-codegen
+    subagent: aws-builder
+    parallel_group: PG-CODEGEN
+    selected_target: api
+    requires:
+      - common-test-infra
+    gate_after:
+      - execution
+    allowed_writes:
+      - tests/api/**
+      - qa/changes/{change_id}/codegen/api-codegen-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/api-codegen-summary.md
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-codegen
+    skill_ref: aws-e2e-codegen
+    command_ref: aws-e2e-codegen
+    subagent: aws-builder
+    parallel_group: PG-CODEGEN
+    selected_target: e2e
+    requires:
+      - common-test-infra
+    gate_after:
+      - execution
+    allowed_writes:
+      - tests/e2e/**
+      - qa/changes/{change_id}/codegen/e2e-codegen-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/e2e-codegen-summary.md
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: fuzz-codegen
+    skill_ref: aws-fuzz-codegen
+    command_ref: aws-fuzz-codegen
+    subagent: aws-builder
+    parallel_group: PG-CODEGEN
+    selected_target: fuzz
+    requires:
+      - common-test-infra
+    gate_after:
+      - execution
+    allowed_writes:
+      - tests/fuzz/**
+      - qa/changes/{change_id}/codegen/fuzz-codegen-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/fuzz-codegen-summary.md
+    skip_when:
+      - selected_targets.fuzz == false
+      - state.layers.fuzz != true
+
+  - phase_id: performance-codegen
+    skill_ref: aws-performance-codegen
+    command_ref: aws-performance-codegen
+    subagent: aws-builder
+    parallel_group: PG-CODEGEN
+    selected_target: performance
+    requires:
+      - common-test-infra
+    gate_after:
+      - execution
+    allowed_writes:
+      - qa/perf/**
+      - qa/changes/{change_id}/codegen/performance-codegen-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/performance-codegen-summary.md
+    skip_when:
+      - selected_targets.performance == false
+      - state.layers.performance != true
+
+  - phase_id: execution
+    skill_ref: aws-run
+    command_ref: aws-run-inspect
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - api-codegen
+      - e2e-codegen
+      - fuzz-codegen
+      - performance-codegen
+    gate_after:
+      - inspect
+    allowed_writes:
+      - qa/changes/{change_id}/execution/execution-manifest.yaml
+      - qa/changes/{change_id}/execution/summary.md
+    required_outputs:
+      - qa/changes/{change_id}/execution/execution-manifest.yaml
+    skip_when: []
+
+  - phase_id: inspect
+    skill_ref: aws-inspect
+    command_ref: aws-run-inspect
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - execution
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/inspect/failure-analysis.json
+      - qa/changes/{change_id}/inspect/inspect-safety-check.json
+    required_outputs:
+      - qa/changes/{change_id}/inspect/failure-analysis.json
+      - qa/changes/{change_id}/inspect/inspect-safety-check.json
+    skip_when: []
+
+  - phase_id: inspect-note
+    skill_ref: null
+    command_ref: aws-inspect-note
+    subagent: aws-inspector
+    parallel_group: null
+    selected_target: null
+    requires:
+      - inspect
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/inspect/inspect-note.md
+    required_outputs:
+      - qa/changes/{change_id}/inspect/inspect-note.md
+    skip_when: []
+
+  - phase_id: fix-proposal
+    skill_ref: aws-fix-proposal
+    command_ref: aws-fix-proposal
+    subagent: aws-fixer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - inspect
+    gate_after:
+      - api-codegen-fix
+      - e2e-codegen-fix
+    allowed_writes:
+      - qa/changes/{change_id}/healing/fix-proposal.json
+    required_outputs:
+      - qa/changes/{change_id}/healing/fix-proposal.json
+    skip_when: []
+
+  - phase_id: api-codegen-fix
+    skill_ref: aws-api-codegen-fixer
+    command_ref: aws-api-codegen-fix
+    subagent: aws-fixer
+    parallel_group: PG-HEAL-FIX
+    selected_target: api
+    requires:
+      - fix-proposal
+    gate_after:
+      - healing-rerun
+    allowed_writes:
+      - tests/api/**
+      - qa/changes/{change_id}/healing/api-apply-summary.json
+      - qa/changes/{change_id}/healing/fixer-safety-check.json
+    required_outputs:
+      - qa/changes/{change_id}/healing/api-apply-summary.json
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-codegen-fix
+    skill_ref: aws-e2e-codegen-fixer
+    command_ref: aws-e2e-codegen-fix
+    subagent: aws-fixer
+    parallel_group: PG-HEAL-FIX
+    selected_target: e2e
+    requires:
+      - fix-proposal
+    gate_after:
+      - healing-rerun
+    allowed_writes:
+      - tests/e2e/**
+      - qa/changes/{change_id}/healing/e2e-apply-summary.json
+      - qa/changes/{change_id}/healing/fixer-safety-check.json
+    required_outputs:
+      - qa/changes/{change_id}/healing/e2e-apply-summary.json
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: healing-rerun
+    skill_ref: aws-run
+    command_ref: aws-run-inspect
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - api-codegen-fix
+      - e2e-codegen-fix
+    gate_after:
+      - healing-reinspect
+    allowed_writes:
+      - qa/changes/{change_id}/execution/execution-manifest.yaml
+    required_outputs:
+      - qa/changes/{change_id}/execution/execution-manifest.yaml
+    skip_when: []
+
+  - phase_id: healing-reinspect
+    skill_ref: aws-inspect
+    command_ref: aws-run-inspect
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - healing-rerun
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/inspect/failure-analysis.json
+      - qa/changes/{change_id}/inspect/inspect-safety-check.json
+    required_outputs:
+      - qa/changes/{change_id}/inspect/failure-analysis.json
+    skip_when: []
+
+  - phase_id: report
+    skill_ref: aws-report-generator
+    command_ref: aws-report
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - inspect
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/report/quality-report.json
+      - qa/changes/{change_id}/report/quality-report.md
+      - qa/changes/{change_id}/report/executive-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/report/quality-report.json
+      - qa/changes/{change_id}/report/quality-report.md
+    skip_when: []
+
+  - phase_id: archive
+    skill_ref: aws-archive
+    command_ref: aws-archive
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires:
+      - report
+    gate_after: []
+    allowed_writes:
+      - qa/archive/{change_id}/
+    required_outputs:
+      - qa/archive/{change_id}/
+    skip_when: []

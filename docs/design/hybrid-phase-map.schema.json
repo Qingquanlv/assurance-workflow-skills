@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aws-assurance.dev/schemas/hybrid-phase-map.schema.json",
+  "title": "HybridPhaseMap",
+  "type": "object",
+  "required": ["schema_version", "phases"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/phaseEntry" }
+    }
+  },
+  "$defs": {
+    "phaseEntry": {
+      "type": "object",
+      "required": ["phase_id", "subagent"],
+      "additionalProperties": false,
+      "properties": {
+        "phase_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "skill_ref": {
+          "type": ["string", "null"],
+          "pattern": "^aws-[a-z0-9-]+$"
+        },
+        "command_ref": {
+          "type": ["string", "null"],
+          "pattern": "^aws-[a-z0-9-]+$"
+        },
+        "subagent": {
+          "type": "string",
+          "pattern": "^(aws-conductor|aws-explorer|aws-designer|aws-reviewer|aws-builder|aws-fixer|aws-inspector)$"
+        },
+        "parallel_group": {
+          "type": ["string", "null"],
+          "pattern": "^PG-[A-Z0-9-]+$"
+        },
+        "selected_target": {
+          "type": ["string", "null"],
+          "enum": ["api", "e2e", "fuzz", "performance", null]
+        },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "default": []
+        },
+        "gate_after": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "default": []
+        },
+        "allowed_writes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "required_outputs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "skip_when": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "write_reservation": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/writeReservation" }]
+        }
+      }
+    },
+    "writeReservation": {
+      "type": "object",
+      "required": ["writes"],
+      "additionalProperties": false,
+      "properties": {
+        "writes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "exclusive": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aws-assurance.dev/schemas/write-reservation.schema.json",
+  "title": "WriteReservationBatch",
+  "type": "object",
+  "required": ["batch_id", "parallel_group", "write_reservations", "conflicts", "safe_to_parallelize"],
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": { "type": "string", "minLength": 1 },
+    "parallel_group": { "type": ["string", "null"] },
+    "write_reservations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/reservation" }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/conflict" }
+    },
+    "safe_to_parallelize": { "type": "boolean" }
+  },
+  "$defs": {
+    "reservation": {
+      "type": "object",
+      "required": ["phase_id", "allowed_writes"],
+      "additionalProperties": false,
+      "properties": {
+        "phase_id": { "type": "string" },
+        "allowed_writes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exclusive": { "type": "boolean" }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "required": ["phase_a", "phase_b", "reason", "patterns"],
+      "additionalProperties": false,
+      "properties": {
+        "phase_a": { "type": "string" },
+        "phase_b": { "type": "string" },
+        "reason": { "type": "string" },
+        "patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  }
+}

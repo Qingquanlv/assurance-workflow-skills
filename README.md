@@ -493,7 +493,7 @@ aws gate check --change REQ-002-menu-management --phase codegen
 
 ## OpenCode 使用方式
 
-在 OpenCode 中通过 Skill 触发完整工作流：
+**默认（inline）：** 在 primary agent 中通过 Skill 触发完整工作流：
 
 ```
 use skill aws-workflow
@@ -511,6 +511,29 @@ Max plan fix attempts:
 2
 ```
 
+Primary agent 在同一上下文中 inline 加载各阶段 Skill，不使用 subagent。
+
+### Hybrid 工作流（v0.2 可选）
+
+**Inline 仍是默认路径。** Hybrid 为 opt-in，需先完成 OpenCode 初始化：
+
+```bash
+aws init --agent opencode --yes
+```
+
+初始化会复制 `.opencode/agents`（含 `aws-conductor`）、`commands`、`skills`、`hybrid-phase-map.yaml` 及本地插件 `.opencode/plugins/aws.mjs`。
+
+启用 hybrid 的两种方式：
+
+1. 将 primary agent 选为 `aws-conductor`，并要求运行 hybrid 工作流
+2. 在 `qa/changes/<change-id>/workflow-state.yaml` 中设置 `execution_mode: hybrid`
+
+Conductor 加载阶段 Skill、生成 task brief、通过角色 subagent 委派阶段工作，并由 CLI（`aws status`、`aws gate check`）裁决调度与门禁。阶段 slash command（`/aws-*`）仅供 Conductor 委派使用，**不能**作为独立入口直接运行；若缺少 Conductor 生成的 task brief，应提示用户从 `aws-conductor` 启动工作流（用户可见文案不暴露内部 skill 名称）。
+
+适用场景：需要 subagent 并行批次、严格 brief/audit 边界时选用 hybrid；单 agent 简单流程继续使用 inline 即可。
+
+详见 [.opencode/INSTALL.md](.opencode/INSTALL.md)。
+
 ### 支持的执行模式
 
 | 模式 | 说明 |
@@ -524,7 +547,10 @@ Max plan fix attempts:
 
 ### Skill 架构
 
-所有 Skill 均通过 `skills/**/SKILL.md` 注册，OpenCode 在启动时自动扫描加载。不使用 `.opencode/agents` 文件或 `/aws-*` slash command。
+所有 Skill 均通过 `skills/**/SKILL.md` 注册，OpenCode 在启动时自动扫描加载。
+
+- **Inline（默认）：** 不使用 `.opencode/agents` 或 `/aws-*` slash command；primary agent inline 执行各阶段 Skill。
+- **Hybrid（opt-in）：** 使用 `aws-conductor` 与六个角色 subagent，由 Conductor 委派；阶段 command 为委派模板，非独立入口。需 `aws init --agent opencode` 提供的 hybrid 资产。
 
 **职责边界：**
 
@@ -532,7 +558,8 @@ Max plan fix attempts:
 - **Fixer**：只处理 `auto_fix_allowed = true` 的 findings，不发明产品行为
 - **Codegen Fixer**：只修改授权范围内的测试文件，高风险提案需人工确认
 - **Report Generator**：调用 CLI 生成报告，不重新计算 Quality Score 或 final_status
-- **所有阶段均在 primary agent 内联执行**，不通过 subagent 加载 Skill
+- **Inline：** 所有阶段在 primary agent 内联执行，不通过 subagent 加载 Skill
+- **Hybrid：** Conductor 加载 Skill 并委派 subagent；subagent 仅按 task brief 执行，不加载 Skill
 
 **确定性编排（影子模式）：**
 

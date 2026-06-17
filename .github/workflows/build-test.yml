@@ -8,6 +8,9 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "scripts/**"
+      - ".opencode/**"
+      - "dist/**"
       - "package.json"
       - "tsconfig.json"
       - "jest.config.ts"
@@ -17,10 +20,22 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "scripts/**"
+      - ".opencode/**"
+      - "dist/**"
       - "package.json"
       - "tsconfig.json"
       - "jest.config.ts"
   workflow_dispatch:
+    inputs:
+      RUN_OPENCODE_MODEL_SMOKE:
+        description: Run optional Level-2 OpenCode model smoke (requires provider API key secrets)
+        required: false
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
 
 permissions:
   contents: read
@@ -47,5 +62,64 @@ jobs:
       - name: Build (required by integration tests)
         run: npm run build
 
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
       - name: Run tests
         run: npx jest --ci --forceExit
+        env:
+          OPENCODE_CLI: "1"
+
+  opencode-model-smoke:
+    name: opencode model smoke (Level 2)
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: >-
+      (vars.RUN_OPENCODE_MODEL_SMOKE == '1' || github.event.inputs.RUN_OPENCODE_MODEL_SMOKE == '1')
+      && (secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Require provider credentials
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::Set repository secret ANTHROPIC_API_KEY or OPENAI_API_KEY before enabling Level-2 smoke."
+            exit 1
+          fi
+
+      - name: Level-2 model smoke
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENCODE_MODEL: ${{ vars.OPENCODE_MODEL }}
+        run: |
+          set -euo pipefail
+          model_args=()
+          if [ -n "${OPENCODE_MODEL:-}" ]; then
+            model_args=(--model "$OPENCODE_MODEL")
+          fi
+          # Minimal one-turn session; see docs/spikes/opencode-plugin-matrix.md §4
+          opencode run --print-logs --dangerously-skip-permissions "${model_args[@]}" \
+            "Reply with exactly: smoke-ok" 2>&1 | tee /tmp/opencode-smoke.log
+          grep -q 'smoke-ok' /tmp/opencode-smoke.log || {
+            echo "::error::Model smoke did not produce expected reply."
+            exit 1
+          }

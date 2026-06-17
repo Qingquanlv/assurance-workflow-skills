@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "generated_from": ".opencode/hybrid-phase-map.yaml",
+  "opencodeSkills": [
+    "aws-api-codegen",
+    "aws-api-codegen-fixer",
+    "aws-api-plan",
+    "aws-api-plan-fixer",
+    "aws-api-plan-reviewer",
+    "aws-archive",
+    "aws-case-design",
+    "aws-case-fixer",
+    "aws-case-reviewer",
+    "aws-common-test-infra",
+    "aws-e2e-codegen",
+    "aws-e2e-codegen-fixer",
+    "aws-e2e-plan",
+    "aws-e2e-plan-fixer",
+    "aws-e2e-plan-reviewer",
+    "aws-fix-proposal",
+    "aws-fuzz-codegen",
+    "aws-fuzz-plan",
+    "aws-fuzz-plan-reviewer",
+    "aws-inspect",
+    "aws-performance-codegen",
+    "aws-performance-plan",
+    "aws-performance-plan-reviewer",
+    "aws-report-generator",
+    "aws-run",
+    "aws-workflow"
+  ]
+}

@@ -78,6 +78,18 @@ phases:
     repair_of: case-review
     max_attempts_param: max_case_fix_attempts
 
+  - id: fact-baseline
+    skill: null
+    requires: [case-review]
+    produces: [facts/baseline-notes.md]
+    when: "params.run_mode in ['full', 'plan-only']"
+
+  - id: layer-scan
+    skill: null
+    requires: [case-review]
+    produces: [workflow-state.yaml]
+    when: "params.run_mode in ['full', 'api-only', 'e2e-only', 'plan-only', 'codegen-only', 'review-plan']"
+
   # ---- API branch -----------------------------------------------------------
   - id: api-plan
     skill: aws-api-plan
@@ -99,13 +111,6 @@ phases:
     when: "'api' in params.test_types and gate('api-plan-review-gate').verdict == 'needs_fix'"
     repair_of: api-plan-review
     max_attempts_param: max_plan_fix_attempts
-
-  - id: api-codegen
-    skill: aws-api-codegen
-    requires: [api-plan-review]       # gated: review must be `done`(=pass+ready)
-    produces: [codegen/api-codegen-summary.md]
-    gate: api-codegen-precondition-gate
-    when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'codegen-only']"
 
   # ---- E2E branch -----------------------------------------------------------
   - id: e2e-plan
@@ -129,18 +134,73 @@ phases:
     repair_of: e2e-plan-review
     max_attempts_param: max_plan_fix_attempts
 
+  # ---- Fuzz branch ----------------------------------------------------------
+  - id: fuzz-plan
+    skill: aws-fuzz-plan
+    requires: [case-review]
+    produces: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md]
+    when: "state.layers.fuzz == true and params.run_mode in ['full', 'plan-only', 'codegen-only', 'review-plan']"
+
+  - id: fuzz-plan-review
+    skill: aws-fuzz-plan-reviewer
+    requires: [fuzz-plan]
+    produces: [review/fuzz-plan-review.json]
+    gate: fuzz-plan-review-gate
+    when: "state.layers.fuzz == true"
+
+  # ---- Performance branch ---------------------------------------------------
+  - id: performance-plan
+    skill: aws-performance-plan
+    requires: [case-review]
+    produces: [plans/performance-plan.md, plans/performance-codegen-plan.md]
+    when: "state.layers.performance == true and params.run_mode in ['full', 'plan-only', 'codegen-only', 'review-plan']"
+
+  - id: performance-plan-review
+    skill: aws-performance-plan-reviewer
+    requires: [performance-plan]
+    produces: [review/performance-plan-review.json]
+    gate: performance-plan-review-gate
+    when: "state.layers.performance == true"
+
+  # ---- Shared test infra + codegen batch ------------------------------------
+  - id: common-test-infra
+    skill: aws-common-test-infra
+    requires: [api-plan-review, e2e-plan-review, fuzz-plan-review, performance-plan-review]
+    requires_mode: all
+    produces: [codegen/common-test-infra-summary.md]
+    when: "params.run_mode in ['full', 'api-only', 'e2e-only', 'codegen-only']"
+
+  - id: api-codegen
+    skill: aws-api-codegen
+    requires: [common-test-infra]
+    produces: [codegen/api-codegen-summary.md]
+    gate: api-codegen-precondition-gate
+    when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'codegen-only']"
+
   - id: e2e-codegen
     skill: aws-e2e-codegen
-    requires: [e2e-plan-review]
+    requires: [common-test-infra]
     produces: [codegen/e2e-codegen-summary.md]
     gate: e2e-codegen-precondition-gate
     when: "'e2e' in params.test_types and params.run_mode in ['full', 'e2e-only', 'codegen-only']"
+
+  - id: fuzz-codegen
+    skill: aws-fuzz-codegen
+    requires: [common-test-infra]
+    produces: [codegen/fuzz-codegen-summary.md]
+    when: "state.layers.fuzz == true and params.run_mode in ['full', 'codegen-only']"
+
+  - id: performance-codegen
+    skill: aws-performance-codegen
+    requires: [common-test-infra]
+    produces: [codegen/performance-codegen-summary.md]
+    when: "state.layers.performance == true and params.run_mode in ['full', 'codegen-only']"
 
   # ---- Execution + inspect --------------------------------------------------
   - id: execution
     skill: aws-run
     # requires the codegen phase(s) that are active in this run
-    requires: [api-codegen, e2e-codegen]   # engine drops pruned deps
+    requires: [api-codegen, e2e-codegen, fuzz-codegen, performance-codegen]   # engine drops pruned deps
     requires_mode: any_active              # at least one active dep must be done
     produces: [execution/execution-manifest.yaml]
     when: "params.run_tests == true and params.run_mode in ['full', 'api-only', 'e2e-only', 'codegen-only']"
@@ -150,6 +210,18 @@ phases:
     requires: [execution]
     produces: [inspect/failure-analysis.json, inspect/inspect-safety-check.json]
     gate: inspect-safety-gate
+
+  - id: inspect-note
+    skill: null
+    requires: [inspect]
+    produces: [inspect/inspect-note.md]
+    when: "params.run_mode in ['full', 'api-only', 'e2e-only', 'codegen-only']"
+
+  - id: report
+    skill: aws-report-generator
+    requires: [inspect]
+    produces: [report/quality-report.json, report/quality-report.md, report/executive-summary.md]
+    when: "params.run_mode in ['full', 'api-only', 'e2e-only', 'codegen-only']"
 
   # ---- Healing loop (Phases 10-13) ------------------------------------------
   # Entire loop pruned unless healing is needed AND available.
@@ -193,7 +265,7 @@ phases:
   # ---- Archive --------------------------------------------------------------
   - id: archive
     skill: aws-archive
-    requires: [inspect]               # plus healing terminal state (see gate)
+    requires: [report]
     produces: ["qa/archive/<change-id>/"]
     gate: archive-gate
     when: "params.auto_archive == true or params.run_mode == 'full'"
@@ -244,6 +316,14 @@ gates:
   e2e-plan-review-gate:
     <<: *plan-review-gate
     reads: [review/plan-review.json]
+
+  fuzz-plan-review-gate:
+    <<: *plan-review-gate
+    reads: [review/fuzz-plan-review.json]
+
+  performance-plan-review-gate:
+    <<: *plan-review-gate
+    reads: [review/performance-plan-review.json]
 
   # Hard precondition before codegen — independent of the review verdict.
   api-codegen-precondition-gate:

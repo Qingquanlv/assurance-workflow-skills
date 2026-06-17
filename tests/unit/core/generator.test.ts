@@ -3,13 +3,35 @@ import * as path from 'path';
 import * as os from 'os';
 import { generateProject, repairProject, registerOpenCode } from '../../../src/core/generator';
 import { InitAnswers } from '../../../src/core/types';
+import { AWS_GIT_PLUGIN_ENTRY } from '../../../src/core/opencode-plugin-entry';
 
 const defaultAnswers: InitAnswers = {
   apiFramework: 'pytest',
   e2eFramework: 'playwright',
   enableMcp: false,
   confirm: true,
+  agent: 'opencode',
 };
+
+function scaffoldPackageOpenCode(pkgRoot: string): void {
+  const oc = path.join(pkgRoot, '.opencode');
+  fs.mkdirSync(path.join(oc, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(oc, 'commands'), { recursive: true });
+  fs.mkdirSync(path.join(oc, 'skills', 'aws-workflow'), { recursive: true });
+  fs.writeFileSync(path.join(oc, 'agents', 'aws-conductor.md'), '# conductor\n');
+  fs.writeFileSync(path.join(oc, 'commands', 'aws-case-design.md'), '# cmd\n');
+  fs.writeFileSync(path.join(oc, 'skills', 'aws-workflow', 'SKILL.md'), '# skill\n');
+  fs.writeFileSync(path.join(oc, 'hybrid-phase-map.yaml'), 'phases: []\n');
+  fs.writeFileSync(
+    path.join(oc, 'opencode-skills.json'),
+    JSON.stringify({ opencodeSkills: ['aws-workflow'] }, null, 2) + '\n'
+  );
+  fs.mkdirSync(path.join(pkgRoot, 'dist'), { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgRoot, 'dist/opencode-plugin.mjs'),
+    'export default async () => ({});\n'
+  );
+}
 
 describe('generateProject', () => {
   let tmpDir: string;
@@ -73,11 +95,11 @@ describe('generateProject', () => {
 describe('registerOpenCode', () => {
   let tmpProject: string;
   let tmpPackage: string;
-  const PLUGIN_ENTRY = 'assurance-workflow-skills@git+https://github.com/Qingquanlv/assurance-workflow-skills.git';
 
   beforeEach(() => {
     tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-oc-proj-'));
     tmpPackage = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-oc-pkg-'));
+    scaffoldPackageOpenCode(tmpPackage);
   });
 
   afterEach(() => {
@@ -85,37 +107,80 @@ describe('registerOpenCode', () => {
     fs.rmSync(tmpPackage, { recursive: true });
   });
 
-  it('creates opencode.json when it does not exist', () => {
+  it('uses local-copy by default: plugin file, no opencode.json', () => {
     const result = registerOpenCode(tmpProject, tmpPackage);
+    expect(result.strategy).toBe('local-copy');
+    expect(fs.existsSync(path.join(tmpProject, '.opencode/plugins/aws.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpProject, 'opencode.json'))).toBe(false);
+    expect(result.plugin?.created).toBe(true);
+  });
+
+  it('refreshes local plugin on re-init when static assets are skipped', () => {
+    registerOpenCode(tmpProject, tmpPackage);
+    fs.writeFileSync(
+      path.join(tmpProject, '.opencode/plugins/aws.mjs'),
+      'export default async () => ({ stale: true });\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpPackage, 'dist/opencode-plugin.mjs'),
+      'export default async () => ({ fresh: true });\n'
+    );
+
+    const result = registerOpenCode(tmpProject, tmpPackage);
+    expect(result.plugin?.refreshed).toBe(true);
+    expect(fs.readFileSync(path.join(tmpProject, '.opencode/plugins/aws.mjs'), 'utf-8')).toContain(
+      'fresh: true'
+    );
+  });
+
+  it('file strategy writes opencode.json with file: plugin entry', () => {
+    registerOpenCode(tmpProject, tmpPackage, { pluginStrategy: 'file' });
     const configPath = path.join(tmpProject, 'opencode.json');
     expect(fs.existsSync(configPath)).toBe(true);
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(config.plugin).toContain(PLUGIN_ENTRY);
-    expect(result.opencodejsonCreated).toBe(true);
+    expect(config.plugin.some((e: string) => e.startsWith('assurance-workflow-skills@file:'))).toBe(
+      true
+    );
   });
 
-  it('appends plugin entry to existing opencode.json without overwriting other entries', () => {
+  it('appends file entry without overwriting other opencode.json fields', () => {
     const configPath = path.join(tmpProject, 'opencode.json');
     fs.writeFileSync(configPath, JSON.stringify({ plugin: ['other-plugin@1.0.0'], model: 'claude-3' }));
-    registerOpenCode(tmpProject, tmpPackage);
+    registerOpenCode(tmpProject, tmpPackage, { pluginStrategy: 'file' });
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     expect(config.plugin).toContain('other-plugin@1.0.0');
-    expect(config.plugin).toContain(PLUGIN_ENTRY);
+    expect(config.plugin.some((e: string) => e.startsWith('assurance-workflow-skills@file:'))).toBe(
+      true
+    );
     expect(config.model).toBe('claude-3');
   });
 
-  it('is idempotent: does not duplicate entry if already present', () => {
-    const configPath = path.join(tmpProject, 'opencode.json');
-    fs.writeFileSync(configPath, JSON.stringify({ plugin: [PLUGIN_ENTRY] }));
-    registerOpenCode(tmpProject, tmpPackage);
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(config.plugin.filter((e: string) => e === PLUGIN_ENTRY)).toHaveLength(1);
+  it('git strategy falls back to local-copy when not verified', () => {
+    const result = registerOpenCode(tmpProject, tmpPackage, { pluginStrategy: 'git' });
+    expect(result.strategy).toBe('local-copy');
+    expect(fs.existsSync(path.join(tmpProject, '.opencode/plugins/aws.mjs'))).toBe(true);
   });
 
-  it('does not create OpenCode agent files; skills are registered via plugin', () => {
+  it('git strategy writes git entry when verified', () => {
+    registerOpenCode(tmpProject, tmpPackage, {
+      pluginStrategy: 'git',
+      gitInstallVerified: true,
+    });
+    const config = JSON.parse(fs.readFileSync(path.join(tmpProject, 'opencode.json'), 'utf8'));
+    expect(config.plugin).toContain(AWS_GIT_PLUGIN_ENTRY);
+  });
+
+  it('copies OpenCode static assets into project', () => {
     const result = registerOpenCode(tmpProject, tmpPackage);
-    expect(fs.existsSync(path.join(tmpProject, '.opencode', 'agents'))).toBe(false);
-    expect(result.opencodejsonCreated).toBe(true);
+    expect(fs.existsSync(path.join(tmpProject, '.opencode', 'agents', 'aws-conductor.md'))).toBe(true);
+    expect(result.assets?.created.length).toBeGreaterThan(0);
+  });
+
+  it('skips OpenCode registration when agent is not opencode/all', () => {
+    const result = registerOpenCode(tmpProject, tmpPackage, { agent: 'claude_code' });
+    expect(fs.existsSync(path.join(tmpProject, 'opencode.json'))).toBe(false);
+    expect(result.config.opencodejsonCreated).toBe(false);
+    expect(result.assets).toBeUndefined();
   });
 });
 

@@ -1,0 +1,151 @@
+schema_version: "1"
+phases:
+  - phase_id: skill-registry-check
+    skill_ref: null
+    command_ref: null
+    subagent: aws-conductor
+    parallel_group: null
+    selected_target: null
+    requires: []
+    gate_after: []
+    allowed_writes: []
+    required_outputs: []
+    skip_when: []
+
+  - phase_id: case-design
+    skill_ref: aws-case-design
+    command_ref: aws-case-design
+    subagent: aws-designer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - skill-registry-check
+    gate_after:
+      - case-review
+    allowed_writes:
+      - qa/changes/{change_id}/proposal.md
+      - qa/changes/{change_id}/cases/
+    required_outputs:
+      - qa/changes/{change_id}/proposal.md
+    skip_when: []
+
+  - phase_id: case-review
+    skill_ref: aws-case-reviewer
+    command_ref: aws-case-review
+    subagent: aws-reviewer
+    parallel_group: null
+    selected_target: null
+    requires:
+      - case-design
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/case-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/case-review.json
+    skip_when: []
+
+  - phase_id: api-plan
+    skill_ref: aws-api-plan
+    command_ref: aws-api-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: api
+    requires:
+      - case-review
+    gate_after:
+      - api-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/api-plan.md
+      - qa/changes/{change_id}/plans/api-codegen-plan.md
+    required_outputs:
+      - qa/changes/{change_id}/plans/api-plan.md
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: e2e-plan
+    skill_ref: aws-e2e-plan
+    command_ref: aws-e2e-plan
+    subagent: aws-designer
+    parallel_group: PG-PLAN
+    selected_target: e2e
+    requires:
+      - case-review
+    gate_after:
+      - e2e-plan-review
+    allowed_writes:
+      - qa/changes/{change_id}/plans/e2e-plan.md
+    required_outputs:
+      - qa/changes/{change_id}/plans/e2e-plan.md
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: e2e-plan-review
+    skill_ref: aws-e2e-plan-reviewer
+    command_ref: aws-e2e-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: e2e
+    requires:
+      - e2e-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/plan-review.json
+    skip_when:
+      - selected_targets.e2e == false
+
+  - phase_id: api-plan-review
+    skill_ref: aws-api-plan-reviewer
+    command_ref: aws-api-plan-review
+    subagent: aws-reviewer
+    parallel_group: PG-PLAN-REVIEW
+    selected_target: api
+    requires:
+      - api-plan
+    gate_after: []
+    allowed_writes:
+      - qa/changes/{change_id}/review/api-plan-review.json
+    required_outputs:
+      - qa/changes/{change_id}/review/api-plan-review.json
+    skip_when:
+      - selected_targets.api == false
+
+  - phase_id: common-test-infra
+    skill_ref: aws-common-test-infra
+    command_ref: aws-common-test-infra
+    subagent: aws-builder
+    parallel_group: null
+    selected_target: null
+    requires:
+      - api-plan-review
+    gate_after: []
+    allowed_writes:
+      - tests/conftest.py
+      - tests/factories/common.py
+      - qa/changes/{change_id}/codegen/common-test-infra-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/common-test-infra-summary.md
+    skip_when: []
+    write_reservation:
+      writes:
+        - tests/conftest.py
+        - tests/factories/common.py
+      exclusive: true
+
+  - phase_id: api-codegen
+    skill_ref: aws-api-codegen
+    command_ref: aws-api-codegen
+    subagent: aws-builder
+    parallel_group: PG-CODEGEN
+    selected_target: api
+    requires:
+      - common-test-infra
+    gate_after: []
+    allowed_writes:
+      - tests/api/**
+      - qa/changes/{change_id}/codegen/api-codegen-summary.md
+    required_outputs:
+      - qa/changes/{change_id}/codegen/api-codegen-summary.md
+    skip_when:
+      - selected_targets.api == false

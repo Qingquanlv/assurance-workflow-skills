@@ -422,11 +422,14 @@ export interface DoctorResult {
   checks: CheckResult[];
 }
 
+export type InitAgent = 'claude_code' | 'codex' | 'both' | 'opencode' | 'all' | 'none';
+
 export interface InitAnswers {
   apiFramework: 'pytest' | 'none';
   e2eFramework: 'playwright' | 'none';
   enableMcp: boolean;
   confirm: boolean;
+  agent: InitAgent;
   frontendPath?: string;
   backendPath?: string;
 }
