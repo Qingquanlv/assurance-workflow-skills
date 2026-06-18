@@ -63,6 +63,49 @@ describe('case_generation scorer', () => {
 
     expect(result.metrics.schema_valid_rate).toBe(0);
   });
+
+  it('returns path_coverage_rate = 1 when there are no required_paths', () => {
+    const sample: DatasetSample = {
+      id: 'CG-002',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-002' },
+      expected: {
+        forbidden_cases: [],
+        required_atoms: [],
+      },
+    };
+
+    // Generate cases without required paths
+    generateCases(sample, tmpDir);
+
+    const result = score(sample, tmpDir);
+
+    expect(result.status).toBe('ok');
+    expect(result.metrics.path_coverage_rate).toBe(1);
+  });
+
+  it('returns path_coverage_rate = 1 when required_paths is empty array', () => {
+    const sample: DatasetSample = {
+      id: 'CG-003',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-003' },
+      expected: {
+        required_paths: [],
+        forbidden_cases: [],
+        required_atoms: [],
+      },
+    };
+
+    // Generate cases with empty required paths array
+    generateCases(sample, tmpDir);
+
+    const result = score(sample, tmpDir);
+
+    expect(result.status).toBe('ok');
+    expect(result.metrics.path_coverage_rate).toBe(1);
+  });
 });
 
 describe('mock judge', () => {

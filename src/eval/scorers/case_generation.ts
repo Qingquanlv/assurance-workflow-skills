@@ -67,7 +67,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
   const schemaValid = cases !== null ? 1 : 0;
 
   let hallucinationRate = 0;
-  let pathCoverageRate = expected?.required_paths?.length ? 1 : 0;
+  let pathCoverageRate = expected?.required_paths?.length ? 0 : 1;
   let traceabilityRate = 1;
 
   if (cases && cases.cases.length > 0) {
