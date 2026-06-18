@@ -9,14 +9,15 @@ import type {
   EvalPlan,
   EvalGateResult,
   BatchGateResult,
+  JudgeCalibrationThresholds,
 } from './types';
 import { DatasetLoader } from './dataset_loader';
-import { buildManifest, finalizeManifest, generateRunId } from './manifest';
+import { buildManifest, finalizeManifest, generateRunId, readManifest } from './manifest';
 import { getGitSha } from './manifest_helpers';
 import { readMetrics as readMetricsFromFile } from './metrics';
 import { executeAttempt } from './executor';
 import { aggregateScores } from './metrics';
-import { computeGateResult } from './gate';
+import { computeGateResult, evaluateThreshold } from './gate';
 import { BatchBuilder, BatchGate, BatchReporter } from './batch';
 import { generateRunReport } from './report';
 import { loadSuite, readPlan } from './plan';
@@ -25,6 +26,7 @@ import {
   resolveScorerModuleRef,
   resolveRuntimeModule,
 } from './module_resolver';
+import { runCalibration } from './judge/calibration';
 
 export interface RunOptions {
   suiteName?: string;
@@ -33,6 +35,7 @@ export interface RunOptions {
   repeat?: number;
   projectRoot: string;
   evalRoot: string;
+  calibrate?: boolean;
 }
 
 export interface RunResult {
@@ -53,8 +56,9 @@ export async function runSuite(opts: {
   tagMatch?: 'any' | 'all';
   maxSamples?: number;
   repeat?: number;
+  calibrate?: boolean;
 }): Promise<{ runId: string; gateResult: EvalGateResult }> {
-  const { suite, suiteFilePath, evalRoot, projectRoot } = opts;
+  const { suite, suiteFilePath, evalRoot, projectRoot, calibrate } = opts;
 
   const datasetDir = path.join(evalRoot, 'datasets', suite.dataset);
   const runsDir = path.join(evalRoot, 'runs');
@@ -73,7 +77,7 @@ export async function runSuite(opts: {
   const runDir = path.join(runsDir, runId);
   fs.mkdirSync(runDir, { recursive: true });
 
-  // Build manifest
+  // Build manifest and capture it
   buildManifest({
     suite,
     suiteFilePath,
@@ -82,6 +86,9 @@ export async function runSuite(opts: {
     projectRoot,
     runDir,
   });
+
+  const manifest = readManifest(runDir);
+  const targetModel = manifest.target_model;
 
   let executedAttempts = 0;
   const repeatCount = opts.repeat ?? suite.repeat ?? 1;
@@ -110,7 +117,8 @@ export async function runSuite(opts: {
             { ...suite, judge: suite.judge },
             sample,
             attemptDir,
-            projectRoot
+            projectRoot,
+            targetModel
           );
         }
 
@@ -145,7 +153,47 @@ export async function runSuite(opts: {
   aggregateScores(runDir, suite.name, runId);
 
   // Compute gate result
-  const gateResult = computeGateResult(suite, readMetrics(runDir), runId, runDir);
+  let gateResult = computeGateResult(suite, readMetrics(runDir), runId, runDir);
+
+  // Run calibration if requested and thresholds are defined
+  if (calibrate && suite.judge_calibration) {
+    const calibrationDir = path.join(evalRoot, 'datasets', suite.dataset, 'calibration');
+    if (fs.existsSync(calibrationDir)) {
+      const calibrationResult = await runCalibration({
+        suite,
+        calibrationDir,
+        projectRoot,
+        targetModel,
+      });
+
+      // Write calibration result
+      fs.writeFileSync(
+        path.join(runDir, 'calibration.json'),
+        JSON.stringify(calibrationResult, null, 2)
+      );
+
+      // Check calibration thresholds
+      const calibrationFailures = checkCalibrationThresholds(
+        suite.judge_calibration,
+        calibrationResult
+      );
+
+      if (calibrationFailures.length > 0) {
+        // Override verdict to needs_human_review
+        gateResult = {
+          ...gateResult,
+          verdict: 'needs_human_review',
+          hard_gate_failures: [...gateResult.hard_gate_failures, 'calibration_failed'],
+        };
+
+        // Rewrite gate result
+        fs.writeFileSync(
+          path.join(runDir, 'gate-result.json'),
+          JSON.stringify(gateResult, null, 2)
+        );
+      }
+    }
+  }
 
   // Generate report
   generateRunReport(runDir);
@@ -199,7 +247,8 @@ async function runJudge(
   suite: { judge: NonNullable<EvalSuite['judge']>; name: string },
   sample: DatasetSample,
   attemptDir: string,
-  projectRoot: string
+  projectRoot: string,
+  targetModel: string
 ): Promise<void> {
   // Load judge module
   const judgePath = resolveRuntimeModule(projectRoot, 'src/eval/judge/judge');
@@ -209,7 +258,7 @@ async function runJudge(
     throw new Error('Judge module must export a judge function');
   }
   const result = await Promise.resolve(
-    judgeMod.judge(sample, attemptDir, suite.judge)
+    judgeMod.judge(sample, attemptDir, suite.judge, { projectRoot, targetModel })
   );
   if (!result || typeof result !== 'object') {
     throw new Error('Judge returned empty result (fail-closed)');
@@ -218,6 +267,33 @@ async function runJudge(
     path.join(attemptDir, 'judge-result.json'),
     JSON.stringify(result, null, 2)
   );
+}
+
+function checkCalibrationThresholds(
+  thresholds: JudgeCalibrationThresholds,
+  result: {
+    judge_human_agreement: number;
+    judge_human_kappa: number;
+    critical_label_disagreement: number;
+    invalid_judge_output_rate: number;
+  }
+): string[] {
+  const failures: string[] = [];
+
+  if (!evaluateThreshold(thresholds.judge_human_agreement, result.judge_human_agreement)) {
+    failures.push('judge_human_agreement');
+  }
+  if (!evaluateThreshold(thresholds.judge_human_kappa, result.judge_human_kappa)) {
+    failures.push('judge_human_kappa');
+  }
+  if (!evaluateThreshold(thresholds.critical_label_disagreement, result.critical_label_disagreement)) {
+    failures.push('critical_label_disagreement');
+  }
+  if (!evaluateThreshold(thresholds.invalid_judge_output_rate, result.invalid_judge_output_rate)) {
+    failures.push('invalid_judge_output_rate');
+  }
+
+  return failures;
 }
 
 function readMetrics(runDir: string) {

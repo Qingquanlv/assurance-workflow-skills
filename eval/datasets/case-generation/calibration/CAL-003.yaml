@@ -1,0 +1,17 @@
+id: CAL-003
+annotation_source: synthetic
+tags: [calibration, missing]
+prd_ref: sample-prd-003.md
+input:
+  change_id: CAL-003
+mock_judge_label: missing
+expected:
+  human_label: missing
+  required_paths:
+    - src/api/deleteUser.ts
+  forbidden_cases: []
+  required_atoms:
+    - id: req-005
+      text: "User must exist before deletion"
+    - id: req-006
+      text: "Deletion must be audited"

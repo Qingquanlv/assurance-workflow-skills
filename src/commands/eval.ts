@@ -65,6 +65,7 @@ export function registerEvalCommand(program: Command): void {
     .option('--output <mode>', 'Output mode: id (CI-friendly, prints only the id)')
     .option('--json', 'Output result as JSON { run_id|batch_id, verdict }')
     .option('--fail-on-verdict', 'Exit 1 when gate verdict is not pass (opt-in)')
+    .option('--calibrate', 'Run judge calibration before finalizing gate result')
     .action(async (opts) => {
       const projectRoot = process.cwd();
       const evalRoot = getEvalRoot(projectRoot);
@@ -95,6 +96,7 @@ export function registerEvalCommand(program: Command): void {
             projectRoot,
             sampleId: opts.sample,
             repeat: opts.repeat,
+            calibrate: opts.calibrate,
           });
 
           printRunResult({

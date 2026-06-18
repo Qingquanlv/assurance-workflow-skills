@@ -1,0 +1,17 @@
+id: CAL-006
+annotation_source: synthetic
+tags: [calibration, critical-missing]
+prd_ref: sample-prd-006.md
+input:
+  change_id: CAL-006
+mock_judge_label: missing
+expected:
+  human_label: covered
+  required_paths:
+    - src/api/login.ts
+  forbidden_cases: []
+  required_atoms:
+    - id: req-011
+      text: "Validate credentials"
+    - id: req-012
+      text: "Return JWT token on success"

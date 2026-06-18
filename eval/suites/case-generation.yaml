@@ -12,7 +12,7 @@ ci:
   pr:
     enabled: true
     mode: smoke
-    required: false
+    required: true
     always_run: false
     trigger_paths:
       - "skills/aws-case-design/**"
@@ -29,6 +29,12 @@ judge:
   prompt_ref: "eval/judge/case-generation-judge.md"
   temperature: 0.0
   confidence_threshold: 0.80
+
+judge_calibration:
+  judge_human_agreement: ">= 0.90"
+  judge_human_kappa: ">= 0.80"
+  critical_label_disagreement: "== 0"
+  invalid_judge_output_rate: "<= 0.01"
 
 thresholds:
   requirement_precision: ">= 0.85"

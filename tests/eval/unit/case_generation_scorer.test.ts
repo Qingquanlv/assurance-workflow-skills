@@ -123,7 +123,7 @@ describe('mock judge', () => {
     }
   });
 
-  it('returns mock_judge_label when EVAL_JUDGE_MOCK=true', () => {
+  it('returns mock_judge_label when EVAL_JUDGE_MOCK=true', async () => {
     process.env.EVAL_JUDGE_MOCK = 'true';
     const sample: DatasetSample = {
       id: 'CG-001',
@@ -134,11 +134,14 @@ describe('mock judge', () => {
       mock_judge_label: 'covered',
     };
 
-    const result = judge(sample, '/tmp', {
+    const result = await judge(sample, '/tmp', {
       model: 'gpt-4o',
       prompt_ref: 'test.md',
       temperature: 0.0,
       confidence_threshold: 0.8,
+    }, {
+      projectRoot: '/tmp',
+      targetModel: 'claude-sonnet'
     });
 
     expect(result.label).toBe('covered');
@@ -146,7 +149,7 @@ describe('mock judge', () => {
     expect(result.evidence_refs).toEqual(['CG-001']);
   });
 
-  it('throws for invalid mock_judge_label', () => {
+  it('throws for invalid mock_judge_label', async () => {
     process.env.EVAL_JUDGE_MOCK = 'true';
     const sample: DatasetSample = {
       id: 'CG-001',
@@ -157,17 +160,20 @@ describe('mock judge', () => {
       mock_judge_label: 'invalid' as any,
     };
 
-    expect(() =>
+    await expect(
       judge(sample, '/tmp', {
         model: 'gpt-4o',
         prompt_ref: 'test.md',
         temperature: 0.0,
         confidence_threshold: 0.8,
+      }, {
+        projectRoot: '/tmp',
+        targetModel: 'claude-sonnet'
       })
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  it('throws when EVAL_JUDGE_MOCK is not set', () => {
+  it('throws when EVAL_JUDGE_MOCK is not set', async () => {
     delete process.env.EVAL_JUDGE_MOCK;
     const sample: DatasetSample = {
       id: 'CG-001',
@@ -177,13 +183,16 @@ describe('mock judge', () => {
       expected: {},
     };
 
-    expect(() =>
+    await expect(
       judge(sample, '/tmp', {
         model: 'gpt-4o',
         prompt_ref: 'test.md',
         temperature: 0.0,
         confidence_threshold: 0.8,
+      }, {
+        projectRoot: '/tmp',
+        targetModel: 'claude-sonnet'
       })
-    ).toThrow('Real judge not implemented yet');
+    ).rejects.toThrow('EVAL_JUDGE_API_URL must be set');
   });
 });

@@ -11,7 +11,8 @@
 //   expected: {
 //     required_paths: string[],
 //     forbidden_cases: string[],
-//     required_atoms: Array<{ id: string; text: string }>
+//     required_atoms: Array<{ id: string; text: string }>,
+//     human_label?: 'covered' | 'partial' | 'missing' | 'hallucinated'
 //   }
 // }
 //
@@ -29,7 +30,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import type { DatasetSample, SampleScore } from '../types';
+import type { DatasetSample, SampleScore, JudgeOutput } from '../types';
 
 interface GeneratedCases {
   cases: Array<{
@@ -56,12 +57,25 @@ function loadCases(attemptDir: string): GeneratedCases | null {
   }
 }
 
+function loadJudgeResult(attemptDir: string): JudgeOutput | null {
+  const judgePath = path.join(attemptDir, 'judge-result.json');
+  if (!fs.existsSync(judgePath)) return null;
+  try {
+    const content = fs.readFileSync(judgePath, 'utf-8');
+    return JSON.parse(content) as JudgeOutput;
+  } catch {
+    return null;
+  }
+}
+
 export function score(sample: DatasetSample, attemptDir: string): SampleScore {
   const expected = sample.expected as {
     required_paths?: string[];
     forbidden_cases?: string[];
+    human_label?: 'covered' | 'partial' | 'missing' | 'hallucinated';
   };
   const cases = loadCases(attemptDir);
+  const judgeResult = loadJudgeResult(attemptDir);
 
   // If cases couldn't be loaded, schema_valid_rate is 0
   const schemaValid = cases !== null ? 1 : 0;
@@ -102,17 +116,44 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
     traceabilityRate = casesWithTraceability.length / cases.cases.length;
   }
 
+  // Calculate P/R/F1 from judge result and human label
+  let precision = 0;
+  let recall = 0;
+  let f1 = 0;
+  let status: 'ok' | 'inconclusive' = 'ok';
+
+  if (expected.human_label && judgeResult) {
+    // Check if needs human review
+    if (judgeResult.needs_human_review) {
+      status = 'inconclusive';
+    } else {
+      // Treat 'covered' as the positive class
+      const isHumanPositive = expected.human_label === 'covered';
+      const isJudgePositive = judgeResult.label === 'covered';
+
+      let tp = 0, fp = 0, fn = 0;
+      if (isHumanPositive && isJudgePositive) tp = 1;
+      else if (!isHumanPositive && isJudgePositive) fp = 1;
+      else if (isHumanPositive && !isJudgePositive) fn = 1;
+
+      // Per-sample metrics
+      precision = tp + fp > 0 ? tp / (tp + fp) : 1;
+      recall = tp + fn > 0 ? tp / (tp + fn) : 1;
+      f1 = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+    }
+  }
+
   return {
     sample_id: sample.id,
-    status: 'ok',
+    status,
     metrics: {
       schema_valid_rate: schemaValid,
       hallucination_rate: hallucinationRate,
       path_coverage_rate: pathCoverageRate,
       traceability_rate: traceabilityRate,
-      precision: 0, // placeholder for PR-5b
-      recall: 0, // placeholder for PR-5b
-      f1: 0, // placeholder for PR-5b
+      precision,
+      recall,
+      f1,
     },
   };
 }
