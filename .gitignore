@@ -7,3 +7,7 @@ coverage/
 **/.DS_Store
 docs/superpowers/
 .history
+# AI Eval Harness — generated run artifacts
+eval/runs/
+eval/batches/
+eval/reports/
