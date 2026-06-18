@@ -12,6 +12,7 @@ import type {
   DatasetSample,
   ExecutionResult,
 } from './types';
+import { requireRuntimeModule } from './module_resolver';
 
 // ── Template expansion ────────────────────────────────────────────────────────
 
@@ -95,16 +96,11 @@ async function runInProcess(
   const rawOutputDir = path.join(sampleDir, 'raw-output');
   fs.mkdirSync(rawOutputDir, { recursive: true });
 
-  const modulePath = path.isAbsolute(config.target_module)
-    ? config.target_module
-    : path.join(projectRoot, config.target_module);
-
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(modulePath);
+  const mod = requireRuntimeModule(projectRoot, config.target_module);
   const fn = mod[config.target_export];
   if (typeof fn !== 'function') {
     throw new Error(
-      `Export '${config.target_export}' not found or not a function in ${modulePath}`
+      `Export '${config.target_export}' not found or not a function in ${config.target_module}`
     );
   }
 

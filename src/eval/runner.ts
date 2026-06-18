@@ -20,6 +20,10 @@ import { computeGateResult } from './gate';
 import { BatchBuilder, BatchGate, BatchReporter } from './batch';
 import { generateRunReport } from './report';
 import { loadSuite, readPlan } from './plan';
+import {
+  resolveScorerModule,
+  resolveScorerModuleRef,
+} from './module_resolver';
 
 export interface RunOptions {
   suiteName?: string;
@@ -146,15 +150,11 @@ async function runScorer(
   attemptDir: string,
   projectRoot: string
 ): Promise<SampleScore> {
-  const scorerPath = path.join(
-    projectRoot,
-    'src',
-    'eval',
-    'scorers',
-    `${suite.name.replace(/-/g, '_')}.ts`
-  );
-
-  if (!fs.existsSync(scorerPath) && !fs.existsSync(scorerPath.replace('.ts', '.js'))) {
+  const scorerRef = resolveScorerModuleRef(suite.name);
+  let scorerPath: string;
+  try {
+    scorerPath = resolveScorerModule(projectRoot, suite.name);
+  } catch {
     // Only _test suite may run without a scorer; real suites fail-closed
     if (suite.name === '_test') {
       return {
@@ -164,13 +164,13 @@ async function runScorer(
       };
     }
     throw new Error(
-      `No scorer found for suite '${suite.name}' at ${scorerPath} (fail-closed)`
+      `No scorer found for suite '${suite.name}' at ${scorerRef} (fail-closed)`
     );
   }
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const scorerMod = require(scorerPath.replace('.ts', ''));
+    const scorerMod = require(scorerPath);
     if (typeof scorerMod.score !== 'function') {
       throw new Error(`Scorer at ${scorerPath} must export a 'score' function`);
     }
