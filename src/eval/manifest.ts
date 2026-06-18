@@ -213,11 +213,18 @@ export function buildManifest(input: ManifestBuildInput): RunManifest {
   return manifest;
 }
 
-export function finalizeManifest(runDir: string, executedSamples: number): void {
+export function finalizeManifest(
+  runDir: string,
+  executedSamples: number,
+  executedAttempts?: number
+): void {
   const manifestPath = path.join(runDir, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as RunManifest;
   manifest.completed_at = new Date().toISOString();
   manifest.executed_samples = executedSamples;
+  if (executedAttempts !== undefined) {
+    manifest.executed_attempts = executedAttempts;
+  }
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
 

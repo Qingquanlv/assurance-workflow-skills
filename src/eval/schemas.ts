@@ -133,6 +133,7 @@ export const RunManifestSchema = z.object({
   completed_at: z.string().datetime().optional(),
   total_samples: z.number().nonnegative(),
   executed_samples: z.number().nonnegative(),
+  executed_attempts: z.number().nonnegative().optional(),
 });
 
 export const BatchManifestSchema = z.object({

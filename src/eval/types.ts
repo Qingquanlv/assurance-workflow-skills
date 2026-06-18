@@ -118,6 +118,7 @@ export interface RunManifest {
   completed_at?: string;
   total_samples: number;
   executed_samples: number;
+  executed_attempts?: number;
 }
 
 export interface BatchManifest {

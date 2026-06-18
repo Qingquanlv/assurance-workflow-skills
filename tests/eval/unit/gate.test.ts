@@ -47,7 +47,7 @@ function writeManifest(runDir: string, runId: string): void {
       dataset_version: '1.0',
       dataset_hash: 'h',
       dataset_root_hash: 'h',
-      selected_sample_ids: [],
+      selected_sample_ids: ['TEST-001'],
       skill_content_hashes: {},
       fixture_hashes: {},
       prompt_hashes: {},
@@ -98,6 +98,7 @@ describe('computeGateResult', () => {
     const result = computeGateResult(
       makeSuite(),
       makeMetrics({
+        sample_count: 1,
         metrics: { macro_f1: 0.99, false_product_attribution_rate: 0.20 },
       }),
       runId,
@@ -108,6 +109,12 @@ describe('computeGateResult', () => {
   });
 
   it('any sample error_count > 0 → fail (sample_execution_error)', () => {
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.selected_sample_ids = Array.from({ length: 10 }, (_, i) => `T-${i}`);
+    manifest.total_samples = 10;
+    manifest.executed_samples = 10;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     const result = computeGateResult(
       makeSuite(),
       makeMetrics({ error_count: 1, sample_count: 10, run_id: runId }),
@@ -119,6 +126,12 @@ describe('computeGateResult', () => {
   });
 
   it('inconclusive rate above threshold → inconclusive', () => {
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.selected_sample_ids = Array.from({ length: 10 }, (_, i) => `T-${i}`);
+    manifest.total_samples = 10;
+    manifest.executed_samples = 10;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     const result = computeGateResult(
       makeSuite(),
       makeMetrics({ inconclusive_count: 3, sample_count: 10, run_id: runId }),
@@ -133,6 +146,7 @@ describe('computeGateResult', () => {
       makeSuite({ hard_gates: ['evidence_integrity'] }),
       makeMetrics({
         run_id: runId,
+        sample_count: 1,
         metrics: { macro_f1: 0.50, false_product_attribution_rate: 0.01 },
       }),
       runId,
@@ -140,5 +154,51 @@ describe('computeGateResult', () => {
     );
     expect(result.verdict).toBe('pass_with_warnings');
     expect(result.threshold_failures).toContain('macro_f1');
+  });
+
+  it('run_id mismatch with directory → evidence_integrity fail', () => {
+    writeManifest(runDir, 'different-run-id');
+    const result = computeGateResult(
+      makeSuite(),
+      makeMetrics({ run_id: runId, sample_count: 1 }),
+      runId,
+      runDir
+    );
+    expect(result.verdict).toBe('fail');
+    expect(result.hard_gate_failures).toContain('evidence_integrity');
+  });
+
+  it('executed_samples < total_samples → evidence_integrity fail', () => {
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.executed_samples = 1;
+    manifest.total_samples = 3;
+    manifest.selected_sample_ids = ['A', 'B', 'C'];
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const result = computeGateResult(
+      makeSuite(),
+      makeMetrics({ run_id: runId, sample_count: 3 }),
+      runId,
+      runDir
+    );
+    expect(result.verdict).toBe('fail');
+    expect(result.hard_gate_failures).toContain('evidence_integrity');
+  });
+
+  it('sample_count mismatch with selected_sample_ids → evidence_integrity fail', () => {
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.selected_sample_ids = ['A', 'B'];
+    manifest.total_samples = 2;
+    manifest.executed_samples = 2;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const result = computeGateResult(
+      makeSuite(),
+      makeMetrics({ run_id: runId, sample_count: 1 }),
+      runId,
+      runDir
+    );
+    expect(result.verdict).toBe('fail');
+    expect(result.hard_gate_failures).toContain('evidence_integrity');
   });
 });

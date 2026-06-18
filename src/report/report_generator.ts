@@ -25,6 +25,7 @@ import {
   RiskLevel,
 } from '../core/types';
 import { computeQualityScore, ScoreDimension, ScoreDimensionKey } from './quality_score';
+import { loadExecutionArtifacts } from './execution_artifacts';
 
 export interface GenerateReportOptions {
   changeId: string;
@@ -45,9 +46,10 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
   const inspectDir = path.join(changeBase, 'inspect');
   const reportDir = path.join(changeBase, 'report');
 
-  const apiResult = loadJson<ApiResult>(path.join(executionDir, 'api-result.json'));
-  const e2eResult = loadJson<E2eResult>(path.join(executionDir, 'e2e-result.json'));
-  const coverageResult = loadJson<CoverageResult>(path.join(executionDir, 'coverage-result.json'));
+  const artifacts = loadExecutionArtifacts(executionDir);
+  const apiResult = artifacts.apiResult;
+  const e2eResult = artifacts.e2eResult;
+  const coverageResult = artifacts.coverageResult;
   const analysis = loadJson<FailureAnalysis>(path.join(inspectDir, 'failure-analysis.json'));
   const gate = loadJson<QualityGateResult>(path.join(inspectDir, 'quality-gate-result.json'));
 
@@ -57,7 +59,7 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
     );
   }
 
-  const batchId = gate.batch_id || apiResult?.batch_id || e2eResult?.batch_id || '';
+  const batchId = gate.batch_id || artifacts.batchId;
   const finalStatus = gate.final_status;
 
   // ── Dimensions for scoring ────────────────────────────────────────────────
@@ -225,23 +227,26 @@ interface Scope {
   requirements: string[];
 }
 
-/** Best-effort scope scan: counts case.yaml files under the change and gathers requirement_id values. */
+/** Count distinct case_id entries under qa/changes/<id>/cases/ (not just file count). */
 function scanScope(changeBase: string): Scope {
   const casesDir = path.join(changeBase, 'cases');
   const files: string[] = [];
   collectCaseFiles(casesDir, files);
+  const caseIds = new Set<string>();
   const requirements = new Set<string>();
+  const caseIdRe = /^\s*case_id\s*:\s*["']?([A-Za-z0-9_-]+)/gm;
   const reqRe = /requirement_id\s*:\s*["']?([A-Za-z0-9_-]+)/g;
   for (const file of files) {
     try {
       const content = fs.readFileSync(file, 'utf-8');
       let m: RegExpExecArray | null;
+      while ((m = caseIdRe.exec(content)) !== null) caseIds.add(m[1]);
       while ((m = reqRe.exec(content)) !== null) requirements.add(m[1]);
     } catch {
       /* ignore unreadable file */
     }
   }
-  return { cases: files.length, requirements: [...requirements].sort() };
+  return { cases: caseIds.size, requirements: [...requirements].sort() };
 }
 
 function collectCaseFiles(dir: string, out: string[]): void {

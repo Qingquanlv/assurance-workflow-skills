@@ -82,7 +82,7 @@ export async function runSuite(opts: {
     runDir,
   });
 
-  let executedCount = 0;
+  let executedAttempts = 0;
   const repeatCount = opts.repeat ?? suite.repeat ?? 1;
 
   // Execute each sample × attempt
@@ -123,12 +123,12 @@ export async function runSuite(opts: {
         );
       }
 
-      executedCount++;
+      executedAttempts++;
     }
   }
 
-  // Finalize manifest
-  finalizeManifest(runDir, executedCount);
+  // Finalize manifest: executed_samples = unique samples, not attempt count
+  finalizeManifest(runDir, samples.length, executedAttempts);
 
   // Aggregate metrics
   aggregateScores(runDir, suite.name, runId);

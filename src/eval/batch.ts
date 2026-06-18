@@ -13,7 +13,6 @@ import type {
   SuiteRunEntry,
 } from './types';
 import { BatchManifestSchema, BatchGateResultSchema } from './schemas';
-import { readGateResult } from './gate';
 
 function sha256(data: string): string {
   return 'sha256:' + crypto.createHash('sha256').update(data).digest('hex');
@@ -142,6 +141,21 @@ export class BatchGate {
       throw new Error(`suite-runs/ not found in batch: ${batchDir}`);
     }
 
+    const integrityFailures = validateBatchIntegrity(batchDir, runsDir);
+    if (integrityFailures.length > 0) {
+      const result: BatchGateResult = {
+        batch_id: batchId,
+        verdict: 'fail',
+        suite_results: {},
+        hard_gate_failures: ['evidence_integrity', ...integrityFailures],
+      };
+      fs.writeFileSync(
+        path.join(batchDir, 'batch-gate-result.json'),
+        JSON.stringify(result, null, 2)
+      );
+      return result;
+    }
+
     const entries = fs
       .readdirSync(suiteRunsDir)
       .filter((f) => f.endsWith('.json'));
@@ -221,6 +235,68 @@ function readPlanEvent(batchDir: string): EvalPlan['event'] | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Cross-check batch-manifest.json, suite-runs/*.json, and run directories. */
+export function validateBatchIntegrity(
+  batchDir: string,
+  runsDir: string
+): string[] {
+  const failures: string[] = [];
+  const manifestPath = path.join(batchDir, 'batch-manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return ['batch_manifest_missing'];
+  }
+
+  const manifest = JSON.parse(
+    fs.readFileSync(manifestPath, 'utf-8')
+  ) as BatchManifest;
+  if (manifest.batch_id !== path.basename(batchDir)) {
+    failures.push('batch_id_directory_mismatch');
+  }
+
+  const suiteRunsDir = path.join(batchDir, 'suite-runs');
+  if (!fs.existsSync(suiteRunsDir)) {
+    return [...failures, 'suite_runs_missing'];
+  }
+
+  const entryFiles = fs
+    .readdirSync(suiteRunsDir)
+    .filter((f) => f.endsWith('.json'));
+
+  for (const [suiteName, runId] of Object.entries(manifest.suite_runs)) {
+    const entryPath = path.join(suiteRunsDir, `${suiteName}.json`);
+    if (!fs.existsSync(entryPath)) {
+      failures.push(`suite_run_file_missing:${suiteName}`);
+      continue;
+    }
+    const entry = JSON.parse(
+      fs.readFileSync(entryPath, 'utf-8')
+    ) as SuiteRunEntry;
+    if (entry.run_id !== runId) {
+      failures.push(`suite_run_id_mismatch:${suiteName}`);
+    }
+    const runDir = path.join(runsDir, runId);
+    if (!fs.existsSync(runDir)) {
+      failures.push(`run_dir_missing:${suiteName}`);
+      continue;
+    }
+    if (!fs.existsSync(path.join(runDir, 'gate-result.json'))) {
+      failures.push(`gate_result_missing:${suiteName}`);
+    }
+    if (!fs.existsSync(path.join(runDir, 'manifest.json'))) {
+      failures.push(`run_manifest_missing:${suiteName}`);
+    }
+  }
+
+  for (const entryFile of entryFiles) {
+    const suiteName = path.basename(entryFile, '.json');
+    if (!(suiteName in manifest.suite_runs)) {
+      failures.push(`orphan_suite_run:${suiteName}`);
+    }
+  }
+
+  return failures;
 }
 
 /** Exported for unit tests. */

@@ -53,6 +53,15 @@ export function computeGateResult(
   if (manifest.run_id !== path.basename(runDir)) {
     hardGateFailures.push('evidence_integrity');
   }
+  if (manifest.executed_samples !== manifest.total_samples) {
+    hardGateFailures.push('evidence_integrity');
+  }
+  if (metrics.run_id !== manifest.run_id) {
+    hardGateFailures.push('evidence_integrity');
+  }
+  if (metrics.sample_count !== manifest.selected_sample_ids.length) {
+    hardGateFailures.push('evidence_integrity');
+  }
 
   // Check hard gates and thresholds
   for (const [metric, expr] of Object.entries(suite.thresholds)) {

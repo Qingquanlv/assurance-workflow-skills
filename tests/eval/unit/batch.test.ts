@@ -1,4 +1,7 @@
-import { computeBatchVerdict } from '../../../src/eval/batch';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { computeBatchVerdict, validateBatchIntegrity } from '../../../src/eval/batch';
 import type { SuiteRunEntry } from '../../../src/eval/types';
 
 function entry(
@@ -50,5 +53,66 @@ describe('computeBatchVerdict', () => {
       '_test': entry('pass', true),
     });
     expect(verdict).toBe('pass');
+  });
+});
+
+describe('validateBatchIntegrity', () => {
+  let tmpBase: string;
+  let batchDir: string;
+  let runsDir: string;
+
+  beforeEach(() => {
+    tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'eval-batch-int-'));
+    runsDir = path.join(tmpBase, 'runs');
+    batchDir = path.join(tmpBase, 'batches', 'batch-test-001');
+    fs.mkdirSync(path.join(batchDir, 'suite-runs'), { recursive: true });
+    fs.mkdirSync(runsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(batchDir, 'batch-manifest.json'),
+      JSON.stringify({
+        batch_id: 'batch-test-001',
+        git_sha: 'abc',
+        plan_hash: 'h',
+        suite_runs: { _test: 'eval-run-001' },
+        started_at: new Date().toISOString(),
+      })
+    );
+    fs.writeFileSync(
+      path.join(batchDir, 'suite-runs', '_test.json'),
+      JSON.stringify({ run_id: 'eval-run-001', verdict: 'pass', required: true })
+    );
+    const runDir = path.join(runsDir, 'eval-run-001');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'gate-result.json'), '{}');
+    fs.writeFileSync(path.join(runDir, 'manifest.json'), '{}');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it('passes when manifest, suite-runs, and run dirs align', () => {
+    expect(validateBatchIntegrity(batchDir, runsDir)).toEqual([]);
+  });
+
+  it('detects suite_run_id mismatch', () => {
+    fs.writeFileSync(
+      path.join(batchDir, 'batch-manifest.json'),
+      JSON.stringify({
+        batch_id: 'batch-test-001',
+        git_sha: 'abc',
+        plan_hash: 'h',
+        suite_runs: { _test: 'eval-run-other' },
+        started_at: new Date().toISOString(),
+      })
+    );
+    const failures = validateBatchIntegrity(batchDir, runsDir);
+    expect(failures).toContain('suite_run_id_mismatch:_test');
+  });
+
+  it('detects missing run directory', () => {
+    fs.rmSync(path.join(runsDir, 'eval-run-001'), { recursive: true, force: true });
+    const failures = validateBatchIntegrity(batchDir, runsDir);
+    expect(failures).toContain('run_dir_missing:_test');
   });
 });
