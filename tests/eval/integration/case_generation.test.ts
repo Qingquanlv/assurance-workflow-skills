@@ -30,14 +30,15 @@ describe('case-generation integration (PR-5a)', () => {
       '# Judge prompt'
     );
 
-    // Write suite yaml with in_process executor using fake_case_design
+    // Write suite yaml with subprocess executor
     const suiteYaml: EvalSuite = {
       name: 'case-generation',
       version: '1.0.0',
       executor: {
-        type: 'in_process',
-        target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'generateCases',
+        type: 'subprocess',
+        command: 'node ' + path.join(projectRoot, 'scripts/fake-case-design-eval.mjs') + ' --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}',
+        timeout_seconds: 30,
+        expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: {
         pr: {
@@ -63,9 +64,11 @@ describe('case-generation integration (PR-5a)', () => {
         'name: case-generation',
         'version: "1.0.0"',
         'executor:',
-        '  type: in_process',
-        '  target_module: src/eval/_test/fake_case_design',
-        '  target_export: generateCases',
+        '  type: subprocess',
+        `  command: node ${path.join(projectRoot, 'scripts/fake-case-design-eval.mjs')} --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}`,
+        '  timeout_seconds: 30',
+        '  expected_outputs:',
+        '    - raw-output/cases.yaml',
         'ci:',
         '  pr:',
         '    enabled: true',
@@ -89,7 +92,10 @@ describe('case-generation integration (PR-5a)', () => {
         annotation_source: 'human' as const,
         tags: ['case-generation', 'menu'],
         prd_ref: 'CG-001.prd.md',
-        input: { change_id: 'CG-001' },
+        input: {
+          change_id: 'CG-001',
+          dataset_dir: path.join(evalRoot, 'datasets', 'case-generation'),
+        },
         mock_judge_label: 'covered' as const,
         expected: {
           human_label: 'covered' as const,
@@ -113,6 +119,7 @@ describe('case-generation integration (PR-5a)', () => {
           `prd_ref: ${sample.prd_ref}`,
           'input:',
           `  change_id: ${sample.input.change_id}`,
+          `  dataset_dir: ${sample.input.dataset_dir}`,
           `mock_judge_label: ${sample.mock_judge_label}`,
           'expected:',
           `  human_label: ${sample.expected.human_label}`,
@@ -161,9 +168,9 @@ describe('case-generation integration (PR-5a)', () => {
         name: 'case-generation',
         version: '1.0.0',
         executor: {
-          type: 'in_process',
-          target_module: 'src/eval/_test/fake_case_design',
-          target_export: 'generateCases',
+          type: 'subprocess',
+          command: 'node ' + path.join(projectRoot, 'scripts/fake-case-design-eval.mjs') + ' --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}',
+          timeout_seconds: 30,
           expected_outputs: ['raw-output/cases.yaml'],
         },
         ci: { pr: { enabled: true, mode: 'smoke', required: false } },

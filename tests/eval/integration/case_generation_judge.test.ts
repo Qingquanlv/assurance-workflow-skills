@@ -49,7 +49,10 @@ describe('case generation judge integration', () => {
     const sample = {
       id: 'test-001',
       annotation_source: 'human' as const,
-      input: { prd_ref: 'test-prd.md' },
+      input: {
+        prd_ref: 'test-prd.md',
+        dataset_dir: path.join(evalRoot, 'datasets', 'case-generation'),
+      },
       expected: {
         human_label: 'covered' as const,
         required_paths: ['src/test.ts'],
@@ -73,9 +76,9 @@ describe('case generation judge integration', () => {
       name: 'case-generation',
       version: '1.0.0',
       executor: {
-        type: 'in_process' as const,
-        target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'generateCases',
+        type: 'subprocess' as const,
+        command: 'node ' + path.join(projectRoot, 'scripts/fake-case-design-eval.mjs') + ' --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}',
+        timeout_seconds: 30,
         expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
@@ -134,7 +137,10 @@ describe('case generation judge integration', () => {
     const sample = {
       id: 'test-002',
       annotation_source: 'human' as const,
-      input: { prd_ref: 'test-prd.md' },
+      input: {
+        prd_ref: 'test-prd.md',
+        dataset_dir: path.join(evalRoot, 'datasets', 'case-generation'),
+      },
       expected: {
         human_label: 'partial' as const,
         required_paths: [],
@@ -157,9 +163,9 @@ describe('case generation judge integration', () => {
       name: 'case-generation',
       version: '1.0.0',
       executor: {
-        type: 'in_process' as const,
-        target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'generateCases',
+        type: 'subprocess' as const,
+        command: 'node ' + path.join(projectRoot, 'scripts/fake-case-design-eval.mjs') + ' --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}',
+        timeout_seconds: 30,
         expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
@@ -206,7 +212,10 @@ describe('case generation judge integration', () => {
       {
         id: 'CAL-001',
         annotation_source: 'human' as const,
-        input: { prd_ref: 'cal-prd.md' },
+        input: {
+          prd_ref: 'cal-prd.md',
+          dataset_dir: path.join(evalRoot, 'datasets', 'case-generation'),
+        },
         expected: {
           human_label: 'covered' as const,
           required_paths: [],
@@ -232,7 +241,10 @@ describe('case generation judge integration', () => {
     const sample = {
       id: 'test-003',
       annotation_source: 'human' as const,
-      input: { prd_ref: 'test-prd.md' },
+      input: {
+        prd_ref: 'test-prd.md',
+        dataset_dir: path.join(evalRoot, 'datasets', 'case-generation'),
+      },
       expected: {
         human_label: 'covered' as const,
         required_paths: [],
@@ -255,9 +267,9 @@ describe('case generation judge integration', () => {
       name: 'case-generation',
       version: '1.0.0',
       executor: {
-        type: 'in_process' as const,
-        target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'generateCases',
+        type: 'subprocess' as const,
+        command: 'node ' + path.join(projectRoot, 'scripts/fake-case-design-eval.mjs') + ' --dataset-dir {{sample.input.dataset_dir}} --sample-id {{sample.id}}',
+        timeout_seconds: 30,
         expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
