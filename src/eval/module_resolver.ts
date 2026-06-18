@@ -7,25 +7,59 @@ function stripExtension(moduleRef: string): string {
   return moduleRef.replace(/\.(ts|js)$/, '');
 }
 
-function buildCandidates(projectRoot: string, moduleRef: string): string[] {
+/** True when the current process is running from compiled dist/ output. */
+export function isCompiledRuntime(): boolean {
+  return __filename.includes(`${path.sep}dist${path.sep}`);
+}
+
+/**
+ * Build candidate paths for a module reference.
+ * compiled runtime: dist/*.js first (npm bin runs dist/cli.js)
+ * dev runtime: src/*.ts first (ts-node / direct dev)
+ */
+export function buildCandidates(
+  projectRoot: string,
+  moduleRef: string,
+  compiled = isCompiledRuntime()
+): string[] {
   const rel = stripExtension(moduleRef);
 
-  const candidates = [
-    path.join(projectRoot, rel),
-    path.join(projectRoot, `${rel}.ts`),
-    path.join(projectRoot, `${rel}.js`),
-  ];
-
-  // compiled dist mapping: src/eval/x -> dist/eval/x.js
   if (rel.startsWith('src/')) {
     const distRel = rel.slice('src/'.length);
-    candidates.push(
+    const distCandidates = [
       path.join(projectRoot, 'dist', `${distRel}.js`),
-      path.join(projectRoot, 'dist', distRel)
-    );
+      path.join(projectRoot, 'dist', distRel),
+    ];
+    const srcCandidates = [
+      path.join(projectRoot, rel),
+      path.join(projectRoot, `${rel}.ts`),
+      path.join(projectRoot, `${rel}.js`),
+    ];
+
+    return compiled
+      ? [...distCandidates, ...srcCandidates]
+      : [...srcCandidates, ...distCandidates];
   }
 
-  return candidates;
+  const base = [
+    path.join(projectRoot, rel),
+    path.join(projectRoot, `${rel}.js`),
+    path.join(projectRoot, `${rel}.ts`),
+  ];
+
+  return compiled
+    ? [
+        path.join(projectRoot, `${rel}.js`),
+        path.join(projectRoot, rel),
+        path.join(projectRoot, `${rel}.ts`),
+      ]
+    : base;
+}
+
+function buildAbsoluteCandidates(moduleRef: string, compiled: boolean): string[] {
+  const base = [moduleRef, `${moduleRef}.ts`, `${moduleRef}.js`];
+  if (!compiled) return base;
+  return [moduleRef, `${moduleRef}.js`, `${moduleRef}.ts`];
 }
 
 /**
@@ -33,13 +67,10 @@ function buildCandidates(projectRoot: string, moduleRef: string): string[] {
  * Works in both ts-node/dev (src/*.ts) and compiled npm bin (dist/*.js).
  */
 export function resolveRuntimeModule(projectRoot: string, moduleRef: string): string {
+  const compiled = isCompiledRuntime();
   const candidates = path.isAbsolute(moduleRef)
-    ? [
-        moduleRef,
-        `${moduleRef}.ts`,
-        `${moduleRef}.js`,
-      ]
-    : buildCandidates(projectRoot, moduleRef);
+    ? buildAbsoluteCandidates(moduleRef, compiled)
+    : buildCandidates(projectRoot, moduleRef, compiled);
 
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) {
