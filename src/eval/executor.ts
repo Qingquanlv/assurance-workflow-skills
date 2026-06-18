@@ -104,16 +104,33 @@ async function runInProcess(
     );
   }
 
-  const result = await Promise.resolve(fn(sample));
+  const result = await Promise.resolve(fn(sample, sampleDir));
 
-  if (result === null || result === undefined || result === '') {
-    throw new Error('in_process executor returned empty response (fail-closed)');
+  // If there are expected_outputs, skip writing prediction.json (the executor should write the files)
+  if (!config.expected_outputs) {
+    if (result === null || result === undefined || result === '') {
+      throw new Error('in_process executor returned empty response (fail-closed)');
+    }
+
+    fs.writeFileSync(
+      path.join(rawOutputDir, 'prediction.json'),
+      JSON.stringify(result, null, 2)
+    );
+  } else {
+    // Verify expected outputs exist
+    for (const expectedOutput of config.expected_outputs) {
+      const outputPath = path.join(sampleDir, expectedOutput);
+      if (!fs.existsSync(outputPath)) {
+        throw new Error(
+          `Expected output not found: ${outputPath} (in_process executor produced no artifact)`
+        );
+      }
+      // Copy expected output to raw-output preserving relative path structure
+      const destPath = path.join(rawOutputDir, expectedOutput);
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.copyFileSync(outputPath, destPath);
+    }
   }
-
-  fs.writeFileSync(
-    path.join(rawOutputDir, 'prediction.json'),
-    JSON.stringify(result, null, 2)
-  );
 }
 
 // ── subprocess executor ────────────────────────────────────────────────────────

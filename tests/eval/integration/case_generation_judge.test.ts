@@ -2,39 +2,53 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { jest } from '@jest/globals';
 import { runSuite } from '../../../src/eval/runner';
 
-describe.skip('case generation judge integration', () => {
+describe('case generation judge integration', () => {
   let tempDir: string;
-  let projectRoot: string;
   let evalRoot: string;
+  let originalEvalJudgeMock: string | undefined;
+  let originalEvalTargetModel: string | undefined;
+  const projectRoot = process.cwd();
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'case-gen-judge-'));
-    projectRoot = tempDir;
-    evalRoot = path.join(projectRoot, 'eval');
+    evalRoot = path.join(tempDir, 'eval');
 
     // Create directory structure
     fs.mkdirSync(path.join(evalRoot, 'suites'), { recursive: true });
-    fs.mkdirSync(path.join(evalRoot, 'datasets', 'case-gen-test'), { recursive: true });
-    fs.mkdirSync(path.join(evalRoot, 'datasets', 'case-gen-test', 'calibration'), { recursive: true });
+    fs.mkdirSync(path.join(evalRoot, 'datasets', 'case-generation'), { recursive: true });
+    fs.mkdirSync(path.join(evalRoot, 'datasets', 'case-generation', 'calibration'), { recursive: true });
     fs.mkdirSync(path.join(evalRoot, 'judge'), { recursive: true });
 
     // Set mock mode
+    originalEvalJudgeMock = process.env.EVAL_JUDGE_MOCK;
     process.env.EVAL_JUDGE_MOCK = 'true';
+
+    // Set EVAL_TARGET_MODEL to something different from judge model
+    originalEvalTargetModel = process.env.EVAL_TARGET_MODEL;
+    process.env.EVAL_TARGET_MODEL = 'claude-sonnet-4-6';
   });
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.EVAL_JUDGE_MOCK;
+    if (originalEvalJudgeMock !== undefined) {
+      process.env.EVAL_JUDGE_MOCK = originalEvalJudgeMock;
+    } else {
+      delete process.env.EVAL_JUDGE_MOCK;
+    }
+    if (originalEvalTargetModel !== undefined) {
+      process.env.EVAL_TARGET_MODEL = originalEvalTargetModel;
+    } else {
+      delete process.env.EVAL_TARGET_MODEL;
+    }
   });
 
   it('writes judge-result.json and calculates P/R/F1 metrics', async () => {
     // Create dataset sample with human label
     const sample = {
       id: 'test-001',
-      annotation_source: 'synthetic' as const,
+      annotation_source: 'human' as const,
       input: { prd_ref: 'test-prd.md' },
       expected: {
         human_label: 'covered' as const,
@@ -46,21 +60,26 @@ describe.skip('case generation judge integration', () => {
     };
 
     fs.writeFileSync(
-      path.join(evalRoot, 'datasets', 'case-gen-test', 'test-001.yaml'),
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-001.yaml'),
       require('js-yaml').dump(sample)
+    );
+    fs.writeFileSync(
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-prd.md'),
+      '# Test PRD\n'
     );
 
     // Create suite
     const suite = {
-      name: 'case-gen-test',
+      name: 'case-generation',
       version: '1.0.0',
       executor: {
         type: 'in_process' as const,
         target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'fakeCaseDesign',
+        target_export: 'generateCases',
+        expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
-      dataset: 'case-gen-test',
+      dataset: 'case-generation',
       thresholds: {},
       hard_gates: [],
       judge: {
@@ -71,8 +90,9 @@ describe.skip('case generation judge integration', () => {
       },
     };
 
+    const suiteFilePath = path.join(evalRoot, 'suites', 'case-generation.yaml');
     fs.writeFileSync(
-      path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       require('js-yaml').dump(suite)
     );
 
@@ -82,7 +102,7 @@ describe.skip('case generation judge integration', () => {
     // Run suite
     const result = await runSuite({
       suite,
-      suiteFilePath: path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       evalRoot,
       projectRoot,
     });
@@ -103,9 +123,9 @@ describe.skip('case generation judge integration', () => {
     expect(fs.existsSync(scorePath)).toBe(true);
 
     const score = JSON.parse(fs.readFileSync(scorePath, 'utf-8'));
-    expect(score.metrics.precision).toBeDefined();
-    expect(score.metrics.recall).toBeDefined();
-    expect(score.metrics.f1).toBeDefined();
+    expect(score.metrics.precision).toBe(1);
+    expect(score.metrics.recall).toBe(1);
+    expect(score.metrics.f1).toBe(1);
   });
 
   it('marks sample as inconclusive when judge needs human review', async () => {
@@ -113,7 +133,7 @@ describe.skip('case generation judge integration', () => {
     // For our test, we'll create a sample and verify the infrastructure
     const sample = {
       id: 'test-002',
-      annotation_source: 'synthetic' as const,
+      annotation_source: 'human' as const,
       input: { prd_ref: 'test-prd.md' },
       expected: {
         human_label: 'partial' as const,
@@ -125,20 +145,25 @@ describe.skip('case generation judge integration', () => {
     };
 
     fs.writeFileSync(
-      path.join(evalRoot, 'datasets', 'case-gen-test', 'test-002.yaml'),
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-002.yaml'),
       require('js-yaml').dump(sample)
+    );
+    fs.writeFileSync(
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-prd.md'),
+      '# Test PRD\n'
     );
 
     const suite = {
-      name: 'case-gen-test',
+      name: 'case-generation',
       version: '1.0.0',
       executor: {
         type: 'in_process' as const,
         target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'fakeCaseDesign',
+        target_export: 'generateCases',
+        expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
-      dataset: 'case-gen-test',
+      dataset: 'case-generation',
       thresholds: {},
       hard_gates: [],
       judge: {
@@ -149,8 +174,9 @@ describe.skip('case generation judge integration', () => {
       },
     };
 
+    const suiteFilePath = path.join(evalRoot, 'suites', 'case-generation.yaml');
     fs.writeFileSync(
-      path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       require('js-yaml').dump(suite)
     );
 
@@ -158,12 +184,20 @@ describe.skip('case generation judge integration', () => {
 
     const result = await runSuite({
       suite,
-      suiteFilePath: path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       evalRoot,
       projectRoot,
     });
 
     expect(result.runId).toBeDefined();
+
+    // Check that judge-result.json was written
+    const runDir = path.join(evalRoot, 'runs', result.runId);
+    const sampleDir = path.join(runDir, 'samples', 'test-002');
+    const attemptDir = path.join(sampleDir, 'attempt-0');
+    const judgePath = path.join(attemptDir, 'judge-result.json');
+
+    expect(fs.existsSync(judgePath)).toBe(true);
   });
 
   it('runs calibration when --calibrate flag is set', async () => {
@@ -171,7 +205,7 @@ describe.skip('case generation judge integration', () => {
     const calSamples = [
       {
         id: 'CAL-001',
-        annotation_source: 'synthetic' as const,
+        annotation_source: 'human' as const,
         input: { prd_ref: 'cal-prd.md' },
         expected: {
           human_label: 'covered' as const,
@@ -185,15 +219,19 @@ describe.skip('case generation judge integration', () => {
 
     calSamples.forEach((s, idx) => {
       fs.writeFileSync(
-        path.join(evalRoot, 'datasets', 'case-gen-test', 'calibration', `CAL-00${idx + 1}.yaml`),
+        path.join(evalRoot, 'datasets', 'case-generation', 'calibration', `CAL-00${idx + 1}.yaml`),
         require('js-yaml').dump(s)
       );
     });
+    fs.writeFileSync(
+      path.join(evalRoot, 'datasets', 'case-generation', 'calibration', 'cal-prd.md'),
+      '# Calibration PRD\n'
+    );
 
     // Create regular sample
     const sample = {
       id: 'test-003',
-      annotation_source: 'synthetic' as const,
+      annotation_source: 'human' as const,
       input: { prd_ref: 'test-prd.md' },
       expected: {
         human_label: 'covered' as const,
@@ -205,20 +243,25 @@ describe.skip('case generation judge integration', () => {
     };
 
     fs.writeFileSync(
-      path.join(evalRoot, 'datasets', 'case-gen-test', 'test-003.yaml'),
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-003.yaml'),
       require('js-yaml').dump(sample)
+    );
+    fs.writeFileSync(
+      path.join(evalRoot, 'datasets', 'case-generation', 'test-prd.md'),
+      '# Test PRD\n'
     );
 
     const suite = {
-      name: 'case-gen-test',
+      name: 'case-generation',
       version: '1.0.0',
       executor: {
         type: 'in_process' as const,
         target_module: 'src/eval/_test/fake_case_design',
-        target_export: 'fakeCaseDesign',
+        target_export: 'generateCases',
+        expected_outputs: ['raw-output/cases.yaml'],
       },
       ci: { pr: { enabled: true, mode: 'smoke' as const, required: false } },
-      dataset: 'case-gen-test',
+      dataset: 'case-generation',
       thresholds: {},
       hard_gates: [],
       judge: {
@@ -235,16 +278,15 @@ describe.skip('case generation judge integration', () => {
       },
     };
 
+    const suiteFilePath = path.join(evalRoot, 'suites', 'case-generation.yaml');
     fs.writeFileSync(
-      path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       require('js-yaml').dump(suite)
     );
 
-    fs.writeFileSync(path.join(evalRoot, 'judge', 'test.md'), '# Judge Prompt\n');
-
     const result = await runSuite({
       suite,
-      suiteFilePath: path.join(evalRoot, 'suites', 'case-gen-test.yaml'),
+      suiteFilePath,
       evalRoot,
       projectRoot,
       calibrate: true,

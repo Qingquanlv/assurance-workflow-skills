@@ -4,88 +4,27 @@ import * as path from 'path';
 import { runSuite } from '../../../src/eval/runner';
 import type { EvalSuite } from '../../../src/eval/types';
 
-describe.skip('case-generation integration (PR-5a)', () => {
+describe('case-generation integration (PR-5a)', () => {
   let tmpBase: string;
-  let projectRoot: string;
   let evalRoot: string;
   let originalEvalJudgeMock: string | undefined;
+  let originalEvalTargetModel: string | undefined;
+  const projectRoot = process.cwd();
 
   beforeEach(() => {
     tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'case-gen-eval-'));
-    projectRoot = tmpBase;
-    evalRoot = path.join(projectRoot, 'eval');
+    evalRoot = path.join(tmpBase, 'eval');
 
     // Set up directory structure
     const suitesDir = path.join(evalRoot, 'suites');
     const datasetsDir = path.join(evalRoot, 'datasets', 'case-generation');
-    const srcEvalDir = path.join(projectRoot, 'src', 'eval');
-    const scorersDir = path.join(srcEvalDir, 'scorers');
-    const judgeDir = path.join(srcEvalDir, 'judge');
-    const testDir = path.join(srcEvalDir, '_test');
+    const judgePromptDir = path.join(evalRoot, 'judge');
 
     fs.mkdirSync(suitesDir, { recursive: true });
     fs.mkdirSync(datasetsDir, { recursive: true });
-    fs.mkdirSync(scorersDir, { recursive: true });
-    fs.mkdirSync(judgeDir, { recursive: true });
-    fs.mkdirSync(testDir, { recursive: true });
-
-    // Copy source files from real repo
-    const realProjectRoot = '/Users/lvqingquan/skills/assurance-workflow-skills';
-
-    // Copy scorer
-    fs.copyFileSync(
-      path.join(realProjectRoot, 'src/eval/scorers/case_generation.ts'),
-      path.join(scorersDir, 'case_generation.ts')
-    );
-
-    // Copy judge files
-    fs.copyFileSync(
-      path.join(realProjectRoot, 'src/eval/judge/judge.ts'),
-      path.join(judgeDir, 'judge.ts')
-    );
-    fs.copyFileSync(
-      path.join(realProjectRoot, 'src/eval/judge/llm_client.ts'),
-      path.join(judgeDir, 'llm_client.ts')
-    );
-    fs.copyFileSync(
-      path.join(realProjectRoot, 'src/eval/judge/calibration.ts'),
-      path.join(judgeDir, 'calibration.ts')
-    );
-
-    // Copy fake executor
-    fs.copyFileSync(
-      path.join(realProjectRoot, 'src/eval/_test/fake_case_design.ts'),
-      path.join(testDir, 'fake_case_design.ts')
-    );
-
-    // Copy other necessary eval modules
-    const evalModules = [
-      'runner.ts',
-      'types.ts',
-      'manifest.ts',
-      'module_resolver.ts',
-      'dataset_loader.ts',
-      'executor.ts',
-      'metrics.ts',
-      'gate.ts',
-      'batch.ts',
-      'report.ts',
-      'plan.ts',
-      'manifest_helpers.ts',
-      'schemas.ts',
-    ];
-
-    const srcEvalReal = path.join(realProjectRoot, 'src/eval');
-    for (const mod of evalModules) {
-      const src = path.join(srcEvalReal, mod);
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, path.join(srcEvalDir, mod));
-      }
-    }
+    fs.mkdirSync(judgePromptDir, { recursive: true });
 
     // Create judge prompt file (just needs to exist for hash calculation)
-    const judgePromptDir = path.join(evalRoot, 'judge');
-    fs.mkdirSync(judgePromptDir, { recursive: true });
     fs.writeFileSync(
       path.join(judgePromptDir, 'case-generation-judge.md'),
       '# Judge prompt'
@@ -196,6 +135,10 @@ describe.skip('case-generation integration (PR-5a)', () => {
     // Set EVAL_JUDGE_MOCK=true
     originalEvalJudgeMock = process.env.EVAL_JUDGE_MOCK;
     process.env.EVAL_JUDGE_MOCK = 'true';
+
+    // Set EVAL_TARGET_MODEL to something different from judge model
+    originalEvalTargetModel = process.env.EVAL_TARGET_MODEL;
+    process.env.EVAL_TARGET_MODEL = 'claude-sonnet-4-6';
   });
 
   afterEach(() => {
@@ -205,87 +148,80 @@ describe.skip('case-generation integration (PR-5a)', () => {
     } else {
       delete process.env.EVAL_JUDGE_MOCK;
     }
+    if (originalEvalTargetModel !== undefined) {
+      process.env.EVAL_TARGET_MODEL = originalEvalTargetModel;
+    } else {
+      delete process.env.EVAL_TARGET_MODEL;
+    }
   });
 
   it('runs case-generation suite with mock judge and produces deterministic metrics', async () => {
-    // Need to make sure we're using the right project root for module resolution
-    const originalCwd = process.cwd();
-    process.chdir(projectRoot);
-
-    try {
-      const result = await runSuite({
-        suite: {
-          name: 'case-generation',
-          version: '1.0.0',
-          executor: {
-            type: 'in_process',
-            target_module: 'src/eval/_test/fake_case_design',
-            target_export: 'generateCases',
-          },
-          ci: { pr: { enabled: true, mode: 'smoke', required: false } },
-          dataset: 'case-generation',
-          judge: {
-            model: 'gpt-4o',
-            prompt_ref: 'eval/judge/case-generation-judge.md',
-            temperature: 0.0,
-            confidence_threshold: 0.80,
-          },
-          thresholds: {},
-          hard_gates: [],
+    const result = await runSuite({
+      suite: {
+        name: 'case-generation',
+        version: '1.0.0',
+        executor: {
+          type: 'in_process',
+          target_module: 'src/eval/_test/fake_case_design',
+          target_export: 'generateCases',
+          expected_outputs: ['raw-output/cases.yaml'],
         },
-        suiteFilePath: path.join(evalRoot, 'suites', 'case-generation.yaml'),
-        evalRoot,
-        projectRoot,
-      });
+        ci: { pr: { enabled: true, mode: 'smoke', required: false } },
+        dataset: 'case-generation',
+        judge: {
+          model: 'gpt-4o',
+          prompt_ref: 'eval/judge/case-generation-judge.md',
+          temperature: 0.0,
+          confidence_threshold: 0.80,
+        },
+        thresholds: {},
+        hard_gates: [],
+      },
+      suiteFilePath: path.join(evalRoot, 'suites', 'case-generation.yaml'),
+      evalRoot,
+      projectRoot,
+    });
 
-      expect(result.gateResult.verdict).toBeDefined();
-      const runDir = path.join(evalRoot, 'runs', result.runId);
-      expect(fs.existsSync(runDir)).toBe(true);
+    expect(result.gateResult.verdict).toBeDefined();
+    const runDir = path.join(evalRoot, 'runs', result.runId);
+    expect(fs.existsSync(runDir)).toBe(true);
 
-      // Check for errors in execution.json and score.json
-      const sampleAttemptDir = path.join(
-        runDir,
-        'samples',
-        'CG-001',
-        'attempt-0'
-      );
+    // Check for errors in execution.json and score.json
+    const sampleAttemptDir = path.join(
+      runDir,
+      'samples',
+      'CG-001',
+      'attempt-0'
+    );
 
-      const executionPath = path.join(sampleAttemptDir, 'execution.json');
-      if (fs.existsSync(executionPath)) {
-        const execution = JSON.parse(fs.readFileSync(executionPath, 'utf-8'));
-        console.log('Execution result:', execution);
-      }
 
-      // Check that judge-result.json was written
-      expect(fs.existsSync(path.join(sampleAttemptDir, 'judge-result.json'))).toBe(
-        true
-      );
+    // Check that judge-result.json was written
+    expect(fs.existsSync(path.join(sampleAttemptDir, 'judge-result.json'))).toBe(
+      true
+    );
 
-      // Check that score.json was written
-      const scorePath = path.join(sampleAttemptDir, 'score.json');
-      expect(fs.existsSync(scorePath)).toBe(true);
-      const score = JSON.parse(fs.readFileSync(scorePath, 'utf-8'));
+    // Check that score.json was written
+    const scorePath = path.join(sampleAttemptDir, 'score.json');
+    expect(fs.existsSync(scorePath)).toBe(true);
+    const score = JSON.parse(fs.readFileSync(scorePath, 'utf-8'));
 
-      // Verify deterministic metrics
-      expect(score.metrics.schema_valid_rate).toBe(1);
-      expect(score.metrics.hallucination_rate).toBe(0);
-      expect(score.metrics.path_coverage_rate).toBe(0.5); // Only first path covered
-      expect(score.metrics.traceability_rate).toBe(1);
+    // Verify deterministic metrics
+    expect(score.metrics.schema_valid_rate).toBe(1);
+    expect(score.metrics.hallucination_rate).toBe(0);
+    expect(score.metrics.path_coverage_rate).toBe(0.5); // Only first path covered
+    expect(score.metrics.traceability_rate).toBe(1);
 
-      // Verify P/R/F1 are 0 since no human_label in sample
-      expect(score.metrics.precision).toBe(0);
-      expect(score.metrics.recall).toBe(0);
-      expect(score.metrics.f1).toBe(0);
+    // Verify P/R/F1 are 1 since human_label and judge label match
+    expect(score.metrics.precision).toBe(1);
+    expect(score.metrics.recall).toBe(1);
+    expect(score.metrics.f1).toBe(1);
 
-      // Verify manifest contains judge info
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf-8')
-      );
-      expect(manifest.judge_model).toBe('gpt-4o');
-      expect(manifest.judge_prompt_hash).toBeDefined();
-      expect(manifest.judge_temperature).toBe(0.0);
-    } finally {
-      process.chdir(originalCwd);
-    }
+    // Verify manifest contains judge info
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf-8')
+    );
+    expect(manifest.judge_model).toBe('gpt-4o');
+    expect(manifest.judge_prompt_hash).toBeDefined();
+    expect(manifest.judge_temperature).toBe(0.0);
   });
 });

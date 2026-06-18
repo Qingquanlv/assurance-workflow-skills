@@ -8,6 +8,7 @@ export interface InProcessExecutorConfig {
   type: 'in_process';
   target_module: string;
   target_export: string;
+  expected_outputs?: string[];
 }
 
 export interface SubprocessExecutorConfig {

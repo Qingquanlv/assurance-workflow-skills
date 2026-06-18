@@ -8,6 +8,7 @@ export const InProcessExecutorSchema = z.object({
   type: z.literal('in_process'),
   target_module: z.string().min(1),
   target_export: z.string().min(1),
+  expected_outputs: z.array(z.string()).optional(),
 });
 
 export const SubprocessExecutorSchema = z.object({
