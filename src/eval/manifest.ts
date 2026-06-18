@@ -190,6 +190,11 @@ export function buildManifest(input: ManifestBuildInput): RunManifest {
     prompt_hashes: {},
     target_model: process.env.EVAL_TARGET_MODEL ?? 'unknown',
     target_model_params: {},
+    judge_model: suite.judge?.model,
+    judge_prompt_hash: suite.judge?.prompt_ref
+      ? hashFile(path.join(projectRoot, suite.judge.prompt_ref))
+      : undefined,
+    judge_temperature: suite.judge?.temperature,
     scorer_version: SCORER_VERSION,
     executor_version: EXECUTOR_VERSION,
     runner_version: RUNNER_VERSION,

@@ -23,6 +23,7 @@ import { loadSuite, readPlan } from './plan';
 import {
   resolveScorerModule,
   resolveScorerModuleRef,
+  resolveRuntimeModule,
 } from './module_resolver';
 
 export interface RunOptions {
@@ -103,6 +104,16 @@ export async function runSuite(opts: {
           projectRoot,
         });
 
+        // Call judge if defined
+        if (suite.judge) {
+          await runJudge(
+            { ...suite, judge: suite.judge },
+            sample,
+            attemptDir,
+            projectRoot
+          );
+        }
+
         // Call scorer if available (scorer modules are loaded dynamically per suite)
         const score = await runScorer(suite, sample, attemptDir, projectRoot);
         fs.writeFileSync(
@@ -182,6 +193,31 @@ async function runScorer(
   } catch (err) {
     throw new Error(`Scorer error: ${(err as Error).message}`);
   }
+}
+
+async function runJudge(
+  suite: { judge: NonNullable<EvalSuite['judge']>; name: string },
+  sample: DatasetSample,
+  attemptDir: string,
+  projectRoot: string
+): Promise<void> {
+  // Load judge module
+  const judgePath = resolveRuntimeModule(projectRoot, 'src/eval/judge/judge');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const judgeMod = require(judgePath);
+  if (typeof judgeMod.judge !== 'function') {
+    throw new Error('Judge module must export a judge function');
+  }
+  const result = await Promise.resolve(
+    judgeMod.judge(sample, attemptDir, suite.judge)
+  );
+  if (!result || typeof result !== 'object') {
+    throw new Error('Judge returned empty result (fail-closed)');
+  }
+  fs.writeFileSync(
+    path.join(attemptDir, 'judge-result.json'),
+    JSON.stringify(result, null, 2)
+  );
 }
 
 function readMetrics(runDir: string) {

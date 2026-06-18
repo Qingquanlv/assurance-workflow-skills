@@ -1,0 +1,18 @@
+id: CG-002
+annotation_source: human
+tags: ["case-generation", "user", "auth"]
+prd_ref: CG-002.prd.md
+input:
+  change_id: CG-002
+mock_judge_label: partial
+expected:
+  required_paths:
+    - "POST /api/v1/user/register"
+    - "POST /api/v1/user/login"
+  forbidden_cases:
+    - "hardcoded password"
+  required_atoms:
+    - id: RA-003
+      text: "User registration"
+    - id: RA-004
+      text: "User login"
