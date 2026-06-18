@@ -14,7 +14,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && npm run arch:check",
+    "arch:check": "depcruise src/eval --config .dependency-cruiser.cjs --output-type text"
   },
   "dependencies": {
     "@types/xml2js": "^0.4.14",
@@ -22,13 +23,19 @@
     "commander": "^12.1.0",
     "inquirer": "^8.2.6",
     "js-yaml": "^4.1.0",
-    "xml2js": "^0.6.2"
+    "micromatch": "^4.0.8",
+    "minimatch": "^10.2.5",
+    "xml2js": "^0.6.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.10",
     "@types/jest": "^29.5.12",
     "@types/js-yaml": "^4.0.9",
+    "@types/micromatch": "^4.0.10",
+    "@types/minimatch": "^5.1.2",
     "@types/node": "^20.14.0",
+    "dependency-cruiser": "^17.4.3",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.5",
     "ts-node": "^10.9.2",

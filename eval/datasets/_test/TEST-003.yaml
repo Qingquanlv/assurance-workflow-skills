@@ -1,0 +1,10 @@
+id: TEST-003
+annotation_source: human
+tags: ["test"]
+input:
+  value: "gamma"
+expected:
+  category: "A"
+prediction:
+  category: "A"
+  confidence: 0.72

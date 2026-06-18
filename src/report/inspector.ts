@@ -4,13 +4,16 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import { ApiResult, CoverageGapEntry, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, FailureEntry, FuzzResult, PerformanceResult, QualityGateResult } from '../core/types';
 import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
 import { buildQualityGate } from './quality_gate';
 import { loadCoverageConfig } from '../execution/coverage_parser';
-import { normalizeExecutionManifest } from '../execution/manifest_parser';
+import {
+  loadExecutionManifest,
+  resultFilePath,
+} from './execution_artifacts';
+import { sanitizeSecrets } from '../utils/secret_sanitize';
 
 export interface InspectOptions {
   changeId: string;
@@ -380,31 +383,6 @@ function gateWithFinalStatus(gate: QualityGateResult, finalStatus: QualityGateRe
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function loadExecutionManifest(executionDir: string): { manifest: ExecutionManifest; path: string } | null {
-  const manifestPath = path.join(executionDir, 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return null;
-  try {
-    const raw = yaml.load(fs.readFileSync(manifestPath, 'utf-8'));
-    const manifest = normalizeExecutionManifest(raw, executionDir);
-    if (!manifest) return null;
-    return { manifest, path: manifestPath };
-  } catch {
-    return null;
-  }
-}
-
-function resultFilePath(
-  executionDir: string,
-  resultRoot: string,
-  manifest: ExecutionManifest | null,
-  key: keyof ExecutionManifest['result_files'],
-  fallbackName: string,
-): string {
-  const manifestPath = manifest?.result_files?.[key];
-  if (manifestPath) return path.join(executionDir, manifestPath);
-  return path.join(resultRoot, fallbackName);
-}
-
 function completeFailureEntries(failures: FailureEntry[]): void {
   failures.forEach((failure, index) => {
     const id = `FAIL-${String(index + 1).padStart(3, '0')}`;
@@ -498,11 +476,11 @@ function extractLogExcerpt(logPath: string, testName: string): string {
     const lines = content.split('\n');
     // Find the block around the test name
     const idx = lines.findIndex(l => l.includes(testName));
-    if (idx === -1) {
-      // Return last 20 lines of log as fallback
-      return lines.slice(-20).join('\n');
-    }
-    return lines.slice(Math.max(0, idx - 2), idx + 15).join('\n');
+    const excerpt =
+      idx === -1
+        ? lines.slice(-20).join('\n')
+        : lines.slice(Math.max(0, idx - 2), idx + 15).join('\n');
+    return sanitizeSecrets(excerpt);
   } catch {
     return '';
   }
@@ -518,7 +496,7 @@ function resolveArtifact(existing: string, dir: string, caseId: string, ext: str
 }
 
 function buildDiagnosis(message: string, category: string): string {
-  const first = message ? message.split('\n')[0].slice(0, 200) : '';
+  const first = message ? sanitizeSecrets(message.split('\n')[0].slice(0, 200)) : '';
   switch (category) {
     case 'locator_failure':
       return `Element locator failed. ${first}`.trim();

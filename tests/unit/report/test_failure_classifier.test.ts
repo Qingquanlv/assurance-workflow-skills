@@ -41,4 +41,64 @@ describe('classifyFailure', () => {
     expect(r.category).toBe('environment_failure');
     expect(r.fixProposalEligible).toBe(false);
   });
+
+  describe('fuzz target', () => {
+    it('classifies fuzz_configuration_error for schema/auth setup failures', () => {
+      const r = classifyFailure({
+        message: 'Failed to load schema from /openapi.json',
+        logExcerpt: 'schemathesis health check failed',
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+      expect(r.category).toBe('fuzz_configuration_error');
+      expect(r.fixProposalEligible).toBe(false);
+    });
+
+    it('classifies fuzz_stateful_failure for state machine errors', () => {
+      const r = classifyFailure({
+        message: 'Stateful test failed during transition',
+        logExcerpt: 'APIStateMachine rule failed',
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+      expect(r.category).toBe('fuzz_stateful_failure');
+      expect(r.needsReview).toBe(true);
+    });
+
+    it('classifies business_logic_failure for explicit 5xx', () => {
+      const r = classifyFailure({
+        message: '500 Internal Server Error on POST /api/users',
+        logExcerpt: '',
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+      expect(r.category).toBe('business_logic_failure');
+    });
+
+    it('classifies environment_failure before fuzz heuristics', () => {
+      const r = classifyFailure({
+        message: 'Connection refused ECONNREFUSED 127.0.0.1:8080',
+        logExcerpt: '',
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+      expect(r.category).toBe('environment_failure');
+    });
+
+    it('classifies test_code_error for import/syntax issues', () => {
+      const r = classifyFailure({
+        message: 'ImportError: cannot import name fuzz_client',
+        logExcerpt: '',
+        target: 'fuzz',
+        hasTrace: false,
+        hasScreenshot: false,
+      });
+      expect(r.category).toBe('test_code_error');
+      expect(r.fixProposalEligible).toBe(true);
+    });
+  });
 });

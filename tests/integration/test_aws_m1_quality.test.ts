@@ -188,6 +188,68 @@ describe('M1 report_generator', () => {
   it('throws when quality-gate-result.json is missing', () => {
     expect(() => generateReport({ changeId: 'NOPE', projectRoot })).toThrow(/quality-gate-result.json not found/);
   });
+
+  it('reads execution results from manifest batch dir, not stale latest pointers', () => {
+    const changeId = 'REQ-RPT-MANIFEST';
+    const base = path.join(projectRoot, 'qa', 'changes', changeId);
+    const executionDir = path.join(base, 'execution');
+    const batchDir = path.join(executionDir, 'runs', 'batch-stale-test');
+    fs.mkdirSync(batchDir, { recursive: true });
+    fs.mkdirSync(path.join(base, 'inspect'), { recursive: true });
+
+    const staleApi: ApiResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'stale', target: 'api', status: 'failed', command: '',
+      source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' },
+      total: 10, passed: 0, failed: 10, skipped: 0, cases: [], unmapped_tests: [],
+    };
+    const batchApi: ApiResult = {
+      ...staleApi,
+      batch_id: 'batch-stale-test',
+      status: 'passed',
+      passed: 10,
+      failed: 0,
+    };
+
+    fs.writeFileSync(path.join(executionDir, 'api-result.json'), JSON.stringify(staleApi));
+    fs.writeFileSync(path.join(batchDir, 'api-result.json'), JSON.stringify(batchApi));
+    fs.writeFileSync(
+      path.join(executionDir, 'execution-manifest.yaml'),
+      [
+        'schema_version: "1.0"',
+        'change_id: REQ-RPT-MANIFEST',
+        'batch_id: batch-stale-test',
+        'selected_targets:',
+        '  api: true',
+        '  e2e: false',
+        '  fuzz: false',
+        '  performance: false',
+        'result_files:',
+        '  api: runs/batch-stale-test/api-result.json',
+      ].join('\n')
+    );
+
+    const gate: QualityGateResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'batch-stale-test',
+      dimensions: {
+        functional: { status: 'PASS', api: { total: 10, passed: 10, failed: 0 }, e2e: { total: 0, passed: 0, failed: 0 } },
+        coverage: { status: 'SKIPPED', available: false, line_coverage: 0, branch_coverage: 0, threshold: { line: 70, branch: 60 } },
+      },
+      final_status: 'PASS',
+    };
+    const analysis: FailureAnalysis = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'batch-stale-test', source_batch_id: 'batch-stale-test',
+      source_manifest: '', inspection_status: 'completed',
+      final_status: 'PASS', inspect_mode: 'primary', classification_performed: true, status: 'no_failures',
+      failures: [], hard_fails: [], needs_review: [], known_product_issues: [],
+    };
+    fs.writeFileSync(path.join(base, 'inspect', 'failure-analysis.json'), JSON.stringify(analysis));
+    fs.writeFileSync(path.join(base, 'inspect', 'quality-gate-result.json'), JSON.stringify(gate));
+
+    const result = generateReport({ changeId, projectRoot });
+    expect(result.report.batch_id).toBe('batch-stale-test');
+    expect(result.report.functional.api.passed).toBe(10);
+    expect(result.report.final_status).toBe('PASS');
+  });
 });
 
 describe('M1 runner coverage output', () => {
