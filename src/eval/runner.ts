@@ -229,13 +229,25 @@ export async function runPlan(opts: {
       const runDir = path.join(runsDir, runId);
       fs.mkdirSync(runDir, { recursive: true });
 
+      // Write synthetic manifest so batch integrity checks pass.
+      // selectedIds is empty because no samples were executed.
+      buildManifest({
+        suite,
+        suiteFilePath,
+        datasetDir: path.join(evalRoot, 'datasets', suite.dataset),
+        selectedIds: [],
+        projectRoot,
+        runDir,
+      });
+      finalizeManifest(runDir, 0, 0);
+
+      const errorMsg = (err as Error).message;
       const errorGate = {
         run_id: runId,
         suite: suiteEntry.name,
         verdict: 'fail' as const,
-        hard_gate_failures: ['runner_error'],
+        hard_gate_failures: [`runner_error: ${errorMsg.slice(0, 200)}`],
         threshold_failures: [],
-        error: (err as Error).message,
       };
       fs.writeFileSync(
         path.join(runDir, 'gate-result.json'),
