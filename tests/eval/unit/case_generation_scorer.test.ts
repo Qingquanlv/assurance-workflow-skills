@@ -31,6 +31,7 @@ describe('case_generation scorer', () => {
           { id: 'RA-001', text: 'Test case 1' },
           { id: 'RA-002', text: 'Test case 2' },
         ],
+        risk_ids: ['RISK-001', 'RISK-002'],
       },
     };
 
@@ -44,10 +45,101 @@ describe('case_generation scorer', () => {
     expect(result.metrics.schema_valid_rate).toBe(1);
     expect(result.metrics.hallucination_rate).toBe(0);
     expect(result.metrics.path_coverage_rate).toBe(0.5); // Only first path
+    expect(result.metrics.risk_coverage_rate).toBe(0.5); // Only first risk
     expect(result.metrics.traceability_rate).toBe(1);
     expect(result.metrics.precision).toBe(0);
     expect(result.metrics.recall).toBe(0);
     expect(result.metrics.f1).toBe(0);
+  });
+
+  it('calculates risk_coverage_rate correctly', () => {
+    const sample: DatasetSample = {
+      id: 'CG-RISK',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-RISK' },
+      expected: {
+        required_paths: ['POST /api/v1/test'],
+        forbidden_cases: [],
+        required_atoms: [
+          { id: 'RA-001', text: 'Test case 1' },
+          { id: 'RA-002', text: 'Test case 2' },
+        ],
+        risk_ids: ['RISK-A', 'RISK-B', 'RISK-C'],
+      },
+    };
+
+    // Run fake executor - it will include RISK-A in each case
+    generateCases(sample, tmpDir);
+
+    // Score it
+    const result = score(sample, tmpDir);
+
+    // Only RISK-A is covered (fake executor adds first risk)
+    expect(result.metrics.risk_coverage_rate).toBe(1/3);
+  });
+
+  it('returns risk_coverage_rate = 1 when there are no expected risk_ids', () => {
+    const sample: DatasetSample = {
+      id: 'CG-NO-RISK',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-NO-RISK' },
+      expected: {
+        required_paths: ['POST /api/v1/test'],
+        forbidden_cases: [],
+        required_atoms: [
+          { id: 'RA-001', text: 'Test case 1' },
+        ],
+      },
+    };
+
+    generateCases(sample, tmpDir);
+    const result = score(sample, tmpDir);
+
+    expect(result.metrics.risk_coverage_rate).toBe(1);
+  });
+
+  it('returns risk_coverage_rate = 1 when risk_ids is empty array', () => {
+    const sample: DatasetSample = {
+      id: 'CG-EMPTY-RISK',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-EMPTY-RISK' },
+      expected: {
+        required_paths: ['POST /api/v1/test'],
+        forbidden_cases: [],
+        required_atoms: [
+          { id: 'RA-001', text: 'Test case 1' },
+        ],
+        risk_ids: [],
+      },
+    };
+
+    generateCases(sample, tmpDir);
+    const result = score(sample, tmpDir);
+
+    expect(result.metrics.risk_coverage_rate).toBe(1);
+  });
+
+  it('returns risk_coverage_rate = 0 when there are expected risks but no cases', () => {
+    const sample: DatasetSample = {
+      id: 'CG-NO-CASES',
+      annotation_source: 'human',
+      tags: ['case-generation'],
+      input: { change_id: 'CG-NO-CASES' },
+      expected: {
+        required_paths: [],
+        forbidden_cases: [],
+        required_atoms: [], // No atoms means no cases
+        risk_ids: ['RISK-1', 'RISK-2'],
+      },
+    };
+
+    generateCases(sample, tmpDir);
+    const result = score(sample, tmpDir);
+
+    expect(result.metrics.risk_coverage_rate).toBe(0);
   });
 
   it('returns 0 for schema_valid_rate when cases.yaml is missing', () => {

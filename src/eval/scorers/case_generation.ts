@@ -39,6 +39,7 @@ interface GeneratedCases {
     automation_targets: string[];
     requirement_atom_ids: string[];
     traceability: string;
+    risk_ids?: string[];
   }>;
 }
 
@@ -73,6 +74,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
     required_paths?: string[];
     forbidden_cases?: string[];
     human_label?: 'covered' | 'partial' | 'missing' | 'hallucinated';
+    risk_ids?: string[];
   };
   const cases = loadCases(attemptDir);
   const judgeResult = loadJudgeResult(attemptDir);
@@ -82,6 +84,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
 
   let hallucinationRate = 0;
   let pathCoverageRate = expected?.required_paths?.length ? 0 : 1;
+  let riskCoverageRate = expected?.risk_ids?.length ? 0 : 1;
   let traceabilityRate = 1;
 
   if (cases && cases.cases.length > 0) {
@@ -109,11 +112,31 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       pathCoverageRate = coveredRequiredPaths.length / requiredPaths.length;
     }
 
+    // Calculate risk coverage rate
+    const expectedRiskIds = expected?.risk_ids || [];
+    if (expectedRiskIds.length > 0) {
+      const coveredRiskIds = new Set<string>();
+      for (const c of cases.cases) {
+        for (const r of c.risk_ids || []) {
+          coveredRiskIds.add(r);
+        }
+      }
+      const coveredExpectedRiskIds = expectedRiskIds.filter((r) =>
+        coveredRiskIds.has(r)
+      );
+      riskCoverageRate = coveredExpectedRiskIds.length / expectedRiskIds.length;
+    }
+
     // Calculate traceability rate
     const casesWithTraceability = cases.cases.filter(
       (c) => c.traceability && c.traceability.trim().length > 0
     );
     traceabilityRate = casesWithTraceability.length / cases.cases.length;
+  } else {
+    // No cases, risk coverage is 0 if there are expected risks
+    if (expected?.risk_ids?.length) {
+      riskCoverageRate = 0;
+    }
   }
 
   // Calculate P/R/F1 from judge result and human label
@@ -150,6 +173,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       schema_valid_rate: schemaValid,
       hallucination_rate: hallucinationRate,
       path_coverage_rate: pathCoverageRate,
+      risk_coverage_rate: riskCoverageRate,
       traceability_rate: traceabilityRate,
       precision,
       recall,

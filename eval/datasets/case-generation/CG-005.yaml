@@ -16,3 +16,6 @@ expected:
       text: "Sales report"
     - id: RA-010
       text: "Analytics dashboard"
+  risk_ids:
+    - "RISK-009"
+    - "RISK-010"

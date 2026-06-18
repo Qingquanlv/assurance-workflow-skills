@@ -15,3 +15,6 @@ expected:
       text: "Validate credentials"
     - id: req-012
       text: "Return JWT token on success"
+  risk_ids:
+    - "RISK-CAL-010"
+    - "RISK-CAL-011"

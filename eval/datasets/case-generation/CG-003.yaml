@@ -16,3 +16,6 @@ expected:
       text: "Create order"
     - id: RA-006
       text: "Process payment"
+  risk_ids:
+    - "RISK-005"
+    - "RISK-006"

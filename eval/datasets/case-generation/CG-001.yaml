@@ -16,3 +16,6 @@ expected:
       text: "Create menu item"
     - id: RA-002
       text: "List menu items"
+  risk_ids:
+    - "RISK-001"
+    - "RISK-002"

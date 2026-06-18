@@ -15,3 +15,6 @@ expected:
       text: "User ID must be validated"
     - id: req-004
       text: "At least one field must be updated"
+  risk_ids:
+    - "RISK-CAL-003"
+    - "RISK-CAL-004"

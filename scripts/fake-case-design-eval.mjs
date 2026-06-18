@@ -37,6 +37,7 @@ function generateCasesFromSample(sample) {
   const expected = sample.expected || {};
   const requiredAtoms = expected.required_atoms || [];
   const requiredPaths = expected.required_paths || [];
+  const riskIds = expected.risk_ids || [];
 
   const cases = requiredAtoms.map((atom, i) => ({
     id: `${sample.id}-case-${i + 1}`,
@@ -44,6 +45,7 @@ function generateCasesFromSample(sample) {
     automation_targets: requiredPaths.slice(0, 1) || [],
     requirement_atom_ids: [atom.id],
     traceability: `TRACE-${atom.id}`,
+    risk_ids: riskIds.slice(0, 1) || [],
   }));
 
   return { cases };

@@ -13,3 +13,5 @@ expected:
   required_atoms:
     - id: req-013
       text: "Invalidate JWT token"
+  risk_ids:
+    - "RISK-CAL-012"

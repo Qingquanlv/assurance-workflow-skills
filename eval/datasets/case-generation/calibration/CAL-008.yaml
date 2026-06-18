@@ -17,3 +17,6 @@ expected:
       text: "Send reset link"
     - id: req-016
       text: "Expire link after 24 hours"
+  risk_ids:
+    - "RISK-CAL-013"
+    - "RISK-CAL-014"

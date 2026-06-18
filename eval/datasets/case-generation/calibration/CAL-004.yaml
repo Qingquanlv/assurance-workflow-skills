@@ -14,3 +14,5 @@ expected:
   required_atoms:
     - id: req-007
       text: "Return user profile data"
+  risk_ids:
+    - "RISK-CAL-007"

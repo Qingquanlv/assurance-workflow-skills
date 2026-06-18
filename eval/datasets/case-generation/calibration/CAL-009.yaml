@@ -16,3 +16,6 @@ expected:
       text: "Verify old password"
     - id: req-018
       text: "Enforce password strength"
+  risk_ids:
+    - "RISK-CAL-015"
+    - "RISK-CAL-016"

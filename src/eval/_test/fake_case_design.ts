@@ -13,6 +13,7 @@ export function generateCases(sample: DatasetSample, attemptDir?: string): Recor
     automation_targets: expected.required_paths?.slice(0, 1) || [],
     requirement_atom_ids: [atom.id],
     traceability: `TRACE-${atom.id}`,
+    risk_ids: expected.risk_ids?.slice(0, 1) || [],
   }));
 
   const result = { cases };

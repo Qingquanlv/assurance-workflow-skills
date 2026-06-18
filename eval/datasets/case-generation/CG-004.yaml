@@ -16,3 +16,6 @@ expected:
       text: "Check inventory stock"
     - id: RA-008
       text: "Update inventory levels"
+  risk_ids:
+    - "RISK-007"
+    - "RISK-008"

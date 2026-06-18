@@ -15,3 +15,6 @@ expected:
       text: "Validate token format"
     - id: req-020
       text: "Mark email as verified"
+  risk_ids:
+    - "RISK-CAL-017"
+    - "RISK-CAL-018"

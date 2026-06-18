@@ -16,3 +16,6 @@ expected:
       text: "User registration"
     - id: RA-004
       text: "User login"
+  risk_ids:
+    - "RISK-003"
+    - "RISK-004"
