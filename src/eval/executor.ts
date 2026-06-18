@@ -219,11 +219,10 @@ function runSubprocess(
         `Expected output not found: ${outputPath} (subprocess produced no artifact)`
       );
     }
-    // Copy expected output to raw-output for standardised access
-    const destPath = path.join(rawOutputDir, path.basename(expectedOutput));
-    if (!fs.existsSync(destPath)) {
-      fs.copyFileSync(outputPath, destPath);
-    }
+    // Copy expected output to raw-output preserving relative path structure
+    const destPath = path.join(rawOutputDir, expectedOutput);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.copyFileSync(outputPath, destPath);
   }
 }
 

@@ -171,7 +171,8 @@ export class BatchGate {
       }
     }
 
-    const verdict = computeBatchVerdict(suiteResults);
+    const planEvent = readPlanEvent(batchDir);
+    const verdict = computeBatchVerdict(suiteResults, planEvent);
 
     const result: BatchGateResult = {
       batch_id: batchId,
@@ -211,10 +212,36 @@ export class BatchGate {
   }
 }
 
-function computeBatchVerdict(
-  suiteResults: Record<string, SuiteRunEntry>
+function readPlanEvent(batchDir: string): EvalPlan['event'] | undefined {
+  const planPath = path.join(batchDir, 'eval-plan.json');
+  if (!fs.existsSync(planPath)) return undefined;
+  try {
+    const plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as EvalPlan;
+    return plan.event;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Exported for unit tests. */
+export function computeBatchVerdict(
+  suiteResults: Record<string, SuiteRunEntry>,
+  planEvent?: EvalPlan['event']
 ): EvalVerdict {
   const entries = Object.values(suiteResults);
+
+  if (entries.length === 0) {
+    switch (planEvent) {
+      case 'pull_request':
+        return 'pass_with_warnings';
+      case 'nightly':
+        return 'inconclusive';
+      case 'manual':
+        return 'fail';
+      default:
+        return 'fail';
+    }
+  }
 
   // 1. required=true suite fail → batch fail
   for (const e of entries) {

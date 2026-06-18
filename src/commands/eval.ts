@@ -16,12 +16,37 @@ function getEvalRoot(projectRoot: string): string {
   return path.join(projectRoot, 'eval');
 }
 
-function exitWithVerdict(verdict: string): void {
-  const failing = ['fail', 'inconclusive'];
+/** Gate command: non-pass verdicts block CI. Run command does NOT use this by default. */
+function exitWithGateVerdict(verdict: string): void {
+  const failing = ['fail', 'inconclusive', 'needs_human_review'];
   if (failing.includes(verdict)) {
     process.exit(1);
   }
   process.exit(0);
+}
+
+function printRunResult(opts: {
+  output: string;
+  json: boolean;
+  id: string;
+  verdict: string;
+  kind: 'run' | 'batch';
+}): void {
+  const { output, json, id, verdict, kind } = opts;
+  const idKey = kind === 'batch' ? 'batch_id' : 'run_id';
+
+  if (output === 'id') {
+    console.log(id);
+    return;
+  }
+
+  if (json) {
+    console.log(JSON.stringify({ [idKey]: id, verdict }));
+    return;
+  }
+
+  console.log(chalk.bold(`${idKey}: ${id}`));
+  console.log(`verdict: ${verdictColor(verdict)(verdict)}`);
 }
 
 export function registerEvalCommand(program: Command): void {
@@ -37,6 +62,9 @@ export function registerEvalCommand(program: Command): void {
     .option('--plan <path>', 'Path to eval-plan.json')
     .option('--sample <id>', 'Run a single sample only')
     .option('--repeat <n>', 'Repeat runs (stability)', parseInt)
+    .option('--output <mode>', 'Output mode: id (CI-friendly, prints only the id)')
+    .option('--json', 'Output result as JSON { run_id|batch_id, verdict }')
+    .option('--fail-on-verdict', 'Exit 1 when gate verdict is not pass (opt-in)')
     .action(async (opts) => {
       const projectRoot = process.cwd();
       const evalRoot = getEvalRoot(projectRoot);
@@ -56,7 +84,10 @@ export function registerEvalCommand(program: Command): void {
           const suitesDir = path.join(evalRoot, 'suites');
           const { suite, filePath } = loadSuite(suitesDir, opts.suite);
 
-          console.log(chalk.cyan(`Running suite: ${suite.name}`));
+          if (opts.output !== 'id' && !opts.json) {
+            console.log(chalk.cyan(`Running suite: ${suite.name}`));
+          }
+
           const { runId, gateResult } = await runSuite({
             suite,
             suiteFilePath: filePath,
@@ -66,22 +97,40 @@ export function registerEvalCommand(program: Command): void {
             repeat: opts.repeat,
           });
 
-          console.log(chalk.bold(`run_id: ${runId}`));
-          console.log(`verdict: ${verdictColor(gateResult.verdict)(gateResult.verdict)}`);
-          console.log(runId);
-          exitWithVerdict(gateResult.verdict);
+          printRunResult({
+            output: opts.output,
+            json: opts.json,
+            id: runId,
+            verdict: gateResult.verdict,
+            kind: 'run',
+          });
+
+          if (opts.failOnVerdict) {
+            exitWithGateVerdict(gateResult.verdict);
+          }
+          process.exit(0);
         } else {
-          console.log(chalk.cyan(`Running plan: ${opts.plan}`));
+          if (opts.output !== 'id' && !opts.json) {
+            console.log(chalk.cyan(`Running plan: ${opts.plan}`));
+          }
           const { batchId, gateResult } = await runPlan({
             planPath: opts.plan,
             projectRoot,
             evalRoot,
           });
 
-          console.log(chalk.bold(`batch_id: ${batchId}`));
-          console.log(`verdict: ${verdictColor(gateResult.verdict)(gateResult.verdict)}`);
-          console.log(batchId);
-          exitWithVerdict(gateResult.verdict);
+          printRunResult({
+            output: opts.output,
+            json: opts.json,
+            id: batchId,
+            verdict: gateResult.verdict,
+            kind: 'batch',
+          });
+
+          if (opts.failOnVerdict) {
+            exitWithGateVerdict(gateResult.verdict);
+          }
+          process.exit(0);
         }
       } catch (err) {
         console.error(chalk.red(`eval run failed: ${(err as Error).message}`));
@@ -114,7 +163,7 @@ export function registerEvalCommand(program: Command): void {
           if (gateResult.hard_gate_failures.length > 0) {
             console.log(`hard_gate_failures: ${gateResult.hard_gate_failures.join(', ')}`);
           }
-          exitWithVerdict(gateResult.verdict);
+          exitWithGateVerdict(gateResult.verdict);
         } else {
           const batchDir = path.join(evalRoot, 'batches', opts.batch);
           const gateResult = BatchGate.read(batchDir);
@@ -124,7 +173,7 @@ export function registerEvalCommand(program: Command): void {
             const prefix = entry.required ? '' : ' (optional)';
             console.log(`  ${suite}${prefix}: ${verdictColor(entry.verdict)(entry.verdict)}`);
           }
-          exitWithVerdict(gateResult.verdict);
+          exitWithGateVerdict(gateResult.verdict);
         }
       } catch (err) {
         console.error(chalk.red(`eval gate failed: ${(err as Error).message}`));

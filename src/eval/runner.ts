@@ -155,12 +155,17 @@ async function runScorer(
   );
 
   if (!fs.existsSync(scorerPath) && !fs.existsSync(scorerPath.replace('.ts', '.js'))) {
-    // No scorer yet — return a neutral score (PR-2 phase; scorers added per suite)
-    return {
-      sample_id: sample.id,
-      status: 'ok',
-      metrics: {},
-    };
+    // Only _test suite may run without a scorer; real suites fail-closed
+    if (suite.name === '_test') {
+      return {
+        sample_id: sample.id,
+        status: 'ok',
+        metrics: {},
+      };
+    }
+    throw new Error(
+      `No scorer found for suite '${suite.name}' at ${scorerPath} (fail-closed)`
+    );
   }
 
   try {

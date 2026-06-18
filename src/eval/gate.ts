@@ -67,6 +67,11 @@ export function computeGateResult(
     }
   }
 
+  // Fail-closed: any sample execution error → suite fail
+  if (metrics.error_count > 0) {
+    hardGateFailures.push('sample_execution_error');
+  }
+
   // Check hard gates that aren't thresholds (e.g. evidence_integrity, special metrics)
   for (const gate of suite.hard_gates) {
     if (gate === 'evidence_integrity') continue; // already checked above
@@ -89,9 +94,6 @@ export function computeGateResult(
     verdict = 'fail';
   } else if (inconclusiveRate > MAX_INCONCLUSIVE_RATE) {
     verdict = 'inconclusive';
-  } else if (metrics.error_count > 0 && metrics.error_count === metrics.sample_count) {
-    // All samples errored
-    verdict = 'fail';
   } else if (thresholdFailures.length > 0) {
     verdict = 'pass_with_warnings';
   } else {
