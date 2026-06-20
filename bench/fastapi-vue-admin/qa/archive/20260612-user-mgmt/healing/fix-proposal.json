@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260612-user-mgmt",
+  "source_analysis": "qa/changes/20260612-user-mgmt/inspect/failure-analysis.json",
+  "created_at": "2026-06-13T01:05:00Z",
+  "iteration": 2,
+  "summary": {
+    "eligible_count": 3,
+    "not_eligible_count": 1,
+    "targets": { "api": 0, "e2e": 3 }
+  },
+  "proposals": [
+    {
+      "proposal_id": "FIX-005",
+      "failure_ids": ["test_create_user_duplicate_email_shows_error[chromium]"],
+      "target": "e2e",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "Backend ValidationError: 'username: Length of qa_e2e_user_dbcf62e6_seed 25 > 20'. The User.username field has max_length=20 (verified in app/models/admin.py line 2). The seed_username uses pattern f'{unique_username}_seed' where unique_username itself is 19 chars (qa_e2e_user_<8hex>), so seed becomes 25 chars. Test must construct seed_username within 20 chars without changing product code.",
+      "files_to_modify": ["tests/e2e/test_users_e2e.py"],
+      "forbidden_files": ["app/**", "web/**", "src/**"],
+      "allowed_operations": ["fix_test_data_generation"],
+      "forbidden_operations": [
+        "modify_product_code",
+        "change_assertion_expected_values",
+        "hide_known_product_issue",
+        "delete_test_case_without_review"
+      ],
+      "patch_plan": [
+        {
+          "file": "tests/e2e/test_users_e2e.py",
+          "operation": "replace",
+          "description": "In test_create_user_duplicate_email_shows_error, replace 'seed_username = f\"{unique_username}_seed\"' (line ~91) with 'seed_username = f\"s_{unique_username[2:]}\"[:20]' so the seed username remains within the 20-char username limit while still being distinct from unique_username. The 's_' prefix + slice keeps the uniqueness suffix and stays <= 20 chars.",
+          "constraints": [
+            "must not change assertion expected_values",
+            "must keep seed_username distinct from unique_username",
+            "must keep email = f'{unique_username}@example.com' (this is what triggers duplicate-email)",
+            "must result in seed_username length <= 20"
+          ]
+        }
+      ],
+      "verification": {
+        "rerun_required": true,
+        "command": "aws run --change 20260612-user-mgmt",
+        "expected_effect": "test_create_user_duplicate_email_shows_error proceeds past seed creation and asserts the dialog stays visible after dup-email submit"
+      }
+    },
+    {
+      "proposal_id": "FIX-006",
+      "failure_ids": [
+        "test_delete_user_removes_row[chromium]",
+        "test_reset_password_normal_user[chromium]"
+      ],
+      "target": "e2e",
+      "category": "locator_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "Both tests use page.get_by_role('button', name='确定') to confirm a Naive UI Popconfirm. In Naive UI zhCN locale (verified at web/node_modules/naive-ui/es/locales/common/zhCN.mjs), Popconfirm.positiveText defaults to '确认', NOT '确定'. The inline NPopconfirm in web/src/views/system/user/index.vue (lines 182, 208) does not pass positiveText, so it falls back to the locale default '确认'. The locator name='确定' therefore times out at 15000ms.",
+      "files_to_modify": ["tests/e2e/test_users_e2e.py"],
+      "forbidden_files": ["app/**", "web/**", "src/**"],
+      "allowed_operations": ["replace_locator"],
+      "forbidden_operations": [
+        "modify_product_code",
+        "change_assertion_expected_values",
+        "hide_known_product_issue",
+        "delete_test_case_without_review"
+      ],
+      "patch_plan": [
+        {
+          "file": "tests/e2e/test_users_e2e.py",
+          "operation": "replace",
+          "description": "In test_delete_user_removes_row (~line 179) and test_reset_password_normal_user (~line 224), replace 'page.get_by_role(\"button\", name=\"确定\").click()' with 'page.get_by_role(\"button\", name=\"确认\").click()'. Both occurrences are Popconfirm confirmations that follow row.get_by_role('button', name='删除' / '重置密码').click(). Do not replace any '确定' that targets a modal save button — modal save uses '保存' per existing selector_overrides_applied.G1.",
+          "constraints": [
+            "scope: only Popconfirm confirmation buttons after delete/reset clicks",
+            "must not modify NDataTable header or modal save buttons",
+            "must use exact name '确认'"
+          ]
+        }
+      ],
+      "verification": {
+        "rerun_required": true,
+        "command": "aws run --change 20260612-user-mgmt",
+        "expected_effect": "Popconfirm '确认' button is found within timeout; delete and reset_password tests proceed to their respective success-toast assertions"
+      }
+    }
+  ],
+  "not_eligible": [
+    {
+      "failure_id": "test_list_users_unauthenticated_rejected",
+      "target": "api",
+      "category": "assertion_failure",
+      "reason": "Test asserts response.status_code == 401, but FastAPI Header(...) returns 422 when the 'token' header is missing (request validation runs before AuthControl logic). This is a deliberate framework behavior; changing the assertion to 422 would weaken the security spec, and changing the product to return 401 would require modifying app/core/dependency.py AuthControl.is_authed signature. Persisted across iterations 1 and 2.",
+      "recommended_next_action": "developer_fix_required"
+    }
+  ],
+  "known_product_issues": [
+    {
+      "issue_id": "KPI-001",
+      "title": "Backend returns 500 on tortoise.exceptions.ValidationError instead of 422",
+      "evidence": "Phase 12 backend log: '2026-06-13 00:26:51 - 127.0.0.1:64943 - POST /api/v1/user/create HTTP/1.1 500 Internal Server Error' with traceback ending in 'tortoise.exceptions.ValidationError: username: Length of qa_e2e_user_dbcf62e6_seed 25 > 20'",
+      "expected_behavior": "Returns 422 Unprocessable Entity with field-level error",
+      "actual_behavior": "Returns 500 Internal Server Error with stack trace",
+      "scope": "Affects all create/update endpoints when input violates DB-level field constraints not caught by Pydantic schema (e.g., max_length for CharField that schema declares only as 'str').",
+      "recommended_next_action": "Add tortoise.exceptions.ValidationError handler in app/core/exceptions.py or extend Pydantic schemas with explicit max_length constraints. NOT in scope of this change."
+    }
+  ]
+}

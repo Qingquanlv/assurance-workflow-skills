@@ -1,0 +1,9 @@
+id: FC-002
+annotation_source: human
+tags: ["classification-unit", "e2e", "timeout"]
+input:
+  message: "Timeout 30000ms exceeded waiting for networkidle"
+  log_excerpt: "page.waitForLoadState: timeout exceeded"
+  target: e2e
+expected:
+  category: wait_strategy_failure

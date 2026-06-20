@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260612-user-mgmt",
+  "iteration": 2,
+  "target": "e2e",
+  "applied_at": "2026-06-13T01:08:00Z",
+  "applied": true,
+  "proposal_source": "qa/changes/20260612-user-mgmt/healing/fix-proposal.json",
+  "applied_proposals": [
+    {
+      "proposal_id": "FIX-005",
+      "category": "test_data_failure",
+      "files_modified": ["tests/e2e/test_users_e2e.py"],
+      "operations": [
+        {
+          "file": "tests/e2e/test_users_e2e.py",
+          "line": 91,
+          "operation": "replace",
+          "before": "    seed_username = f\"{unique_username}_seed\"",
+          "after": "    seed_username = f\"s_{unique_username[2:]}\"[:20]",
+          "verified_constraint": "len(seed_username)=20 (verified by python eval); distinct from unique_username; email left unchanged"
+        }
+      ]
+    },
+    {
+      "proposal_id": "FIX-006",
+      "category": "locator_failure",
+      "files_modified": ["tests/e2e/test_users_e2e.py"],
+      "operations": [
+        {
+          "file": "tests/e2e/test_users_e2e.py",
+          "line": 179,
+          "operation": "replace",
+          "before": "    page.get_by_role(\"button\", name=\"确定\").click()",
+          "after": "    page.get_by_role(\"button\", name=\"确认\").click()",
+          "context": "Popconfirm confirmation after row 删除 click in test_delete_user_removes_row"
+        },
+        {
+          "file": "tests/e2e/test_users_e2e.py",
+          "line": 224,
+          "operation": "replace",
+          "before": "    page.get_by_role(\"button\", name=\"确定\").click()",
+          "after": "    page.get_by_role(\"button\", name=\"确认\").click()",
+          "context": "Popconfirm confirmation after row 重置密码 click in test_reset_password_normal_user"
+        }
+      ]
+    }
+  ],
+  "skipped_proposals": [],
+  "verification": {
+    "lsp_diagnostics_clean": true,
+    "lsp_warnings_preexisting": ["F401 secrets imported but unused (line 3, pre-existing)"],
+    "collection": {
+      "command": "uv run pytest tests/e2e/test_users_e2e.py --collect-only -q",
+      "tests_collected": 6,
+      "errors": 0
+    },
+    "trusted_source_check": {
+      "passed": true,
+      "source": "qa/changes/20260612-user-mgmt/codegen/e2e-codegen-summary.md (tests/e2e/test_users_e2e.py is in generated_tests.files)"
+    }
+  }
+}

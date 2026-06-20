@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "20260614-menu-mgmt",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "Case design for menu module is complete and testable. 10 cases covering tree structure, ordering, CRUD, business rules (delete-with-children), and circular-dependency protection. Layer assignments match proposal Layer Rationale. All required fields present, no forbidden content, no duplicates, traceability complete. TC-MENU-008 explicitly probes a suspected production bug (recursive infinite loop on circular parent_id); failure during execution will be classified as product issue per workflow contract. Two minor low-severity informational findings recorded for transparency, neither blocks planning.",
+  "reviewed_files": [
+    "qa/changes/20260614-menu-mgmt/proposal.md",
+    "qa/changes/20260614-menu-mgmt/.qa.yaml",
+    "qa/changes/20260614-menu-mgmt/cases/menu/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [
+    {
+      "id": "CASE-FINDING-001",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260614-menu-mgmt/cases/menu/case.yaml",
+      "message": "TC-MENU-007 and TC-MENU-008 assertions defer concrete error response shape to implementation ('具体错误形式由实现决定'). This is acceptable at case-design time because the API plan will pin down the exact response shape, but the api-plan reviewer should verify this is closed before codegen.",
+      "suggestion": "No fix required at case stage. aws-api-plan must specify exact assertion form (HTTP status / business code / msg pattern) for these two cases before codegen.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "CASE-FINDING-002",
+      "severity": "low",
+      "category": "data",
+      "file": "qa/changes/20260614-menu-mgmt/cases/menu/case.yaml",
+      "message": "Fixtures referenced in test_data (top_level_menu_factory, child_menu_factory, menu_with_children_factory) and cleanup strategy assume registration in .aws/data-knowledge.yaml; fact-baseline phase must confirm or extend the data knowledge registry before codegen.",
+      "suggestion": "Phase 3.5 (fact baseline) should validate that menu fixture capabilities exist in .aws/data-knowledge.yaml; if missing, plan to extend it before api-codegen.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    }
+  ],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-14T00:05:00Z"
+}

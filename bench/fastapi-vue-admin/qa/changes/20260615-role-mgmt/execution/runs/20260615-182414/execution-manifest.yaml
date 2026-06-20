@@ -1,0 +1,71 @@
+schema_version: "1.0"
+change_id: 20260615-role-mgmt
+batch_id: 20260615-182414
+
+primary_runner:
+  command: aws run --change 20260615-role-mgmt
+  status: failed
+  exit_code: 0
+  result_files:
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/api-result.json
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/e2e-result.json
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/fuzz-result.json
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/coverage-result.json
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/performance-result.json
+    - qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/summary.md
+
+fallback_runner:
+  used: false
+  reason: null
+  command: null
+  status: not_used
+  exit_code: null
+  normalised_results_available: false
+
+selected_targets:
+  api: true
+  e2e: true
+  fuzz: true
+  performance: false
+
+layer_results:
+  api:
+    status: failed
+    total: 26
+    passed: 24
+    failed: 2
+    skipped: 0
+  e2e:
+    status: failed
+    total: 3
+    passed: 0
+    failed: 3
+    skipped: 0
+  fuzz:
+    status: failed
+    total: 7
+    passed: 0
+    failed: 7
+    skipped: 0
+  coverage:
+    status: SKIPPED
+    available: false
+    reason: pytest-cov unavailable
+  performance:
+    status: SKIPPED
+    available: false
+    reason: not selected
+
+known_product_issues:
+  present: false
+  file: qa/changes/20260615-role-mgmt/known-product-issues.md
+
+final_status: FAIL
+warnings:
+  - "CLI auto-discovered tests/api/test_users_api.py beyond planned scope (plan: tests/api/test_role_api.py only); 13 unmapped users tests added to API total."
+  - "CLI auto-discovered tests/e2e/scripts/user_data_setup.py in fuzz command (plan: tests/fuzz/ only); did not affect fuzz pytest collection but appears in command line."
+  - "Coverage collection skipped: pytest-cov not installed. coverage-result.json status=SKIPPED. Per skill, this is a warning, not a failure."
+  - "Performance layer not selected (layers.performance=false); performance-result.json status=SKIPPED."
+  - "CLI did not write execution-manifest.yaml in per-run dir; skill authored it post-execution."
+  - "No known-product-issues.md exists at qa/changes/20260615-role-mgmt/; skill did not snapshot. Phase 9 (aws-inspect) is responsible for classifying real product bugs surfaced by this run."
+  - "summary.md was authored by CLI; skill verified, did not rewrite. CLI summary did not include known-product-issues block (none exists yet)."

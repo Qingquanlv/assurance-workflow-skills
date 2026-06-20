@@ -1,0 +1,259 @@
+{
+  "schema_version": "1.0",
+  "change_id": "eval-sample-001",
+  "module": "users",
+  "captured_at": "2026-06-12T15:05:39Z",
+  "captured_by": "aws-workflow-inline (Phase 3.5)",
+  "source_files": [
+    "app/core/init_app.py",
+    "app/core/dependency.py",
+    "app/core/exceptions.py",
+    "app/api/__init__.py",
+    "app/api/v1/__init__.py",
+    "app/api/v1/base/base.py",
+    "app/api/v1/users/users.py",
+    "app/controllers/user.py",
+    "app/schemas/users.py",
+    "app/schemas/base.py",
+    "app/settings/config.py"
+  ],
+  "environment": {
+    "backend_base_url": "http://localhost:9999",
+    "frontend_base_url": "http://localhost:3100",
+    "api_prefix": "/api/v1",
+    "users_route_prefix": "/api/v1/user",
+    "base_route_prefix": "/api/v1/base",
+    "frontend_user_admin_path": "/system/user",
+    "database": {
+      "engine": "sqlite",
+      "file": "db.sqlite3",
+      "parallel_safety": "low (single-file lock; tests must serialize or use isolated fixtures)"
+    }
+  },
+  "auth": {
+    "login_endpoint": "/api/v1/base/access_token",
+    "login_method": "POST",
+    "login_request_body_shape": "{username: str, password: str}",
+    "login_response_data_path": "data.access_token",
+    "token_header_name": "token",
+    "token_header_format": "raw_token",
+    "is_bearer_format": false,
+    "dev_backdoor_token": "dev",
+    "dev_backdoor_behavior": "token=='dev' bypasses JWT decode and resolves to first user in DB; tests should NOT use this — use real login.",
+    "jwt_algorithm": "HS256",
+    "jwt_expire_minutes": 10080,
+    "jwt_payload_fields": ["user_id", "username", "is_superuser", "exp"]
+  },
+  "default_admin": {
+    "username": "admin",
+    "password": "123456",
+    "email": "admin@admin.com",
+    "is_superuser": true,
+    "is_active": true,
+    "seeded_by": "init_superuser() in app/core/init_app.py",
+    "seeded_when": "first startup if user table is empty"
+  },
+  "seeded_roles": {
+    "admin_role": {
+      "name": "管理员",
+      "desc": "管理员角色",
+      "scope": "all menus + all apis"
+    },
+    "user_role": {
+      "name": "普通用户",
+      "desc": "普通用户角色",
+      "scope": "all menus + GET-only apis + 基础模块 tag apis"
+    },
+    "preferred_role_for_e2e_assignment": {
+      "name": "普通用户",
+      "rationale": "Stable seed name; non-default-admin role prevents accidental privilege escalation in tests; clearly distinguishable from the role used by tests' admin login.",
+      "lookup_strategy": "ORM: Role.filter(name='普通用户').first()"
+    }
+  },
+  "endpoints": {
+    "list_user": {
+      "method": "GET",
+      "path": "/api/v1/user/list",
+      "auth": "DependPermission (superuser bypasses)",
+      "query_params": ["page (int, default 1)", "page_size (int, default 10)", "username (str, default '')", "email (str, default '')", "dept_id (int, optional)"],
+      "search_semantics": "icontains for username and email; AND combined",
+      "response_schema": "SuccessExtra: {code:200, msg:null, data:[user...], total:int, page:int, page_size:int}",
+      "user_dict_excludes": ["password"],
+      "user_dict_includes_m2m": true
+    },
+    "get_user": {
+      "method": "GET",
+      "path": "/api/v1/user/get",
+      "auth": "DependPermission (superuser bypasses)",
+      "query_params": ["user_id (int, required)"],
+      "missing_id_behavior": "raises Tortoise DoesNotExist → caught by DoesNotExistHandle → returns 404 with body {code:404, msg:'Object has not found, exc: ..., query_params: ...'}",
+      "response_schema_ok": "Success: {code:200, msg:'OK', data:{...user dict without password}}"
+    },
+    "create_user": {
+      "method": "POST",
+      "path": "/api/v1/user/create",
+      "auth": "DependPermission (superuser bypasses)",
+      "body_schema": "UserCreate: {email: EmailStr (required), username: str (required), password: str (required), is_active: bool (default true), is_superuser: bool (default false), role_ids: List[int] (default []), dept_id: Optional[int] (default 0)}",
+      "duplicate_email_response": {
+        "http_status": 400,
+        "body": {"code": 400, "msg": "The user with this email already exists in the system.", "data": null},
+        "note": "Fail(code=400, ...) returns HTTP 400 with matching body code."
+      },
+      "missing_required_field_response": {
+        "http_status": 422,
+        "body_shape": "{code:422, msg: 'RequestValidationError, ...'}",
+        "note": "FastAPI Pydantic validation handled by RequestValidationHandle."
+      },
+      "success_response": {
+        "http_status": 200,
+        "body": {"code": 200, "msg": "Created Successfully", "data": null}
+      },
+      "side_effects": [
+        "User row created with password hashed via app.utils.password.get_password_hash",
+        "user.roles m2m populated via update_roles(user, role_ids) which CLEARS then ADDs"
+      ]
+    },
+    "update_user": {
+      "method": "POST",
+      "path": "/api/v1/user/update",
+      "auth": "DependPermission (superuser bypasses)",
+      "body_schema": "UserUpdate: {id: int (required), email: EmailStr (required), username: str (required), is_active: bool (default true), is_superuser: bool (default false), role_ids: List[int] (default []), dept_id: int (default 0)}",
+      "missing_id_behavior": "controller calls self.update(id=...) which uses get(id=...) → DoesNotExist → DoesNotExistHandle → 404",
+      "role_update_semantics": "update_roles() does roles.clear() then add(role_id) for each id in role_ids; result is total replacement (no merge with existing roles)",
+      "success_response": {
+        "http_status": 200,
+        "body": {"code": 200, "msg": "Updated Successfully", "data": null}
+      },
+      "important_caveat": "update_user does NOT re-hash password (no password field in UserUpdate). Update path mutates only fields present in UserUpdate."
+    },
+    "delete_user": {
+      "method": "DELETE",
+      "path": "/api/v1/user/delete",
+      "auth": "DependPermission (superuser bypasses)",
+      "query_params": ["user_id (int, required)"],
+      "missing_id_behavior": "controller.remove(id=...) calls get(id=...) → DoesNotExist → 404",
+      "success_response": {
+        "http_status": 200,
+        "body": {"code": 200, "msg": "Deleted Successfully", "data": null}
+      }
+    },
+    "reset_password": {
+      "method": "POST",
+      "path": "/api/v1/user/reset_password",
+      "auth": "DependPermission (superuser bypasses)",
+      "body_schema": "{user_id: int (required, embed=True)}",
+      "fixed_new_password": "123456",
+      "superuser_block_response": {
+        "http_status": 403,
+        "body": {"code": 403, "msg": "不允许重置超级管理员密码", "data": null},
+        "trigger": "target user has is_superuser=True"
+      },
+      "missing_id_behavior": "controller.get(id=...) → DoesNotExist → 404",
+      "success_response": {
+        "http_status": 200,
+        "body": {"code": 200, "msg": "密码已重置为123456", "data": null}
+      }
+    }
+  },
+  "response_envelope_conventions": {
+    "Success": {
+      "http_status": "= code (default 200)",
+      "body": "{code:int, msg:str, data:any}"
+    },
+    "SuccessExtra": {
+      "http_status": "= code (default 200)",
+      "body": "{code:int, msg:str|null, data:any, total:int, page:int, page_size:int}"
+    },
+    "Fail": {
+      "http_status": "= code (default 400)",
+      "body": "{code:int, msg:str|null, data:any}"
+    },
+    "exception_handlers": {
+      "DoesNotExist": "404 + {code:404, msg:'Object has not found, exc: ..., query_params: ...'}",
+      "IntegrityError": "500 + {code:500, msg:'IntegrityError，...'}",
+      "HTTPException": "= status_code + {code:status_code, msg:detail, data:null}",
+      "RequestValidationError": "422 + {code:422, msg:'RequestValidationError, ...'}",
+      "ResponseValidationError": "500 + {code:500, msg:'ResponseValidationError, ...'}"
+    }
+  },
+  "case_forward_reference_resolution": {
+    "TC-USER-050": {
+      "deferred_value": "重置后预期固定密码",
+      "resolved_to": "123456",
+      "source": "app/controllers/user.py:56 (UserController.reset_password)"
+    },
+    "TC-USER-051": {
+      "deferred_value": "默认超级管理员的内部 ID",
+      "resolved_to": "id of user where username='admin' and is_superuser=true",
+      "lookup_strategy": "ORM: User.filter(username='admin', is_superuser=True).first() → .id",
+      "expected_msg": "不允许重置超级管理员密码",
+      "expected_http": 403
+    },
+    "TC-USER-103": {
+      "deferred_value": "目标角色名称",
+      "resolved_to": "普通用户",
+      "lookup_strategy": "ORM: Role.filter(name='普通用户').first()",
+      "rationale": "Pre-seeded; not the role of the logged-in admin (avoids data ambiguity); name is stable across DB resets."
+    }
+  },
+  "test_data_factories": {
+    "user_factory_required_fields": ["username (unique)", "email (unique)", "password (plain, will be hashed)"],
+    "user_factory_optional_fields": ["is_active (default True)", "is_superuser (default False)", "role_ids (default [])", "dept_id (default 0)"],
+    "creation_methods": [
+      "Preferred for tests: ORM directly via app.models.admin.User + get_password_hash for fast setup",
+      "Alternative: API call to POST /api/v1/user/create (slower, exercises full stack — better for E2E preconditions if test wants to exercise the contract)"
+    ],
+    "cleanup_methods": [
+      "ORM: User.filter(username__in=[...]).delete() (also cascades roles m2m via Tortoise) — use in pytest fixture teardown",
+      "API: DELETE /api/v1/user/delete?user_id=..."
+    ],
+    "uniqueness_constraints": ["username (per User model)", "email (business-level check via get_by_email; no DB unique constraint enforced — Fail(400) only)"],
+    "warning_email_business_uniqueness": "Email duplicate check is implemented in handler (get_by_email + Fail(400)), NOT a DB unique index. Concurrent inserts could theoretically race, but for sequential test execution this is reliable."
+  },
+  "rbac_permission_matrix": {
+    "superuser_admin": {
+      "username": "admin",
+      "permission_check": "PermissionControl.has_permission early-returns when is_superuser=True",
+      "effect": "All /api/v1/user/* endpoints accessible without role-based api binding."
+    },
+    "non_superuser_admin_role_user": {
+      "permission_source": "User.roles → Role.apis → list of (method, path) tuples",
+      "admin_role_apis": "all (admin_role.apis.add(*all_apis) in init_roles())",
+      "effect": "Has full /api/v1/user/* access via 管理员 role binding."
+    },
+    "non_superuser_user_role_user": {
+      "permission_source": "Filtered: GET methods + tags='基础模块'",
+      "effect": "Cannot create/update/delete users; can list/get."
+    }
+  },
+  "e2e_navigation_facts": {
+    "login_page_path": "/login",
+    "user_admin_page_path": "/system/user",
+    "menu_path": "系统管理 → 用户管理",
+    "menu_seeded_in": "init_menus() — parent=系统管理 (path=/system, redirect=/system/user), child=用户管理 (path=user, component=/system/user)"
+  },
+  "test_isolation_strategy": {
+    "approach": "scripts_with_cleanup (per Phase 1 user decision)",
+    "shared_resource": "single sqlite file db.sqlite3 — no transactional isolation across tests",
+    "guidance": [
+      "Use unique usernames per test (timestamp suffix or uuid hex) to avoid cross-test bleed",
+      "Use try/finally or pytest fixture teardown to delete created users",
+      "Avoid mutating the default 'admin' user",
+      "Avoid mutating seeded roles (管理员, 普通用户) — only assign/unassign them"
+    ],
+    "parallel_test_safety": "DO NOT run tests in parallel against the same db.sqlite3 — sqlite write contention + shared seed state will cause flaky tests."
+  },
+  "known_constraints_for_planning": [
+    "API token header name is `token`, NOT `Authorization`. Plan headers must reflect this.",
+    "Login response data path is `data.access_token`. Plan must extract correctly.",
+    "Default admin is superuser → all endpoints accessible without role-binding setup. Tests don't need to grant API permissions explicitly.",
+    "reset_password fixed value is `123456`. Re-login validation must use this constant.",
+    "DoesNotExist → 404 (not 400). Negative cases TC-USER-011/031/041/052 should expect HTTP 404 with body code=404.",
+    "RequestValidationError → 422. Validation case TC-USER-022 should expect HTTP 422 with body code=422.",
+    "Duplicate email → HTTP 400 with body {code:400, msg: 'The user with this email already exists in the system.'}. TC-USER-021 should expect this.",
+    "Superuser block → HTTP 403 with body {code:403, msg:'不允许重置超级管理员密码'}. TC-USER-051 should expect this.",
+    "update_roles is destructive (clear+add). TC-USER-030 / TC-USER-103 must verify ONLY the new role exists post-update.",
+    "Update endpoint does not modify password field — only the fields in UserUpdate schema (note: UserUpdate has no password field at all).",
+    "User.to_dict(m2m=True) is used in list endpoint — list response includes roles populated; get_user response uses to_dict() without m2m=True so roles may be empty array there."
+  ]
+}

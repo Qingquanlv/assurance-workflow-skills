@@ -1,0 +1,13 @@
+---
+description: Use when case-review.json exists and contains auto-fixable findings that need to be applied to proposal.md or case-delta files. Triggers on: apply case review, fix case findings, auto fix case delta, awe apply review. Only applies findings where auto_fix_allowed=true and human_review_required=false.
+globs:
+alwaysApply: false
+---
+
+# Skill: awe-apply-case-review
+
+当需要执行此 skill 时，使用 Read 工具读取完整内容后按其指令执行：
+
+```
+Read: skills/awe-apply-case-review/SKILL.md
+```

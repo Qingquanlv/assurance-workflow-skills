@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "review_type": "api-plan",
+  "change_id": "20260615-role-mgmt",
+  "decision": "pass",
+  "risk_level": "low",
+  "codegen_readiness": "ready_with_warnings",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "API plan covers all 11 API cases (TC-ROLE-001..011) against 7 confirmed endpoints. Auth, fixtures, request/response assertions, and cleanup strategy are concrete and traceable to .aws/data-knowledge.yaml. Five Needs Review items are documented as non-blocking, all related to acceptable codegen-time decisions (helper extension scope, message-string case-insensitivity, update success-path verification, OOB sweep deferral, api ordering stability). No blockers. .aws/data-knowledge.yaml present. Plan is codegen-ready with documented warnings.",
+  "reviewed_files": [
+    "qa/changes/20260615-role-mgmt/plans/api-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/api-test-data-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/api-codegen-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/m3-review-summary.md",
+    "qa/changes/20260615-role-mgmt/cases/roles/case.yaml",
+    ".aws/data-knowledge.yaml",
+    "tests/api/conftest.py",
+    "tests/api/helpers/role_api.py",
+    "tests/api/test_users_api.py"
+  ],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [
+    {
+      "id": "API-PLAN-REVIEW-001",
+      "severity": "medium",
+      "category": "fixture",
+      "file": "qa/changes/20260615-role-mgmt/plans/api-codegen-plan.md",
+      "question": "Helper extension to tests/api/helpers/role_api.py adds 6 new functions plus convenience safe_delete_role_by_name. Confirm scope is acceptable (codegen-time additive change, no API surface break).",
+      "reason": "Plan documents this in NR-API-01; .aws/data-knowledge.yaml claims helpers that don't exist on disk. Decision is reasonable given strict additive nature, but worth surfacing.",
+      "blocking": false
+    },
+    {
+      "id": "API-PLAN-REVIEW-002",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260615-role-mgmt/plans/api-plan.md",
+      "question": "TC-ROLE-006 duplicate-name rejection asserts msg.lower() contains 'already exists'. Confirm assertion remains valid if backend localizes error messages.",
+      "reason": "Plan documents this in NR-API-02 with case-insensitive matching; current backend returns English message in this path. Non-blocking.",
+      "blocking": false
+    },
+    {
+      "id": "API-PLAN-REVIEW-003",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260615-role-mgmt/plans/api-plan.md",
+      "question": "TC-ROLE-007 update-desc-persisted: success-path is verified via subsequent GET (not just status 200). Acceptable approach?",
+      "reason": "Plan documents this in NR-API-03; HTTP-readback substitutes for ORM-query assertion since controller is sole DB writer. Non-blocking.",
+      "blocking": false
+    },
+    {
+      "id": "API-PLAN-REVIEW-004",
+      "severity": "low",
+      "category": "data",
+      "file": "qa/changes/20260615-role-mgmt/plans/api-test-data-plan.md",
+      "question": "Out-of-band cleanup sweep for orphan qa-role-* records is deferred to first execution.",
+      "reason": "Plan documents this in NR-API-04; per-test cleanup via fixture is the primary path. Sweep is a backstop. Non-blocking.",
+      "blocking": false
+    },
+    {
+      "id": "API-PLAN-REVIEW-005",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260615-role-mgmt/plans/api-plan.md",
+      "question": "TC-ROLE-011 api_infos rewrite uses tuple-based membership assertion (path,method) rather than ID-based.",
+      "reason": "Plan documents this in NR-API-05; ID stability is not guaranteed across test runs since Api records are seeded by ordinal scan. Tuple is more stable. Non-blocking.",
+      "blocking": false
+    }
+  ],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-15T09:11:03Z"
+}

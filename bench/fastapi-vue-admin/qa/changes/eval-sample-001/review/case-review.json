@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "eval-sample-001",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "Case delta for eval-sample-001 passes review. 15 API cases (all modified — case_ids already exist in qa/cases/users/case.yaml) covering 6 user-management endpoints with happy paths, error paths, auth boundary, validation, and permission protection. Schema is aligned to the latest aws-case-design contract: no automation.target, valid design_technique enums (negative replaces error_guessing), valid selection_reason enums, valid maintenance_rule enums, confirmed_by/confirmed_at populated, suggested_file set. Source-of-truth facts are tightened: TC-USER-050 references fixed password 123456 (app/controllers/user.py:56), TC-USER-051 asserts HTTP 403 (app/controllers/user.py:54-55). E2E cases are out of scope per test_types=api. Delta operation correctness verified: all 15 modified case_ids exist in target file, no duplicates across added/modified/removed lists. No forbidden content (no method/path, no Bearer tokens, no pytest/Playwright code, no data-testid, no raw SQL). Layer rationale in proposal.md matches each case's type=API. Four P1 cases intentionally carry medium risk (documented in proposal.md Priority/Risk Mapping Note).",
+  "reviewed_files": [
+    "qa/changes/eval-sample-001/proposal.md",
+    "qa/changes/eval-sample-001/.qa.yaml",
+    "qa/changes/eval-sample-001/cases/users/case.yaml",
+    "qa/cases/users/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [
+    {
+      "id": "CASE-FINDING-001",
+      "severity": "low",
+      "category": "traceability",
+      "file": "qa/changes/eval-sample-001/cases/users/case.yaml",
+      "message": "Four P1 cases (TC-USER-002, TC-USER-011, TC-USER-021, TC-USER-031) have medium risk.level while priority is P1. aws-case-design rule 45 expects P0/P1 to map to high/critical risk.",
+      "suggestion": "Documented in proposal.md Priority/Risk Mapping Note as an intentional design decision — these are error-path / filter cases with bounded business impact. No change required; the documentation satisfies the rule.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "CASE-FINDING-002",
+      "severity": "low",
+      "category": "clarity",
+      "file": "qa/changes/eval-sample-001/cases/users/case.yaml",
+      "message": "TC-USER-022 uses design_technique=boundary_value_analysis but tests a missing-field (presence) scenario rather than a numeric/string boundary. Strictly this is equivalence_partitioning (present vs absent class).",
+      "suggestion": "Acceptable as-is — boundary_value_analysis is a valid technique for schema boundary (field present vs absent). No change required for codegen to proceed.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    }
+  ],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-20T18:25:00Z"
+}

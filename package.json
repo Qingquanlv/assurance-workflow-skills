@@ -11,7 +11,7 @@
     "build:watch": "tsc --watch",
     "start": "node dist/cli.js",
     "dev": "ts-node src/cli.ts",
-    "test": "jest",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "tsc --noEmit && npm run arch:check",

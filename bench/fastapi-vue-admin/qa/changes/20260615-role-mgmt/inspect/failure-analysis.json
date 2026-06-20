@@ -1,0 +1,394 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260615-role-mgmt",
+  "batch_id": "20260617-090841",
+  "source_batch_id": "20260617-090841",
+  "final_status": "FAIL",
+  "inspect_mode": "primary",
+  "classification_performed": true,
+  "status": "analyzed",
+  "failures": [
+    {
+      "case_id": "test_tc_role_001_list_default_pagination",
+      "target": "api",
+      "category": "assertion_failure",
+      "fix_proposal_eligible": false,
+      "severity": "high",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/api-result.json",
+        "test_file": "tests/api/test_role_api.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/api.log",
+        "log_excerpt": "\n=================================== FAILURES ===================================\n___________________ test_tc_role_001_list_default_pagination ___________________\n\napi_client = <httpx.Client object at 0x10ad13310>\n\n    def test_tc_role_001_list_default_pagination(api_client: httpx.Client) -> None:\n        \"\"\"TC-ROLE-001: 角色列表 - 默认分页加载.\"\"\"\n        response = list_roles(api_client, page=1, page_size=10)\n    \n        assert response.status_code == 200\n        body = response.json()\n        assert body[\"code\"] == 200\n        assert isinstance(body[\"data\"], list)\n        assert len(body[\"data\"]) >= 1\n>       assert any(r[\"name\"] == \"admin\" for r in body[\"data\"])\nE       assert False"
+      },
+      "diagnosis": "Assertion mismatch — expected value differs from actual. api_client = <httpx.Client object at 0x10ad13310>",
+      "recommended_action": "Investigate whether the product behaviour changed or the expected value in the test is incorrect. Do not auto-fix."
+    },
+    {
+      "case_id": "test_tc_role_002_list_filter_by_name",
+      "target": "api",
+      "category": "assertion_failure",
+      "fix_proposal_eligible": false,
+      "severity": "high",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/api-result.json",
+        "test_file": "tests/api/test_role_api.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/api.log",
+        "log_excerpt": "\ntests/api/test_role_api.py:33: AssertionError\n_____________________ test_tc_role_002_list_filter_by_name _____________________\n\napi_client = <httpx.Client object at 0x10ad13310>\n\n    def test_tc_role_002_list_filter_by_name(api_client: httpx.Client) -> None:\n        \"\"\"TC-ROLE-002: 角色列表 - 按角色名模糊搜索.\"\"\"\n        role_name = f\"qa-role-search-{secrets.token_hex(3)}\"\n        safe_delete_role_by_name(api_client, role_name)\n        role_id: int | None = None\n        try:\n            create_response = create_role(api_client, name=role_name, desc=\"QA 搜索测试\")\n>           assert create_response.status_code == 200\nE           assert 500 == 200\nE            +  where 500 = <Response [500 Internal Server Error]>.status_code\n"
+      },
+      "diagnosis": "Assertion mismatch — expected value differs from actual. api_client = <httpx.Client object at 0x10ad13310>",
+      "recommended_action": "Investigate whether the product behaviour changed or the expected value in the test is incorrect. Do not auto-fix."
+    },
+    {
+      "case_id": "TC-ROLE-101",
+      "target": "e2e",
+      "category": "locator_failure",
+      "fix_proposal_eligible": true,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/e2e-result.json",
+        "test_file": "tests/e2e/test_role_e2e.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/e2e.log",
+        "log_excerpt": "\ntests/e2e/test_role_e2e.py::test_role_management_page_loads[chromium] PASSED [ 33%]\ntests/e2e/test_role_e2e.py::test_create_role_via_ui[chromium] FAILED     [ 66%]\ntests/e2e/test_role_e2e.py::test_authorize_role_menu_via_ui[chromium] FAILED [100%]\n\n=================================== FAILURES ===================================\n______________________ test_create_role_via_ui[chromium] _______________________\n\nrole_management_page = <Page url='http://localhost:3100/system/role'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODIyNjMzMzB9.v_ikeqRoajB4xKL6zA7GyqAL90LlN7PAXPXSEuPq8Sc'\ncleanup_roles = [], unique_role_token = '69856dae'\n\n    @pytest.mark.case_id(\"TC-ROLE-101\")\n    def test_create_role_via_ui(\n        role_management_page: Page,\n        admin_token: str,\n        cleanup_roles: list[int],"
+      },
+      "diagnosis": "Element locator failed. role_management_page = <Page url='http://localhost:3100/system/role'>",
+      "recommended_action": "Generate a Fix Proposal to update the locator strategy after review. Run `aws fix propose --change 20260615-role-mgmt`."
+    },
+    {
+      "case_id": "TC-ROLE-102",
+      "target": "e2e",
+      "category": "business_logic_failure",
+      "fix_proposal_eligible": false,
+      "severity": "critical",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/e2e-result.json",
+        "test_file": "tests/e2e/test_role_e2e.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/e2e.log",
+        "log_excerpt": "tests/e2e/test_role_e2e.py::test_role_management_page_loads[chromium] PASSED [ 33%]\ntests/e2e/test_role_e2e.py::test_create_role_via_ui[chromium] FAILED     [ 66%]\ntests/e2e/test_role_e2e.py::test_authorize_role_menu_via_ui[chromium] FAILED [100%]\n\n=================================== FAILURES ===================================\n______________________ test_create_role_via_ui[chromium] _______________________\n\nrole_management_page = <Page url='http://localhost:3100/system/role'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODIyNjMzMzB9.v_ikeqRoajB4xKL6zA7GyqAL90LlN7PAXPXSEuPq8Sc'\ncleanup_roles = [], unique_role_token = '69856dae'\n\n    @pytest.mark.case_id(\"TC-ROLE-101\")\n    def test_create_role_via_ui(\n        role_management_page: Page,\n        admin_token: str,\n        cleanup_roles: list[int],\n        unique_role_token: str,"
+      },
+      "diagnosis": "Server returned an error suggesting a product-level issue. role_management_page = <Page url='http://localhost:3100/system/role'>",
+      "recommended_action": "File a bug against the product team. This is not a test issue."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/list]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "\n=================================== FAILURES ===================================\n_________ test_role_endpoints_schema_robustness[GET /api/v1/role/list] _________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/hypothesis/core.py\", line 2264, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 2 distinct failures\n  | \n  | - Server error\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 500\n  |     Documented: 200, 422\n  | \n  | [500] Internal Server Error:\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/get]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_________ test_role_endpoints_schema_robustness[GET /api/v1/role/get] __________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/create]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_______ test_role_endpoints_schema_robustness[POST /api/v1/role/create] ________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 400\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/update]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_______ test_role_endpoints_schema_robustness[POST /api/v1/role/update] ________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 2 distinct failures\n  | \n  | - Server error\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 500"
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[DELETE /api/v1/role/delete]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n______ test_role_endpoints_schema_robustness[DELETE /api/v1/role/delete] _______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n______ test_role_endpoints_schema_robustness[GET /api/v1/role/authorized] ______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_____ test_role_endpoints_schema_robustness[POST /api/v1/role/authorized] ______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    }
+  ],
+  "hard_fails": [
+    {
+      "case_id": "test_tc_role_001_list_default_pagination",
+      "target": "api",
+      "category": "assertion_failure",
+      "fix_proposal_eligible": false,
+      "severity": "high",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/api-result.json",
+        "test_file": "tests/api/test_role_api.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/api.log",
+        "log_excerpt": "\n=================================== FAILURES ===================================\n___________________ test_tc_role_001_list_default_pagination ___________________\n\napi_client = <httpx.Client object at 0x10ad13310>\n\n    def test_tc_role_001_list_default_pagination(api_client: httpx.Client) -> None:\n        \"\"\"TC-ROLE-001: 角色列表 - 默认分页加载.\"\"\"\n        response = list_roles(api_client, page=1, page_size=10)\n    \n        assert response.status_code == 200\n        body = response.json()\n        assert body[\"code\"] == 200\n        assert isinstance(body[\"data\"], list)\n        assert len(body[\"data\"]) >= 1\n>       assert any(r[\"name\"] == \"admin\" for r in body[\"data\"])\nE       assert False"
+      },
+      "diagnosis": "Assertion mismatch — expected value differs from actual. api_client = <httpx.Client object at 0x10ad13310>",
+      "recommended_action": "Investigate whether the product behaviour changed or the expected value in the test is incorrect. Do not auto-fix."
+    },
+    {
+      "case_id": "test_tc_role_002_list_filter_by_name",
+      "target": "api",
+      "category": "assertion_failure",
+      "fix_proposal_eligible": false,
+      "severity": "high",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/api-result.json",
+        "test_file": "tests/api/test_role_api.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/api.log",
+        "log_excerpt": "\ntests/api/test_role_api.py:33: AssertionError\n_____________________ test_tc_role_002_list_filter_by_name _____________________\n\napi_client = <httpx.Client object at 0x10ad13310>\n\n    def test_tc_role_002_list_filter_by_name(api_client: httpx.Client) -> None:\n        \"\"\"TC-ROLE-002: 角色列表 - 按角色名模糊搜索.\"\"\"\n        role_name = f\"qa-role-search-{secrets.token_hex(3)}\"\n        safe_delete_role_by_name(api_client, role_name)\n        role_id: int | None = None\n        try:\n            create_response = create_role(api_client, name=role_name, desc=\"QA 搜索测试\")\n>           assert create_response.status_code == 200\nE           assert 500 == 200\nE            +  where 500 = <Response [500 Internal Server Error]>.status_code\n"
+      },
+      "diagnosis": "Assertion mismatch — expected value differs from actual. api_client = <httpx.Client object at 0x10ad13310>",
+      "recommended_action": "Investigate whether the product behaviour changed or the expected value in the test is incorrect. Do not auto-fix."
+    },
+    {
+      "case_id": "TC-ROLE-102",
+      "target": "e2e",
+      "category": "business_logic_failure",
+      "fix_proposal_eligible": false,
+      "severity": "critical",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/e2e-result.json",
+        "test_file": "tests/e2e/test_role_e2e.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/e2e.log",
+        "log_excerpt": "tests/e2e/test_role_e2e.py::test_role_management_page_loads[chromium] PASSED [ 33%]\ntests/e2e/test_role_e2e.py::test_create_role_via_ui[chromium] FAILED     [ 66%]\ntests/e2e/test_role_e2e.py::test_authorize_role_menu_via_ui[chromium] FAILED [100%]\n\n=================================== FAILURES ===================================\n______________________ test_create_role_via_ui[chromium] _______________________\n\nrole_management_page = <Page url='http://localhost:3100/system/role'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODIyNjMzMzB9.v_ikeqRoajB4xKL6zA7GyqAL90LlN7PAXPXSEuPq8Sc'\ncleanup_roles = [], unique_role_token = '69856dae'\n\n    @pytest.mark.case_id(\"TC-ROLE-101\")\n    def test_create_role_via_ui(\n        role_management_page: Page,\n        admin_token: str,\n        cleanup_roles: list[int],\n        unique_role_token: str,"
+      },
+      "diagnosis": "Server returned an error suggesting a product-level issue. role_management_page = <Page url='http://localhost:3100/system/role'>",
+      "recommended_action": "File a bug against the product team. This is not a test issue."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/list]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "\n=================================== FAILURES ===================================\n_________ test_role_endpoints_schema_robustness[GET /api/v1/role/list] _________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/hypothesis/core.py\", line 2264, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 2 distinct failures\n  | \n  | - Server error\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 500\n  |     Documented: 200, 422\n  | \n  | [500] Internal Server Error:\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/get]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_________ test_role_endpoints_schema_robustness[GET /api/v1/role/get] __________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/create]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_______ test_role_endpoints_schema_robustness[POST /api/v1/role/create] ________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 400\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/update]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_______ test_role_endpoints_schema_robustness[POST /api/v1/role/update] ________\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 2 distinct failures\n  | \n  | - Server error\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 500"
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[DELETE /api/v1/role/delete]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n______ test_role_endpoints_schema_robustness[DELETE /api/v1/role/delete] _______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n______ test_role_endpoints_schema_robustness[GET /api/v1/role/authorized] ______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    },
+    {
+      "case_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "fix_proposal_eligible": false,
+      "severity": "medium",
+      "evidence": {
+        "result_file": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/fuzz-result.json",
+        "test_file": "tests/fuzz/test_roles_fuzz.py",
+        "trace": "",
+        "screenshot": "",
+        "video": "",
+        "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/fuzz.log",
+        "log_excerpt": "    | Documented: 200, 422\n    +------------------------------------\n_____ test_role_endpoints_schema_robustness[POST /api/v1/role/authorized] ______\n+ Exception Group Traceback (most recent call last):\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/tests/fuzz/test_roles_fuzz.py\", line 103, in test_role_endpoints_schema_robustness\n  |     case.call_and_validate(checks=_FUZZ_CHECKS)\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 559, in call_and_validate\n  |     self.validate_response(\n  |   File \"/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/lib/python3.11/site-packages/schemathesis/generation/case.py\", line 525, in validate_response\n  |     raise FailureGroup(_failures, message) from None\n  | schemathesis.core.failures.FailureGroup: Schemathesis found 1 distinct failure\n  | \n  | - Undocumented HTTP status code\n  | \n  |     Received: 404\n  |     Documented: 200, 422\n  | "
+      },
+      "diagnosis": "Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. + Exception Group Traceback (most recent call last):",
+      "recommended_action": "Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal."
+    }
+  ],
+  "needs_review": [],
+  "coverage_gaps": []
+}

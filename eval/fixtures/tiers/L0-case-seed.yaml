@@ -1,0 +1,7 @@
+name: L0-case-seed
+description: Case-only eval — proposal + aws config only
+paths:
+  - "proposal.md"
+  - ".qa.yaml"
+  - ".aws/data-knowledge.yaml"
+source_prefix: "eval/fixtures/samples/eval-sample-001"

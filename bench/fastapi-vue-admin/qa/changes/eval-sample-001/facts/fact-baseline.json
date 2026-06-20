@@ -1,0 +1,76 @@
+{
+  "change_id": "eval-sample-001",
+  "generated_at": "2026-06-20T18:30:00Z",
+  "source": "seed_file",
+  "seed_file": "app/core/init_app.py",
+  "facts": {
+    "builtin_roles": [
+      {"id": null, "name": "管理员", "desc": "管理员角色", "source": "seed_file", "seed_line": "app/core/init_app.py:206-209"},
+      {"id": null, "name": "普通用户", "desc": "普通用户角色", "source": "seed_file", "seed_line": "app/core/init_app.py:210-213"}
+    ],
+    "auth": {
+      "default_username": "admin",
+      "default_password": "123456",
+      "default_email": "admin@admin.com",
+      "is_superuser": true,
+      "source": "seed_file",
+      "seed_line": "app/core/init_app.py:67-78"
+    },
+    "login_endpoint": {
+      "method": "POST",
+      "path": "/api/v1/base/access_token",
+      "request_body_schema": "CredentialsSchema { username: str, password: str }",
+      "response_data_field": "data.access_token",
+      "source": "app/api/v1/base/base.py:19-37"
+    },
+    "token_header": "token",
+    "token_scheme": "raw_jwt",
+    "token_note": "Header name is 'token' (NOT 'Authorization: Bearer ...'). Value is the raw JWT string. Special value 'dev' returns the first user (dev bypass).",
+    "auth_failure_status": 401,
+    "auth_failure_header_missing_note": "FastAPI Header(...) defaults to 422 when the 'token' header is entirely missing. An invalid/expired token value returns 401. Tests asserting 'rejected' should accept 401 OR 422 for the missing-token case.",
+    "route_prefix": "/api/v1",
+    "users_route_prefix": "/api/v1/user",
+    "users_endpoints": [
+      {"method": "GET", "path": "/api/v1/user/list", "summary": "查看用户列表", "source": "app/api/v1/users/users.py:16-37"},
+      {"method": "GET", "path": "/api/v1/user/get", "summary": "查看用户", "source": "app/api/v1/users/users.py:40-46"},
+      {"method": "POST", "path": "/api/v1/user/create", "summary": "创建用户", "source": "app/api/v1/users/users.py:49-58"},
+      {"method": "POST", "path": "/api/v1/user/update", "summary": "更新用户", "source": "app/api/v1/users/users.py:61-67"},
+      {"method": "DELETE", "path": "/api/v1/user/delete", "summary": "删除用户", "source": "app/api/v1/users/users.py:70-75"},
+      {"method": "POST", "path": "/api/v1/user/reset_password", "summary": "重置密码", "source": "app/api/v1/users/users.py:78-81"}
+    ],
+    "permission_model": {
+      "superuser_bypass": true,
+      "non_superuser_requires_role_api_mapping": true,
+      "permission_denied_status": 403,
+      "source": "app/core/dependency.py:34-49"
+    },
+    "reset_password": {
+      "fixed_value": "123456",
+      "superuser_protected": true,
+      "superuser_reset_status": 403,
+      "superuser_reset_message": "不允许重置超级管理员密码",
+      "source": "app/controllers/user.py:52-57"
+    },
+    "user_create_validation": {
+      "email_field_type": "EmailStr",
+      "missing_email_validation_status": 422,
+      "duplicate_email_status": 400,
+      "duplicate_email_message": "The user with this email already exists in the system.",
+      "source": "app/schemas/users.py:19-26, app/api/v1/users/users.py:49-58"
+    },
+    "role_update_semantics": {
+      "mechanism": "clear_then_add",
+      "source": "app/controllers/user.py:46-50",
+      "note": "update_roles clears all existing roles then adds the new set — full rewrite, not incremental"
+    },
+    "password_exclusion": {
+      "list_excludes_password": true,
+      "get_excludes_password": true,
+      "source": "app/api/v1/users/users.py:32,45"
+    }
+  },
+  "warnings": [
+    "Role IDs are not known at seed time — they are auto-incremented by the DB. Tests must query role IDs at runtime by name (管理员 / 普通用户).",
+    "auth_failure_header_missing_note: TC-USER-003 asserts 'rejected' — the case uses semantic language ('未授权或拒绝访问的状态') which covers both 401 (invalid token) and 422 (missing header). Downstream api-plan should encode this as status_code in {401, 422}."
+  ]
+}

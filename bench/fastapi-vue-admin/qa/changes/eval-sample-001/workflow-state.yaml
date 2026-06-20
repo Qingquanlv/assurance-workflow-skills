@@ -1,0 +1,200 @@
+schema_version: "1.0"
+change_id: "eval-sample-001"
+module: "users"
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+runtime_params:
+  run_mode: "case-only"
+  test_types: ["api"]
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 0
+  force_continue: false
+  run_tests: false
+  auto_archive: false
+  auto_archive_with_fallback: false
+  e2e_framework: "python-playwright"
+
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  attempted_skill_loading: false
+  attempted_phase_execution: false
+  affected_gates: false
+
+phases:
+  skill_registry_check:
+    status: pass
+    reason: "case-only mode; required skills (aws-case-design, aws-case-reviewer, aws-case-fixer) verified on disk via on-disk fallback"
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+
+  case_design:
+    status: done
+    completed_at: "2026-06-20T18:19:00Z"
+    outputs:
+      - .qa.yaml
+      - proposal.md
+      - cases/users/case.yaml
+    case_count:
+      api: 15
+      e2e: 0
+      total: 15
+    automation_required: 15
+    user_decisions:
+      test_types_override: "api (user invocation overrides .qa.yaml api,e2e)"
+      exception_depth: standard
+      data_strategy: scripts_with_cleanup
+    delta_summary:
+      added: 0
+      modified: 15
+      removed: 0
+    schema_corrections_applied:
+      - "removed forbidden automation.target field from all 15 cases"
+      - "design_technique error_guessing -> negative (valid enum) on 7 cases"
+      - "selection_reason normalized to enum values [critical_user_journey, security_related, contract_boundary]"
+      - "maintenance_rule normalized to enum values [keep_until_feature_deprecated, review_after_refactor]"
+      - "added automation.confirmed_by=user, confirmed_at, suggested_file"
+      - "TC-USER-050: test_data tightened to fixed password 123456 (source: app/controllers/user.py:56)"
+      - "TC-USER-051: assertion tightened to HTTP 403 (source: app/controllers/user.py:54-55)"
+
+  case_review:
+    status: pass
+    decision: pass
+    risk_level: low
+    auto_fix_allowed: false
+    human_review_required: false
+    next_action: continue
+    gate_file: review/case-review.json
+    summary_file: review/case-review-summary.md
+    completed_at: "2026-06-20T18:25:00Z"
+    findings_count:
+      blockers: 0
+      findings: 2
+      needs_review: 0
+    findings_severity:
+      low: 2
+      medium: 0
+      high: 0
+      critical: 0
+    fix_attempts: []
+
+  fact_baseline:
+    status: done
+    completed_at: "2026-06-20T18:30:00Z"
+    source: seed_file
+    file: facts/fact-baseline.json
+    key_facts:
+      default_admin: { username: "admin", password: "123456", is_superuser: true }
+      builtin_roles: ["管理员", "普通用户"]
+      route_prefix: "/api/v1"
+      users_route_prefix: "/api/v1/user"
+      token_header: "token"
+      token_scheme: "raw_jwt"
+      reset_password_fixed_value: "123456"
+      superuser_reset_blocked: { status: 403, msg: "不允许重置超级管理员密码" }
+      role_update_semantics: "clear_then_add"
+
+  layers:
+    api: true
+    e2e: false
+    fuzz: false
+    performance: false
+    scanned_at: "2026-06-20T18:32:00Z"
+    scanned_from: "qa/changes/eval-sample-001/cases/users/case.yaml"
+    in_scope_case_count:
+      api: 15
+      e2e: 0
+      fuzz: 0
+      performance: 0
+    note: "Informational only in case-only mode — no plan/codegen phases execute."
+    layers_scan_completed_at: "2026-06-20T18:30:00Z"
+    layers_scan_reason: "15 finalized cases with type==API and automation.required==true → api layer in scope; 0 E2E/Fuzz/Performance cases in delta (E2E cases exist in stable file but are out of scope per test_types=api)"
+
+  api_plan:
+    status: skipped
+    reason: "case-only mode"
+  e2e_plan:
+    status: skipped
+    reason: "case-only mode"
+  api_plan_review:
+    status: skipped
+    reason: "case-only mode"
+  e2e_plan_review:
+    status: skipped
+    reason: "case-only mode"
+  api_codegen:
+    status: skipped
+    reason: "case-only mode"
+  e2e_codegen:
+    status: skipped
+    reason: "case-only mode"
+  execution:
+    status: skipped
+    reason: "case-only mode (run_tests=false)"
+    batch_id: null
+    manifest: null
+  inspect:
+    status: skipped
+    reason: "case-only mode"
+  healing:
+    status: skipped
+    reason: "case-only mode (max_healing_attempts == 0)"
+    attempts: []
+  report:
+    status: skipped
+    reason: "case-only mode"
+  archive:
+    status: skipped
+    reason: "auto_archive == false"
+
+gates:
+  data_knowledge:
+    status: present
+    decision: pass
+  healing_available: false
+
+known_product_issues: []
+
+agent_warnings:
+  - id: SKILL-TOOL-UNREGISTERED
+    severity: low
+    title: Skill exists on disk but not registered with skill tool
+    detail: >
+      aws-case-design, aws-case-reviewer, aws-case-fixer could not be loaded
+      via the skill tool but were found on disk. The workflow reads SKILL.md
+      directly as an equivalent fallback.
+    affected_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+    status: acknowledged
+  - id: AWS-HEALING-SKILLS-UNAVAILABLE
+    severity: medium
+    title: Healing skills are unavailable or disabled
+    impact:
+      - healing loop cannot run if execution fails with eligible failures
+      - STOP after Phase 9 if FAIL with eligible failures
+    status: acknowledged
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline
+    workaround:
+      - use file-based phase contracts
+      - use document-driven subagents only if parallelism is needed
+    status: acknowledged
+  - id: AWS-ORCHESTRATION-SHADOW-UNAVAILABLE
+    severity: low
+    phase: phase-0
+    command: aws status
+    error: "CLI unavailable (workflow-schema.yaml not found in .aws/ or docs/design/)"
+    action_taken: continued_with_prose_workflow
+    status: recorded

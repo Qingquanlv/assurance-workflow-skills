@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "20260615-role-mgmt",
+  "module": "roles",
+  "reviewed_at": "2026-06-15",
+  "reviewer": "aws-case-reviewer",
+  "review_pass": 2,
+  "based_on_apply_summary": "qa/changes/20260615-role-mgmt/review/case-review-apply-summary.md",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "next_action": "proceed_to_planning",
+  "summary": "All 7 findings from review pass 1 have been remediated. Case delta is schema-clean, scope-stable, and ready for Phase 3.5 fact baseline + Phase 4 planning.",
+  "findings": [],
+  "blockers": [],
+  "auto_fix_plan": [],
+  "verified_artifacts": {
+    "case_delta": "qa/changes/20260615-role-mgmt/cases/roles/case.yaml",
+    "proposal": "qa/changes/20260615-role-mgmt/proposal.md",
+    "qa_scope": "qa/changes/20260615-role-mgmt/.qa.yaml",
+    "archived_case_yaml_exists": false
+  },
+  "case_inventory": {
+    "total": 15,
+    "by_type": {"API": 11, "E2E": 3, "Fuzz": 1, "Performance": 0},
+    "by_priority": {"P0": 10, "P1": 5, "P2": 0}
+  },
+  "remediation_audit": [
+    {"finding_id": "CASE-FINDING-001", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "grep 'target:' on case.yaml returns 0 occurrences"},
+    {"finding_id": "CASE-FINDING-002", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "TC-ROLE-200 declares automation.fuzz with 7 endpoints + 3 expectations"},
+    {"finding_id": "CASE-FINDING-003", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "TC-ROLE-009 prose uses feature-name labels; grep '/authorized' returns 0"},
+    {"finding_id": "CASE-FINDING-004", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "TC-ROLE-010 prose uses feature-name labels; rewrite-vs-append assertion semantics preserved"},
+    {"finding_id": "CASE-FINDING-005", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "TC-ROLE-011 prose uses feature-name labels; rewrite-vs-append assertion semantics preserved"},
+    {"finding_id": "CASE-FINDING-006", "previous_severity": "medium", "remediation_status": "resolved", "evidence": "TC-ROLE-200 no longer enumerates explicit endpoint paths; grep '/api/v1/role' returns 0"},
+    {"finding_id": "CASE-FINDING-007", "previous_severity": "low", "remediation_status": "resolved", "evidence": "all 15 automation blocks contain confirmed_by: null and confirmed_at: null"}
+  ],
+  "scope_stability_check": {
+    "case_count_unchanged": true,
+    "case_ids_unchanged": true,
+    "type_assignments_unchanged": true,
+    "priority_unchanged": true,
+    "severity_unchanged": true,
+    "assertion_semantics_unchanged": true,
+    "trace_links_intact": true,
+    "no_new_test_conditions_invented": true
+  },
+  "downstream_readiness": {
+    "phase_3_5_fact_baseline_required": true,
+    "fact_baseline_targets": [
+      "seeded_menu_id (init_app menu)",
+      "seeded_api { path, method } (init_app api)",
+      "menu_A_id and menu_B_id (two distinct stable menus)",
+      "api_A { path_A, method_A } and api_B { path_B, method_B } (two distinct stable apis)"
+    ],
+    "phase_3_6_layer_scan_expected": {"api": true, "e2e": true, "fuzz": true, "performance": false}
+  },
+  "warnings": []
+}

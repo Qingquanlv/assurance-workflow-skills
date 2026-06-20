@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260612-user-mgmt",
+  "batch_id": "20260613-002644",
+  "target": "e2e",
+  "status": "failed",
+  "command": "uv run pytest tests/e2e/test_users_e2e.py -v --headed --junitxml=/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260612-user-mgmt/execution/runs/20260613-002644/raw/e2e-junit.xml",
+  "source": {
+    "framework": "pytest-playwright",
+    "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260612-user-mgmt/execution/runs/20260613-002644/raw/e2e.log",
+    "junit_xml": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260612-user-mgmt/execution/runs/20260613-002644/raw/e2e-junit.xml",
+    "json_report": "",
+    "html_report": ""
+  },
+  "total": 6,
+  "passed": 3,
+  "failed": 3,
+  "skipped": 0,
+  "cases": [],
+  "unmapped_tests": [
+    {
+      "case_id": "",
+      "status": "passed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_create_user_via_modal_success[chromium]",
+      "duration_ms": 4000,
+      "message": "",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "",
+      "status": "failed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_create_user_duplicate_email_shows_error[chromium]",
+      "duration_ms": 1410,
+      "message": "user_list_page = <Page url='http://localhost:3100/system/user'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODE4ODY0MDZ9.rUKzOBvvjSU2OUhSe0j--bJ_JHFpLjdNspi-JqmSFDs'\ncleanup_users = [], unique_username = 'qa_e2e_user_dbcf62e6'\n\n    def test_create_user_duplicate_email_shows_error(\n        user_list_page: Page,\n        admin_token: str,\n        cleanup_users: list[int],\n        unique_username: str,\n    ):\n        page = user_list_page\n        email = f\"{unique_username}@example.com\"\n    \n        seed_username = f\"{unique_username}_seed\"\n>       seed_id = create_user_via_api(\n            token=admin_token,\n            username=seed_username,\n            email=email,\n        )\n\ntests/e2e/test_users_e2e.py:92: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/e2e/scripts/user_data_setup.py:88: in create_user_via_api\n    create_resp.raise_for_status()\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <Response [500 Internal Server Error]>\n\n    def raise_for_status(self) -> Response:\n        \"\"\"\n        Raise the `HTTPStatusError` if one occurred.\n        \"\"\"\n        request = self._request\n        if request is None:\n            raise RuntimeError(\n                \"Cannot call `raise_for_status` as the request \"\n                \"instance has not been set on this response.\"\n            )\n    \n        if self.is_success:\n            return self\n    \n        if self.has_redirect_location:\n            message = (\n                \"{error_type} '{0.status_code} {0.reason_phrase}' for url '{0.url}'\\n\"\n                \"Redirect location: '{0.headers[location]}'\\n\"\n                \"For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{0.status_code}\"\n            )\n        else:\n            message = (\n                \"{error_type} '{0.status_code} {0.reason_phrase}' for url '{0.url}'\\n\"\n                \"For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{0.status_code}\"\n            )\n    \n        status_class = self.status_code // 100\n        error_types = {\n            1: \"Informational response\",\n            3: \"Redirect response\",\n            4: \"Client error\",\n            5: \"Server error\",\n        }\n        error_type = error_types.get(status_class, \"Invalid status code\")\n        message = message.format(self, error_type=error_type)\n>       raise HTTPStatusError(message, request=request, response=self)\nE       httpx.HTTPStatusError: Server error '500 Internal Server Error' for url 'http://localhost:9999/api/v1/user/create'\nE       For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\n\n.venv/lib/python3.11/site-packages/httpx/_models.py:829: HTTPStatusError",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "",
+      "status": "passed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_edit_user_updates_email[chromium]",
+      "duration_ms": 2137,
+      "message": "",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "",
+      "status": "failed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_delete_user_removes_row[chromium]",
+      "duration_ms": 16704,
+      "message": "user_list_page = <Page url='http://localhost:3100/system/user'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODE4ODY0MDZ9.rUKzOBvvjSU2OUhSe0j--bJ_JHFpLjdNspi-JqmSFDs'\ncleanup_users = [], unique_username = 'qa_e2e_user_38916d82'\n\n    def test_delete_user_removes_row(\n        user_list_page: Page,\n        admin_token: str,\n        cleanup_users: list[int],\n        unique_username: str,\n    ):\n        page = user_list_page\n        email = f\"{unique_username}@example.com\"\n    \n        user_id = create_user_via_api(\n            token=admin_token,\n            username=unique_username,\n            email=email,\n        )\n    \n        search = page.get_by_placeholder(\"请输入用户名称\").first\n        search.fill(unique_username)\n        search.press(\"Enter\")\n        row = _row_for_username(page, unique_username)\n        expect(row).to_be_visible(timeout=ACTION_TIMEOUT_MS)\n    \n        row.get_by_role(\"button\", name=\"删除\").click()\n>       page.get_by_role(\"button\", name=\"确定\").click()\n\ntests/e2e/test_users_e2e.py:179: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n.venv/lib/python3.11/site-packages/playwright/sync_api/_generated.py:17422: in click\n    self._sync(\n.venv/lib/python3.11/site-packages/playwright/_impl/_locator.py:163: in click\n    return await self._frame._click(self._selector, strict=True, **params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n.venv/lib/python3.11/site-packages/playwright/_impl/_frame.py:569: in _click\n    await self._channel.send(\"click\", self._timeout, locals_to_params(locals()))\n.venv/lib/python3.11/site-packages/playwright/_impl/_connection.py:69: in send\n    return await self._connection.wrap_api_call(\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <playwright._impl._connection.Connection object at 0x1079c1fd0>\ncb = <function Channel.send.<locals>.<lambda> at 0x107f4bd80>\nis_internal = False, title = None\n\n    async def wrap_api_call(\n        self, cb: Callable[[], Any], is_internal: bool = False, title: str = None\n    ) -> Any:\n        if self._api_zone.get():\n            return await cb()\n        task = asyncio.current_task(self._loop)\n        st: List[inspect.FrameInfo] = getattr(\n            task, \"__pw_stack__\", None\n        ) or inspect.stack(0)\n    \n        parsed_st = _extract_stack_trace_information_from_stack(st, is_internal, title)\n        self._api_zone.set(parsed_st)\n        try:\n            return await cb()\n        except Exception as error:\n>           raise rewrite_error(error, f\"{parsed_st['apiName']}: {error}\") from None\nE           playwright._impl._errors.TimeoutError: Locator.click: Timeout 15000ms exceeded.\nE           Call log:\nE             - waiting for get_by_role(\"button\", name=\"确定\")\n\n.venv/lib/python3.11/site-packages/playwright/_impl/_connection.py:559: TimeoutError",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "",
+      "status": "failed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_reset_password_normal_user[chromium]",
+      "duration_ms": 16742,
+      "message": "user_list_page = <Page url='http://localhost:3100/system/user'>\nadmin_token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiaXNfc3VwZXJ1c2VyIjp0cnVlLCJleHAiOjE3ODE4ODY0MDZ9.rUKzOBvvjSU2OUhSe0j--bJ_JHFpLjdNspi-JqmSFDs'\ncleanup_users = [352], unique_username = 'qa_e2e_user_32ec113c'\n\n    def test_reset_password_normal_user(\n        user_list_page: Page,\n        admin_token: str,\n        cleanup_users: list[int],\n        unique_username: str,\n    ):\n        page = user_list_page\n        email = f\"{unique_username}@example.com\"\n    \n        user_id = create_user_via_api(\n            token=admin_token,\n            username=unique_username,\n            email=email,\n            password=\"Initial@1234\",\n        )\n        cleanup_users.append(user_id)\n    \n        search = page.get_by_placeholder(\"请输入用户名称\").first\n        search.fill(unique_username)\n        search.press(\"Enter\")\n        row = _row_for_username(page, unique_username)\n        expect(row).to_be_visible(timeout=ACTION_TIMEOUT_MS)\n    \n        row.get_by_role(\"button\", name=\"重置密码\").click()\n>       page.get_by_role(\"button\", name=\"确定\").click()\n\ntests/e2e/test_users_e2e.py:224: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n.venv/lib/python3.11/site-packages/playwright/sync_api/_generated.py:17422: in click\n    self._sync(\n.venv/lib/python3.11/site-packages/playwright/_impl/_locator.py:163: in click\n    return await self._frame._click(self._selector, strict=True, **params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n.venv/lib/python3.11/site-packages/playwright/_impl/_frame.py:569: in _click\n    await self._channel.send(\"click\", self._timeout, locals_to_params(locals()))\n.venv/lib/python3.11/site-packages/playwright/_impl/_connection.py:69: in send\n    return await self._connection.wrap_api_call(\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <playwright._impl._connection.Connection object at 0x1079c1fd0>\ncb = <function Channel.send.<locals>.<lambda> at 0x107d1a7a0>\nis_internal = False, title = None\n\n    async def wrap_api_call(\n        self, cb: Callable[[], Any], is_internal: bool = False, title: str = None\n    ) -> Any:\n        if self._api_zone.get():\n            return await cb()\n        task = asyncio.current_task(self._loop)\n        st: List[inspect.FrameInfo] = getattr(\n            task, \"__pw_stack__\", None\n        ) or inspect.stack(0)\n    \n        parsed_st = _extract_stack_trace_information_from_stack(st, is_internal, title)\n        self._api_zone.set(parsed_st)\n        try:\n            return await cb()\n        except Exception as error:\n>           raise rewrite_error(error, f\"{parsed_st['apiName']}: {error}\") from None\nE           playwright._impl._errors.TimeoutError: Locator.click: Timeout 15000ms exceeded.\nE           Call log:\nE             - waiting for get_by_role(\"button\", name=\"确定\")\n\n.venv/lib/python3.11/site-packages/playwright/_impl/_connection.py:559: TimeoutError",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "",
+      "status": "passed",
+      "file": "tests/e2e/test_users_e2e.py",
+      "test_name": "test_assign_role_to_new_user[chromium]",
+      "duration_ms": 2322,
+      "message": "",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+$ uv run pytest tests/e2e/test_users_e2e.py -v --headed --junitxml=/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260612-user-mgmt/execution/runs/20260613-004711/raw/e2e-junit.xml
+
+============================= test session starts ==============================
+platform darwin -- Python 3.11.14, pytest-9.0.3, pluggy-1.6.0 -- /Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/lvqingquan/pycharmProject/vue-fastapi-admin
+configfile: pyproject.toml
+plugins: anyio-4.8.0, base-url-2.1.0, playwright-0.8.0
+collecting ... collected 6 items
+
+tests/e2e/test_users_e2e.py::test_create_user_via_modal_success[chromium] PASSED [ 16%]
+tests/e2e/test_users_e2e.py::test_create_user_duplicate_email_shows_error[chromium] PASSED [ 33%]
+tests/e2e/test_users_e2e.py::test_edit_user_updates_email[chromium] PASSED [ 50%]
+tests/e2e/test_users_e2e.py::test_delete_user_removes_row[chromium] PASSED [ 66%]
+tests/e2e/test_users_e2e.py::test_reset_password_normal_user[chromium] PASSED [ 83%]
+tests/e2e/test_users_e2e.py::test_assign_role_to_new_user[chromium] PASSED [100%]
+
+- generated xml file: /Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260612-user-mgmt/execution/runs/20260613-004711/raw/e2e-junit.xml -
+============================== 6 passed in 14.63s ==============================
+

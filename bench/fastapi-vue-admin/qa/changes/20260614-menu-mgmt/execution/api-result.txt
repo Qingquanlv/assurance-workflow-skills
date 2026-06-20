@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.14, pytest-9.0.3, pluggy-1.6.0 -- /Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/lvqingquan/pycharmProject/vue-fastapi-admin
+configfile: pyproject.toml
+plugins: anyio-4.8.0, base-url-2.1.0, playwright-0.8.0
+collecting ... collected 9 items
+
+tests/api/test_menu_api.py::test_create_top_level_catalog_menu_succeeds PASSED [ 11%]
+tests/api/test_menu_api.py::test_create_child_menu_under_existing_parent PASSED [ 22%]
+tests/api/test_menu_api.py::test_list_returns_tree_with_siblings_ordered_asc PASSED [ 33%]
+tests/api/test_menu_api.py::test_update_menu_basic_fields PASSED         [ 44%]
+tests/api/test_menu_api.py::test_update_parent_id_moves_menu_to_new_parent PASSED [ 55%]
+tests/api/test_menu_api.py::test_delete_menu_with_children_returns_business_failure PASSED [ 66%]
+tests/api/test_menu_api.py::test_delete_leaf_menu_succeeds PASSED        [ 77%]
+tests/api/test_menu_api.py::test_update_parent_id_to_self_or_descendant_is_rejected[self] FAILED [ 88%]
+tests/api/test_menu_api.py::test_update_parent_id_to_self_or_descendant_is_rejected[descendant] FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_update_parent_id_to_self_or_descendant_is_rejected[self] _________
+tests/api/test_menu_api.py:375: in test_update_parent_id_to_self_or_descendant_is_rejected
+    assert update_body["code"] != 200, (
+E   AssertionError: EXPECTED-PRODUCT-FAIL (ANOMALY-002): update with parent_id=self was accepted (code=200) but should have been rejected. Backend lacks cycle guard. Body: {'code': 200, 'msg': 'Updated Success', 'data': None}
+E   assert 200 != 200
+_____ test_update_parent_id_to_self_or_descendant_is_rejected[descendant] ______
+tests/api/test_menu_api.py:375: in test_update_parent_id_to_self_or_descendant_is_rejected
+    assert update_body["code"] != 200, (
+E   AssertionError: EXPECTED-PRODUCT-FAIL (ANOMALY-002): update with parent_id=descendant was accepted (code=200) but should have been rejected. Backend lacks cycle guard. Body: {'code': 200, 'msg': 'Updated Success', 'data': None}
+E   assert 200 != 200
+=========================== short test summary info ============================
+FAILED tests/api/test_menu_api.py::test_update_parent_id_to_self_or_descendant_is_rejected[self]
+FAILED tests/api/test_menu_api.py::test_update_parent_id_to_self_or_descendant_is_rejected[descendant]
+========================= 2 failed, 7 passed in 1.82s ==========================

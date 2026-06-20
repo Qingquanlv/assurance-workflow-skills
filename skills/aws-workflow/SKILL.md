@@ -1195,6 +1195,134 @@ never_archive_when:
 
 ---
 
+## Workflow (run_mode = case-only)
+
+**Scope:** Phases 0 → 1 → 2 → 3 (conditional fix loop) → 3.5 → 3.6 → **STOP**.  
+**Does not run:** plan phases (4–6), codegen (7), execution (8), inspect/healing (9–13), archive (14).
+
+**Required inputs before start:**
+
+- Valid `change_id`
+- `.aws/data-knowledge.yaml` (or promotable proposal) on disk under `qa/changes/<change-id>/`
+- For eval / bench runs: fixture tier **L0-case-seed** may pre-seed `proposal.md` and `.qa.yaml` only — case files are produced by Phase 1
+
+**Phase sequence (inline primary agent only):**
+
+```
+Phase 0 — Skill Registry Check
+  → Verify aws-case-design, aws-case-reviewer, aws-case-fixer load
+  → Write workflow-state.yaml (execution_mode: inline)
+  → STOP if any required case skill missing
+
+Phase 1 — Case Design
+  → Load aws-case-design
+  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Update workflow-state.yaml: phases.case_design.status = done
+
+Phase 2 — Case Review (initial)
+  → Load aws-case-reviewer
+  → Re-read case.yaml, proposal.md, workflow-state.yaml from disk
+  → Write review/case-review.json
+  → Apply case review gate
+  → Update workflow-state.yaml: phases.case_review.status
+
+Phase 3 — Case Fix Loop (if gate requires it)
+  → Max attempts = max_case_fix_attempts
+  → aws-case-fixer → aws-case-reviewer → re-apply gate until pass, reject, human_review_required, or exhausted
+
+Phase 3.5 — Fact Baseline (always after case review passes)
+  → Write facts/fact-baseline.json (or unavailable + warning)
+  → Update workflow-state.yaml: phases.fact_baseline.status = done
+
+Phase 3.6 — Layer Scan (inline)
+  → Scan finalized cases/**/case*.yaml
+  → Write workflow-state.yaml layers.{api,e2e,fuzz,performance}
+  → Record which test layers are in scope for downstream modes (informational only in case-only)
+
+STOP — case-only complete
+  → Do NOT invoke plan, codegen, aws-run, inspect, healing, or archive skills
+  → Final artifacts: cases/, review/case-review.json, facts/fact-baseline.json, workflow-state.yaml
+  → Report case count, review decision, and layers.* summary
+```
+
+**Eval alignment (E0):** `eval-workflow-run.mjs --run-mode case-only` drives this path; scorers read archived `cases/`, `review/case-review.json`, and `workflow-state.yaml`.
+
+---
+
+## Workflow (run_mode = codegen-only)
+
+**Scope:** Phase 0 (codegen-related registry) → validate required upstream files → **7A / 7B / 7C / 7D** per `test_types` and `layers.*` → **Phase 7 Completion Gate** → STOP unless `run_tests == true` (then Phase 8 only — no inspect/healing/archive unless user opts in elsewhere).
+
+**Does not run:** case design/review (1–3.6), plan authoring/review/fix (4–6).
+
+**Required inputs before start:**
+
+- Valid `change_id`
+- Existing **passing** case review: `review/case-review.json` with `decision == pass`
+- Existing plans + plan reviews per active layer (e.g. L2-api seed: `plans/api-*.md`, `review/api-plan-review.json`)
+- `.aws/data-knowledge.yaml` on disk
+- `workflow-state.yaml` with `layers.*` consistent with scoped cases
+
+If any required file is missing, **STOP** and list paths — do not invoke plan skills to backfill in codegen-only.
+
+**Phase sequence:**
+
+```
+Phase 0 — Skill Registry Check (codegen subset)
+  → Verify skills for active layers only:
+      api: aws-api-codegen (+ aws-api-codegen-fixer if healing context)
+      e2e: aws-e2e-codegen (+ aws-e2e-codegen-fixer)
+      fuzz: aws-fuzz-codegen (when layers.fuzz)
+      performance: aws-performance-codegen (when layers.performance)
+  → Verify aws-run loads only when run_tests == true
+  → Write/update workflow-state.yaml
+
+Validate codegen-only required files (orchestrator inline)
+  → For each in-scope layer, confirm plan + review JSON exist and review decision == pass
+  → Confirm facts/fact-baseline.json exists (warning OK if unavailable)
+  → If validation fails: STOP
+
+[Per active layer — same order as full workflow: API (7A) before E2E (7B) before Fuzz (7C) before Perf (7D)]
+
+Phase 7A — API Codegen (if layers.api OR test_types includes api)
+  → Pre-check .aws/data-knowledge.yaml
+  → Load aws-api-codegen inline
+  → Apply Codegen Hard Gates (API)
+  → Verify Target Files from api-codegen-plan.md + codegen/api-codegen-summary.md
+  → Update workflow-state.yaml: phases.api_codegen
+
+Phase 7B — E2E Codegen (if layers.e2e OR test_types includes e2e)
+  → Pre-check .aws/data-knowledge.yaml
+  → Load aws-e2e-codegen inline
+  → Apply Codegen Hard Gates (E2E)
+  → Verify Target Files + codegen/e2e-codegen-summary.md
+  → Update workflow-state.yaml: phases.e2e_codegen
+
+Phase 7C — Fuzz Codegen (if layers.fuzz)
+  → Load aws-fuzz-codegen inline → verify outputs → update phases.fuzz_codegen
+
+Phase 7D — Performance Codegen (if layers.performance)
+  → Load aws-performance-codegen inline → verify outputs → update phases.performance_codegen
+
+Phase 7 Completion Gate
+  → For each in-scope layer: phases.*_codegen.status == done, summary markdown exists, Target Files on disk
+  → If any check fails: STOP
+
+If run_tests == false:
+  → Record phases.execution.status = SKIPPED
+  → STOP (codegen-only complete)
+
+If run_tests == true:
+  → Phase 8 — Test Execution (aws-run) ONLY
+  → Verify execution/execution-manifest.yaml on disk
+  → Update workflow-state.yaml: phases.execution
+  → STOP — do not auto-enter inspect/healing/archive in codegen-only unless user explicitly requests
+```
+
+**Eval alignment (E2a):** `eval-workflow-run.mjs --run-mode codegen-only --run-tests false` stops after Phase 7 Gate; `--test-types api` selects 7A path. Fixture tier **L2-api-codegen-seed** supplies plans/reviews; generated tests land under `tests/`.
+
+---
+
 ## Full Workflow (run_mode = full)
 
 All phases execute **inline in the primary agent**. No subagents or tasks are used.
@@ -1985,7 +2113,7 @@ Required transition:
 **Do NOT ask** for:
 
 - Whether to run Phase 7A before or after Phase 7B — workflow defines: API first, then E2E
-- Which phases to run — determined by `test_types` in `.qa.yaml`
+- Which phases to run — determined by **run_mode** (stage boundary) and **test_types** / **layers.*** (API/E2E/Fuzz/Perf subset). Eval prompt parameters override `.qa.yaml` defaults when they conflict.
 - Whether to proceed to the next phase after a `pass` — proceed automatically
 - What fix approach to use when `auto_fix_allowed == true` — run the designated fixer
 

@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260612-user-mgmt",
+  "target": "api",
+  "applied": true,
+  "applied_proposals": [
+    {
+      "proposal_id": "FIX-001",
+      "files_modified": ["tests/api/test_users_api.py", "tests/api/conftest.py"],
+      "operations_applied": ["replace_string_literal"],
+      "notes": "Replaced 5 occurrences in test_users_api.py and 1 in conftest.py. tests/api/helpers/user_api.py was inspected; no @test.local literals present (no-op for that file)."
+    },
+    {
+      "proposal_id": "FIX-003",
+      "files_modified": ["tests/api/test_users_api.py"],
+      "operations_applied": ["replace_string_literal"],
+      "notes": "Updated 'ghost@test.local' to 'ghost@example.com' in test_update_user_not_found payload (line 280)."
+    },
+    {
+      "proposal_id": "FIX-004",
+      "files_modified": ["tests/api/test_users_api.py"],
+      "operations_applied": ["replace_string_literal"],
+      "notes": "Updated qa_delete_user@test.local (line 301) and qa_reset_user@test.local (line 351) to @example.com."
+    }
+  ],
+  "modified_files": ["tests/api/test_users_api.py", "tests/api/conftest.py"],
+  "skipped_proposals": [
+    {
+      "proposal_id": "FIX-002",
+      "reason": "target is e2e, not api"
+    }
+  ],
+  "no_op_files": ["tests/api/helpers/user_api.py"],
+  "forbidden_attempts": [],
+  "rerun_required": true,
+  "next_action": "run_aws_run"
+}

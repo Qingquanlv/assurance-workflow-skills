@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260614-menu-mgmt",
+  "batch_id": "20260614-184048",
+  "target": "e2e",
+  "status": "passed",
+  "command": "uv run pytest tests/e2e/test_menu_e2e.py -v --headed --junitxml=/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260614-menu-mgmt/execution/runs/20260614-184048/raw/e2e-junit.xml",
+  "source": {
+    "framework": "pytest-playwright",
+    "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260614-menu-mgmt/execution/runs/20260614-184048/raw/e2e.log",
+    "junit_xml": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260614-menu-mgmt/execution/runs/20260614-184048/raw/e2e-junit.xml",
+    "json_report": "",
+    "html_report": ""
+  },
+  "total": 2,
+  "passed": 2,
+  "failed": 0,
+  "skipped": 0,
+  "cases": [
+    {
+      "case_id": "TC-MENU-E2E-001",
+      "status": "passed",
+      "file": "tests/e2e/test_menu_e2e.py",
+      "test_name": "test_create_top_level_catalog_via_modal[chromium]",
+      "duration_ms": 5472,
+      "message": "",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    },
+    {
+      "case_id": "TC-MENU-E2E-002",
+      "status": "passed",
+      "file": "tests/e2e/test_menu_e2e.py",
+      "test_name": "test_add_child_menu_under_catalog[chromium]",
+      "duration_ms": 3672,
+      "message": "",
+      "trace": "",
+      "screenshot": "",
+      "video": ""
+    }
+  ],
+  "unmapped_tests": []
+}

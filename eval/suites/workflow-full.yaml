@@ -1,0 +1,34 @@
+name: workflow-full
+version: "1.0.0"
+
+executor:
+  type: subprocess
+  workdir: "{{workspace.root}}"
+  command: >-
+    node {{workspace.root}}/scripts/eval-workflow-run.mjs
+    --repo-root {{workspace.root}}
+    --project-dir {{workspace.root}}/{{sample.input.project_dir}}
+    --change {{sample.input.change_id}}
+    --fixture-tier {{sample.input.fixture_tier}}
+    --run-mode full
+    --run-tests true
+    --archive-dir {{attempt.dir}}/raw-output
+    --attempt-dir {{attempt.dir}}
+  timeout_seconds: 14400
+  expected_outputs:
+    - "{{attempt.dir}}/raw-output/workflow-state.yaml"
+
+dataset: workflow-full
+
+thresholds: {}
+
+hard_gates: []
+
+ci:
+  pr:
+    enabled: false
+    mode: smoke
+    required: false
+  nightly:
+    enabled: true
+    mode: full

@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260615-role-mgmt",
+  "source_analysis": "qa/changes/20260615-role-mgmt/inspect/failure-analysis.json",
+  "created_at": "2026-06-15T10:30:43Z",
+  "summary": {
+    "eligible_count": 3,
+    "not_eligible_count": 9,
+    "targets": {
+      "api": 0,
+      "e2e": 3,
+      "fuzz": 0
+    }
+  },
+  "proposals": [
+    {
+      "proposal_id": "FIX-001",
+      "failure_ids": ["TC-ROLE-100"],
+      "target": "e2e",
+      "category": "locator_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "Test asserts visibility of columnheader name='角色名称', but the role-management UI renders the column header as '角色名'. The locator never matches, causing a deterministic failure. Replacing the locator label with the actual rendered text resolves the failure without changing assertion semantics (still verifying the role-name column header is visible).",
+      "files_to_modify": ["tests/e2e/test_role_e2e.py"],
+      "forbidden_files": ["app/**", "web/**", "src/**", "qa/changes/**/cases/**", "qa/changes/**/plans/**"],
+      "allowed_operations": ["replace_locator"],
+      "forbidden_operations": [
+        "modify_product_code",
+        "change_assertion_expected_values",
+        "hide_known_product_issue",
+        "delete_test_case_without_review"
+      ],
+      "patch_plan": [
+        {
+          "file": "tests/e2e/test_role_e2e.py",
+          "operation": "replace",
+          "description": "In test_role_management_page_loads (TC-ROLE-100), replace `page.get_by_role(\"columnheader\", name=\"角色名称\")` with `page.get_by_role(\"columnheader\", name=\"角色名\")`. The intent of the assertion (column header visibility for role name) is preserved; only the locator label is corrected to match the actual UI rendering observed in the role management page (web/src/views/system/role/index.vue).",
+          "constraints": [
+            "must not weaken assertion (still asserts to_be_visible with same timeout)",
+            "must not delete test",
+            "must not modify product code",
+            "only change the literal '角色名称' to '角色名' inside this columnheader locator"
+          ]
+        }
+      ],
+      "verification": {
+        "rerun_required": true,
+        "command": "aws run --change 20260615-role-mgmt",
+        "expected_effect": "TC-ROLE-100 passes; columnheader '角色名' becomes visible after page load."
+      }
+    },
+    {
+      "proposal_id": "FIX-002",
+      "failure_ids": ["TC-ROLE-101"],
+      "target": "e2e",
+      "category": "locator_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "Same root cause as FIX-001. test_create_role_via_ui (TC-ROLE-101) waits for the columnheader '角色名称' as a readiness signal before triggering create flow. The label is wrong; UI renders '角色名'. Replacing the label restores the readiness gate without altering assertion semantics.",
+      "files_to_modify": ["tests/e2e/test_role_e2e.py"],
+      "forbidden_files": ["app/**", "web/**", "src/**", "qa/changes/**/cases/**", "qa/changes/**/plans/**"],
+      "allowed_operations": ["replace_locator"],
+      "forbidden_operations": [
+        "modify_product_code",
+        "change_assertion_expected_values",
+        "hide_known_product_issue",
+        "delete_test_case_without_review"
+      ],
+      "patch_plan": [
+        {
+          "file": "tests/e2e/test_role_e2e.py",
+          "operation": "replace",
+          "description": "In test_create_role_via_ui (TC-ROLE-101), replace any `columnheader` locator with name='角色名称' to name='角色名' to match the actual UI label. Apply the same correction at every occurrence within this test function only.",
+          "constraints": [
+            "must not weaken existing assertions (status, response, row content)",
+            "must not delete test",
+            "must not modify product code",
+            "only correct the locator label literal"
+          ]
+        }
+      ],
+      "verification": {
+        "rerun_required": true,
+        "command": "aws run --change 20260615-role-mgmt",
+        "expected_effect": "TC-ROLE-101 passes; create-role flow completes through readiness gate and verifies new row."
+      }
+    },
+    {
+      "proposal_id": "FIX-003",
+      "failure_ids": ["TC-ROLE-102"],
+      "target": "e2e",
+      "category": "wait_strategy_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "test_authorize_role_menu_via_ui (TC-ROLE-102) uses the same '角色名称' columnheader as a wait/readiness gate before opening the authorize dialog. The locator never resolves, so the wait times out. CLI categorized this as wait_strategy_failure because the symptom presented as a timeout, but the root cause is the same incorrect locator label. Fixing the locator restores the wait gate without weakening the test.",
+      "files_to_modify": ["tests/e2e/test_role_e2e.py"],
+      "forbidden_files": ["app/**", "web/**", "src/**", "qa/changes/**/cases/**", "qa/changes/**/plans/**"],
+      "allowed_operations": ["fix_wait_strategy", "replace_locator"],
+      "forbidden_operations": [
+        "modify_product_code",
+        "change_assertion_expected_values",
+        "hide_known_product_issue",
+        "delete_test_case_without_review"
+      ],
+      "patch_plan": [
+        {
+          "file": "tests/e2e/test_role_e2e.py",
+          "operation": "replace",
+          "description": "In test_authorize_role_menu_via_ui (TC-ROLE-102), replace any `columnheader` locator name='角色名称' with name='角色名'. If a separate explicit wait references the bad label, update it to use the corrected locator. Do not extend timeout values; the original timeout is sufficient once the locator matches.",
+          "constraints": [
+            "must not extend timeout values to mask other issues",
+            "must not weaken authorize-flow assertions (menu IDs, save confirmation)",
+            "must not delete test",
+            "must not modify product code",
+            "only correct the locator label literal"
+          ]
+        }
+      ],
+      "verification": {
+        "rerun_required": true,
+        "command": "aws run --change 20260615-role-mgmt",
+        "expected_effect": "TC-ROLE-102 passes; authorize flow proceeds past readiness gate and persists menu authorization."
+      }
+    }
+  ],
+  "not_eligible": [
+    {
+      "failure_id": "test_tc_role_001_list_default_pagination",
+      "target": "api",
+      "category": "assertion_failure",
+      "reason": "Assertion `any(r['name'] == 'admin' for r in body['data'])` failed. The CLI classifies assertion mismatches as not eligible for auto-fix because they may reflect either real product behavior change (admin role no longer in first page due to data pollution / pagination shift) or an incorrect expected value. Cannot fix without human review of seed data assumption and product intent.",
+      "recommended_next_action": "manual_investigation"
+    },
+    {
+      "failure_id": "test_tc_role_002_list_filter_by_name",
+      "target": "api",
+      "category": "assertion_failure",
+      "reason": "Assertion `create_response.status_code == 200` failed with actual 500. CLI categorized as assertion_failure (no-fix). Evidence indicates a real backend HTTP 500 on POST /role/create with valid input — likely a product bug. Test code is correct; fix requires backend investigation in app/.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/list]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI classified as fuzz_configuration_error (no-fix, 'Not a product bug'). Evidence shows HTTP 500 + undocumented 500 status. Whether root cause is truly fuzz config (e.g., negative pagination params triggering server fault that should be 422) or a real product bug is undetermined. Following skill hard rule: do not override CLI classification. Defer to human review.",
+      "recommended_next_action": "manual_investigation"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/get]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: undocumented HTTP 404 (Documented: 200, 422). Likely OpenAPI spec gap — product returns 404 for missing role but spec doesn't declare it. Fix requires updating OpenAPI spec in app/, not test code.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/create]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: undocumented HTTP 400 (Documented: 200, 422). Likely OpenAPI spec gap (duplicate-name → 400 not declared) or product bug. Fix requires backend/spec changes.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/update]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: HTTP 500 server error on certain payloads (e.g., null body fields). Likely real product bug — server should return 422, not 500.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[DELETE /api/v1/role/delete]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: undocumented HTTP 404 (missing role). OpenAPI spec gap.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[GET /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: undocumented HTTP 404. OpenAPI spec gap.",
+      "recommended_next_action": "developer_fix_required"
+    },
+    {
+      "failure_id": "test_role_endpoints_schema_robustness[POST /api/v1/role/authorized]",
+      "target": "fuzz",
+      "category": "fuzz_configuration_error",
+      "reason": "CLI no-fix. Evidence: undocumented HTTP 404. OpenAPI spec gap.",
+      "recommended_next_action": "developer_fix_required"
+    }
+  ]
+}

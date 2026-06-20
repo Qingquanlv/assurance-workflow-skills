@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260615-role-mgmt",
+  "batch_id": "20260617-090841",
+  "dimensions": {
+    "functional": {
+      "status": "FAIL",
+      "api": {
+        "total": 26,
+        "passed": 24,
+        "failed": 2
+      },
+      "e2e": {
+        "total": 3,
+        "passed": 1,
+        "failed": 2
+      },
+      "fuzz": {
+        "total": 7,
+        "passed": 0,
+        "failed": 7
+      }
+    },
+    "coverage": {
+      "status": "SKIPPED",
+      "available": false,
+      "line_coverage": 0,
+      "branch_coverage": 0,
+      "threshold": {
+        "line": 70,
+        "branch": 60
+      }
+    },
+    "non_functional": {
+      "status": "SKIPPED",
+      "performance": []
+    }
+  },
+  "final_status": "FAIL"
+}

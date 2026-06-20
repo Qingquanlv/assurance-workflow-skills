@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "review_type": "e2e-plan",
+  "change_id": "20260615-role-mgmt",
+  "decision": "pass",
+  "risk_level": "low",
+  "codegen_readiness": "ready_with_warnings",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "E2E plan covers all 3 E2E cases (TC-ROLE-100/101/102) against the role management page at /system/role. Selectors are grep-derived from web/src/views/system/role/index.vue; fallback chains documented for known fragile NaiveUI patterns. Auth (logged_in_page fixture), data setup (3 NEW helpers + 3 NEW fixtures), and API-driven verification strategy are concrete. Four Needs Review items are non-blocking, all related to known UI-string variability. .aws/data-knowledge.yaml present. No blockers. Plan is codegen-ready with documented warnings.",
+  "reviewed_files": [
+    "qa/changes/20260615-role-mgmt/plans/e2e-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/e2e-test-data-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/e2e-codegen-plan.md",
+    "qa/changes/20260615-role-mgmt/plans/m4-review-summary.md",
+    "qa/changes/20260615-role-mgmt/cases/roles/case.yaml",
+    ".aws/data-knowledge.yaml",
+    "tests/e2e/conftest.py",
+    "tests/e2e/scripts/role_data_setup.py",
+    "tests/e2e/test_menu_e2e.py",
+    "web/src/views/system/role/index.vue"
+  ],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [
+    {
+      "id": "E2E-PLAN-REVIEW-001",
+      "severity": "medium",
+      "category": "locator",
+      "file": "qa/changes/20260615-role-mgmt/plans/e2e-codegen-plan.md",
+      "question": "Authorize dialog save button text — fallback chain tries '保存' then '确定'. Acceptable or should one be canonical?",
+      "reason": "NR-E2E-01 documents this; UI strings vary across NaiveUI dialog variants. Fallback chain is the safest approach without further inspection.",
+      "blocking": false
+    },
+    {
+      "id": "E2E-PLAN-REVIEW-002",
+      "severity": "low",
+      "category": "locator",
+      "file": "qa/changes/20260615-role-mgmt/plans/e2e-codegen-plan.md",
+      "question": "NaiveUI tree-node check pattern uses get_by_text primary, .n-tree-node-content__text fallback. Acceptable for tree-node interaction?",
+      "reason": "NR-E2E-02; NaiveUI tree internals can shift between minor versions. Fallback locator is robustness backstop.",
+      "blocking": false
+    },
+    {
+      "id": "E2E-PLAN-REVIEW-003",
+      "severity": "low",
+      "category": "selector",
+      "file": "qa/changes/20260615-role-mgmt/plans/e2e-plan.md",
+      "question": "Search button '查询' may not exist; plan falls back to keyboard Enter. Confirm acceptable.",
+      "reason": "NR-E2E-03; index.vue does not show explicit search button. Enter-key fallback exercises the same query path.",
+      "blocking": false
+    },
+    {
+      "id": "E2E-PLAN-REVIEW-004",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260615-role-mgmt/plans/e2e-codegen-plan.md",
+      "question": "Authorize success toast wording variance — code accepts regex '保存成功|更新成功|设置成功'. Acceptable?",
+      "reason": "NR-E2E-04; toast text not verifiable from source code without backend running. Regex is the right risk-managed approach.",
+      "blocking": false
+    }
+  ],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-15T09:11:03Z"
+}

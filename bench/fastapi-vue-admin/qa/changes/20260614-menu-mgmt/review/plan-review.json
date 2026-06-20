@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0",
+  "skill": "aws-e2e-plan-reviewer",
+  "change_id": "20260614-menu-mgmt",
+  "module": "menu",
+  "stage": "M4",
+  "reviewed_at": "2026-06-14T08:55:00Z",
+  "reviewer_identity": "Sisyphus (inline)",
+  "decision": "pass",
+  "risk": "low",
+  "codegen_readiness": "ready_with_warnings",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "next_action": "continue",
+  "inputs": {
+    "e2e_plan": "qa/changes/20260614-menu-mgmt/plans/e2e-plan.md",
+    "e2e_test_data_plan": "qa/changes/20260614-menu-mgmt/plans/e2e-test-data-plan.md",
+    "e2e_codegen_plan": "qa/changes/20260614-menu-mgmt/plans/e2e-codegen-plan.md",
+    "m4_review_summary": "qa/changes/20260614-menu-mgmt/plans/m4-review-summary.md"
+  },
+  "input_notes": [
+    "e2e-test-data-plan.md was created in Phase 5B as a structural pointer extracting data-setup content from e2e-plan.md and e2e-codegen-plan.md, to satisfy the reviewer Context Contract. No new factual claims introduced.",
+    "m4-review-summary.md is a verbatim copy of m3-stage2-review-summary.md (same change, same content) — content is current.",
+    "All Phase 6.5 prerequisites are shipped: tests/e2e/scripts/menu_data_setup.py, tests/e2e/conftest.py extensions, and .aws/data-knowledge.yaml refresh are present and pytest-collectable. BL-E2E-001 is historical."
+  ],
+  "scope": {
+    "cases_planned": 2,
+    "case_ids": ["TC-MENU-E2E-001", "TC-MENU-E2E-002"],
+    "ui_source_verified": true,
+    "ui_source_path": "web/src/views/system/menu/index.vue",
+    "backend_endpoints_referenced": [
+      "GET /api/v1/menus/list",
+      "POST /api/v1/menus/create",
+      "DELETE /api/v1/menus/delete?id=<int>"
+    ]
+  },
+  "checklist": {
+    "ui_invariants_verified_against_source": true,
+    "locator_strategy_uses_role_or_text": true,
+    "auth_header_convention_correct": true,
+    "delete_param_shape_verified": true,
+    "cleanup_ordering_matches_backend_constraint": true,
+    "data_prefix_consistent_with_api_plan": true,
+    "phase_65_prerequisites_shipped": true,
+    "fixtures_match_codegen_plan": true,
+    "helpers_signatures_match_data_knowledge_yaml": true,
+    "out_of_scope_explicit": true,
+    "risks_documented_with_mitigations": true,
+    "stale_data_cleanup_present": true
+  },
+  "findings": [
+    {
+      "id": "F-E2E-001",
+      "severity": "medium",
+      "category": "robustness",
+      "file": "qa/changes/20260614-menu-mgmt/plans/e2e-codegen-plan.md",
+      "line_hint": "290-305",
+      "message": "delete_menu helper uses bare 'except Exception: return' which silently swallows real connectivity, auth, and timeout failures during cleanup. Hidden cleanup failures lead to flaky later runs (qa-test-* leftovers persist) without any signal to the operator.",
+      "suggestion": "Replace bare except with targeted handling: catch httpx.HTTPError + httpx.TimeoutException explicitly, and emit warnings.warn(...) before returning. Keep idempotency for 404 + non-200 biz code, but fail loud for unknown exceptions.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "F-E2E-002",
+      "severity": "low",
+      "category": "test_completeness",
+      "file": "qa/changes/20260614-menu-mgmt/plans/e2e-codegen-plan.md",
+      "line_hint": "103-153",
+      "message": "TC-MENU-E2E-002 does not assert the menu_type RadioGroup is hidden when entering the 子菜单 modal (showMenuType=false invariant per index.vue:162). The plan claims this invariant in e2e-plan.md but the codegen plan body skips the assertion.",
+      "suggestion": "Add an assertion in TC-MENU-E2E-002 after _open_child_add_modal: expect(page.get_by_role(\"dialog\").get_by_role(\"radio\", name=\"目录\")).not_to_be_visible() — or verify the RadioGroup container is absent.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "F-E2E-003",
+      "severity": "low",
+      "category": "selector_robustness",
+      "file": "qa/changes/20260614-menu-mgmt/plans/e2e-codegen-plan.md",
+      "line_hint": "85-90",
+      "message": "TC-MENU-E2E-001 default-radio assertion uses to_be_checked() on a NaiveUI NRadio component. Some NaiveUI versions render NRadio as a div with role='radio' and aria-checked='true' instead of an HTML <input>. to_be_checked() may not match in those cases.",
+      "suggestion": "Either add a fallback assertion using to_have_attribute('aria-checked', 'true'), or use a more permissive role check (e.g., expect(...).to_be_visible() plus visible-state inspection of the parent .n-radio--checked class). Codegen should choose the form that matches the bundled NaiveUI version.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "F-E2E-004",
+      "severity": "low",
+      "category": "code_quality",
+      "file": "qa/changes/20260614-menu-mgmt/plans/e2e-codegen-plan.md",
+      "line_hint": "23",
+      "message": "Module header imports httpx but the test file body delegates all HTTP to menu_data_setup helpers. Codegen should not emit an unused import — it produces flake8/ruff F401 noise.",
+      "suggestion": "Drop 'import httpx' from the test module header. Helpers handle httpx internally.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "F-E2E-005",
+      "severity": "info",
+      "category": "documentation",
+      "file": "qa/changes/20260614-menu-mgmt/plans/m4-review-summary.md",
+      "line_hint": "76-78",
+      "message": "m4-review-summary.md (copied from m3-stage2-review-summary.md) still says 'Phase 5B — aws-e2e-plan-reviewer inline review → review/plan-review.json' as a 'Next Phase'. After this Phase 5B review, the file is informational only — keep as-is or refresh on archive.",
+      "suggestion": "No action required pre-codegen. Phase 11 archive can normalize the wording if desired.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    }
+  ],
+  "blockers": [],
+  "warnings_carried_to_codegen": [
+    "F-E2E-001: delete_menu must emit warnings on unknown exceptions (do not silently swallow).",
+    "F-E2E-002: TC-MENU-E2E-002 should add an explicit assertion that menu_type RadioGroup is hidden in 子菜单 modal.",
+    "F-E2E-003: Default-radio assertion may need aria-checked fallback for NaiveUI NRadio.",
+    "F-E2E-004: Codegen MUST NOT emit unused 'import httpx' in test module."
+  ],
+  "needs_review": [],
+  "consistency_checks": {
+    "data_prefix_qa_test_consistent_with_api_plan": true,
+    "auth_header_token_matches_existing_e2e": true,
+    "fixture_names_consistent_with_codegen_plan": true,
+    "data_knowledge_yaml_capabilities_present": true,
+    "delete_param_id_matches_backend": true,
+    "out_of_scope_excludes_TC_MENU_008_cycle_test": true,
+    "ui_invariants_match_index_vue_source": true
+  },
+  "gate_consistency_check": {
+    "decision_pass_implies_blockers_empty": true,
+    "decision_pass_implies_human_review_false": true,
+    "decision_pass_implies_auto_fix_false": true,
+    "all_invariants_satisfied": true
+  }
+}

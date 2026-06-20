@@ -1,3 +1,7 @@
+# DEPRECATED — not part of M1 phase-scoped workflow eval.
+# Use workflow-case (E0) for case design + review integration testing.
+# Scorer/unit tests remain for future revival; CLI executor is not implemented.
+
 name: case-generation
 version: "1.0.0"
 
@@ -10,16 +14,16 @@ executor:
 
 ci:
   pr:
-    enabled: true
+    enabled: false
     mode: smoke
-    required: true
+    required: false
     always_run: false
     trigger_paths:
       - "skills/aws-case-design/**"
       - "skills/aws-case-reviewer/**"
 
   nightly:
-    enabled: true
+    enabled: false
     mode: full
 
 dataset: case-generation

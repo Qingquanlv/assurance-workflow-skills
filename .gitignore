@@ -11,3 +11,9 @@ docs/superpowers/
 eval/runs/
 eval/batches/
 eval/reports/
+# Bench fixture (vendored; exclude local deps and nested git metadata)
+bench/**/node_modules/
+bench/**/.git/
+bench/**/__pycache__/
+bench/**/.pytest_cache/
+bench/**/db.sqlite3*

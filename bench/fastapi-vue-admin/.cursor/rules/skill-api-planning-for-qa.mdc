@@ -1,0 +1,13 @@
+---
+description: Use when a QA Case Delta contains API automation cases and you need to generate reviewable plan files before writing any test code. Triggers on: generate API plan, M3 Stage 1, api-plan.md, review before codegen, api planning. Only processes API cases with automation.required = true. Never generates 
+globs:
+alwaysApply: false
+---
+
+# Skill: api-planning-for-qa
+
+当需要执行此 skill 时，使用 Read 工具读取完整内容后按其指令执行：
+
+```
+Read: skills/api-planning-for-qa/SKILL.md
+```

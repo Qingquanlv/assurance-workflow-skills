@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "change_id": "20260615-role-mgmt",
+  "batch_id": "20260617-090841",
+  "kind": "performance",
+  "available": false,
+  "status": "SKIPPED",
+  "scenarios": [],
+  "command": "",
+  "source": {
+    "raw_log": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/performance.log",
+    "csv_prefix": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/20260615-role-mgmt/execution/runs/20260617-090841/raw/locust"
+  }
+}

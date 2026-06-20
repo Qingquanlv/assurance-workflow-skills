@@ -109,6 +109,7 @@ export async function runSuite(opts: {
           sampleDir,
           attemptDir,
           projectRoot,
+          runId,
         });
 
         // Call judge if defined

@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.14, pytest-9.0.3, pluggy-1.6.0 -- /Users/lvqingquan/pycharmProject/vue-fastapi-admin/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/lvqingquan/pycharmProject/vue-fastapi-admin
+configfile: pyproject.toml
+plugins: anyio-4.8.0, base-url-2.1.0, playwright-0.8.0
+collecting ... collected 2 items
+
+tests/e2e/test_menu_e2e.py::test_create_top_level_catalog_via_modal[chromium] PASSED [ 50%]
+tests/e2e/test_menu_e2e.py::test_add_child_menu_under_catalog[chromium] PASSED [100%]
+
+============================== 2 passed in 7.07s ===============================

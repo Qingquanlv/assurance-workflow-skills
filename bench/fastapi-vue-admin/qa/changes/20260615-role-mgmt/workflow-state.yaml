@@ -1,0 +1,530 @@
+schema_version: "1.0"
+change_id: 20260615-role-mgmt
+module: roles
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+run_parameters:
+  run_mode: full
+  test_types: api,e2e
+  layers_requested:
+    api: true
+    e2e: true
+    fuzz: true
+    performance: false
+  e2e_framework: python-playwright
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 2
+  force_continue: false
+  run_dashboard: false
+  run_tests: true
+  auto_archive: false
+  auto_archive_with_fallback: false
+
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  attempted_skill_loading: false
+  attempted_phase_execution: false
+  affected_gates: false
+
+phases:
+  skill_registry_check:
+    status: pass
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+      - aws-api-plan
+      - aws-e2e-plan
+      - aws-api-plan-reviewer
+      - aws-e2e-plan-reviewer
+      - aws-api-plan-fixer
+      - aws-e2e-plan-fixer
+      - aws-api-codegen
+      - aws-e2e-codegen
+      - aws-run
+      - aws-inspect
+      - aws-report-generator
+      - aws-archive
+    conditional_skills_present:
+      - aws-fuzz-plan
+      - aws-fuzz-plan-reviewer
+      - aws-fuzz-codegen
+    healing_skills_present:
+      - aws-fix-proposal
+      - aws-api-codegen-fixer
+      - aws-e2e-codegen-fixer
+  case_design:
+    status: done
+    proposal: proposal.md
+    case_delta: cases/roles/case.yaml
+    qa_scope: .qa.yaml
+    case_count:
+      total: 15
+      api: 11
+      e2e: 3
+      fuzz: 1
+      performance: 0
+    completed_at: "2026-06-15"
+  case_review:
+    status: pass
+    gate_file: review/case-review.json
+    summary_file: review/case-review-summary.md
+    decision: pass
+    risk_level: low
+    auto_fix_allowed: false
+    human_review_required: false
+    next_action: proceed_to_planning
+    findings_count: 0
+    blockers_count: 0
+    review_pass: 2
+    completed_at: "2026-06-15"
+    fix_attempts:
+      - attempt: 1
+        applied_at: "2026-06-15"
+        applied_by: aws-case-fixer
+        based_on_review: review/case-review.json
+        apply_summary: review/case-review-apply-summary.md
+        operations_applied: 7
+        operations_skipped: 0
+        files_modified:
+          - cases/roles/case.yaml
+        outcome: applied
+        next_action: rerun_case_reviewer
+        rereview_decision: pass
+  fact_baseline:
+    status: done
+    source: app/core/init_app.py + app/api/v1 router tree
+    file: facts/fact-baseline.json
+    placeholders_resolved: 6
+    warnings_recorded: 2
+    completed_at: "2026-06-15"
+  layer_scan:
+    status: done
+    counts:
+      api: 11
+      e2e: 3
+      fuzz: 1
+      performance: 0
+    completed_at: "2026-06-15"
+  layers:
+    api: true
+    e2e: true
+    fuzz: true
+    performance: false
+  api_plan:
+    status: done
+    outputs:
+      - plans/api-plan.md
+      - plans/api-test-data-plan.md
+      - plans/api-codegen-plan.md
+      - plans/m3-review-summary.md
+    readiness:
+      plan: ready_with_warnings
+      codegen: ready_with_warnings
+    needs_review_count: 5
+    blockers: []
+    completed_at: "2026-06-15"
+  e2e_plan:
+    status: done
+    outputs:
+      - plans/e2e-plan.md
+      - plans/e2e-test-data-plan.md
+      - plans/e2e-codegen-plan.md
+      - plans/m4-review-summary.md
+    readiness:
+      plan: ready_with_warnings
+      codegen: ready_with_warnings
+    needs_review_count: 4
+    blockers: []
+    completed_at: "2026-06-15"
+  fuzz_plan:
+    status: done
+    outputs:
+      - plans/fuzz-plan.md
+      - plans/fuzz-codegen-plan.md
+      - plans/fuzz-review-summary.md
+    readiness:
+      plan: ready_with_warnings
+      codegen: ready_with_warnings
+    needs_review_count: 4
+    blockers: []
+    notes: "schemathesis 3.39.16 installed in-session (NR-FUZZ-03: pytest 9.0.3 -> 8.4.2). Subsequently upgraded to schemathesis 4.21.6 in Phase 7C for OpenAPI 3.1 support (NR-FUZZ-04: pytest 8.4.2 -> 9.1.0). All layers re-verified to collect cleanly post-upgrade."
+    completed_at: "2026-06-15"
+  api_plan_review:
+    status: pass
+    gate_file: review/api-plan-review.json
+    summary_file: review/api-plan-review-summary.md
+    decision: pass
+    risk_level: low
+    codegen_readiness: ready_with_warnings
+    auto_fix_allowed: false
+    human_review_required: false
+    needs_review_count: 5
+    blockers_count: 0
+    findings_count: 0
+    next_action: continue
+    stale_reason: null
+    fix_attempts: []
+    completed_at: "2026-06-15"
+  e2e_plan_review:
+    status: pass
+    gate_file: review/plan-review.json
+    summary_file: review/plan-review-summary.md
+    decision: pass
+    risk_level: low
+    codegen_readiness: ready_with_warnings
+    auto_fix_allowed: false
+    human_review_required: false
+    needs_review_count: 4
+    blockers_count: 0
+    findings_count: 0
+    next_action: continue
+    stale_reason: null
+    fix_attempts: []
+    completed_at: "2026-06-15"
+  fuzz_plan_review:
+    status: pass
+    gate_file: review/fuzz-plan-review.json
+    summary_file: review/fuzz-plan-review-summary.md
+    decision: pass
+    risk_level: medium
+    codegen_readiness: ready_with_warnings
+    auto_fix_allowed: false
+    human_review_required: false
+    needs_review_count: 4
+    blockers_count: 0
+    findings_count: 0
+    next_action: continue
+    completed_at: "2026-06-15"
+  api_codegen:
+    status: done
+    summary_file: codegen/api-codegen-summary.md
+    generated_tests:
+      files:
+        - tests/api/test_role_api.py
+        - tests/api/helpers/role_api.py
+      tests_collected: 11
+      cases_covered:
+        - TC-ROLE-001
+        - TC-ROLE-002
+        - TC-ROLE-003
+        - TC-ROLE-004
+        - TC-ROLE-005
+        - TC-ROLE-006
+        - TC-ROLE-007
+        - TC-ROLE-008
+        - TC-ROLE-009
+        - TC-ROLE-010
+        - TC-ROLE-011
+    warnings_carried:
+      - NR-API-01
+      - NR-API-02
+      - NR-API-03
+      - NR-API-04
+      - NR-API-05
+    stop_reason: null
+    needs_patch_reason: null
+    completed_at: "2026-06-15"
+  e2e_codegen:
+    status: done
+    summary_file: codegen/e2e-codegen-summary.md
+    generated_tests:
+      files:
+        - tests/e2e/test_role_e2e.py
+        - tests/e2e/scripts/role_data_setup.py
+        - tests/e2e/conftest.py
+      tests_collected: 3
+      cases_covered:
+        - TC-ROLE-100
+        - TC-ROLE-101
+        - TC-ROLE-102
+    warnings_carried:
+      - NR-E2E-01
+      - NR-E2E-02
+      - NR-E2E-03
+      - NR-E2E-04
+    stop_reason: null
+    needs_patch_reason: null
+    completed_at: "2026-06-15"
+  fuzz_codegen:
+    status: done
+    summary_file: codegen/fuzz-codegen-summary.md
+    generated_tests:
+      files:
+        - tests/fuzz/__init__.py
+        - tests/fuzz/test_roles_fuzz.py
+        - pyproject.toml
+      tests_collected: 7
+      cases_covered:
+        - TC-ROLE-200
+    warnings_carried:
+      - NR-FUZZ-01
+      - NR-FUZZ-02
+      - NR-FUZZ-03
+      - NR-FUZZ-04
+    plan_deviations:
+      - schemathesis upgraded 3.39.16 -> 4.21.6 mid-codegen (OpenAPI 3.1 incompatibility); user-authorized
+      - pytest auto-upgraded 8.4.2 -> 9.1.0 by schemathesis 4.x install; verified non-blocking
+      - v4 API adaptations - openapi.from_url(), schema.include().parametrize(), CHECKS.get_by_names(), @schemathesis.hook
+    notes: "Smoke-verified one parameter [GET /api/v1/role/list] - token hook fires, checks raise on real product issue (HTTP 500 on negative pagination, undocumented status). Real issue will be re-discovered by Phase 8 aws-run."
+    completed_at: "2026-06-15"
+  execution:
+    status: FAIL
+    batch_id: 20260615-182414
+    manifest: execution/execution-manifest.yaml
+    runner_mode: primary
+    primary_runner:
+      command: aws run --change 20260615-role-mgmt
+      status: failed
+      exit_code: 0
+    fallback_runner:
+      used: false
+    selected_targets:
+      api: true
+      e2e: true
+      fuzz: true
+      performance: false
+    layer_results:
+      api: { status: failed, total: 26, passed: 24, failed: 2, skipped: 0 }
+      e2e: { status: failed, total: 3, passed: 0, failed: 3, skipped: 0 }
+      fuzz: { status: failed, total: 7, passed: 0, failed: 7, skipped: 0 }
+      coverage: { status: SKIPPED, available: false, reason: "pytest-cov unavailable" }
+      performance: { status: SKIPPED, available: false, reason: "not selected" }
+    warnings:
+      - "CLI auto-discovered tests/api/test_users_api.py beyond planned scope (added 13 unmapped tests to API total)"
+      - "CLI auto-discovered tests/e2e/scripts/user_data_setup.py in fuzz pytest command line (no collection impact)"
+      - "Coverage SKIPPED: pytest-cov not installed (warning, not failure)"
+      - "Performance SKIPPED: layers.performance=false (not selected)"
+      - "CLI did not write per-run execution-manifest.yaml; skill authored it post-execution"
+      - "No qa/changes/20260615-role-mgmt/known-product-issues.md exists; Phase 9 aws-inspect will classify failures"
+    notes: "All 3 selected layers (API/E2E/Fuzz) reported failures. API failures: TC-ROLE-001 (admin role pagination assumption), TC-ROLE-002 (real HTTP 500 on POST /role/create with valid name). E2E failures: 3/3 chromium failed at columnheader '角色名称' selector — UI actually renders '角色名' (codegen selector mismatch, not product bug). Fuzz failures: 7/7 endpoint parameters surfaced real backend bugs and OpenAPI spec gaps (HTTP 500 on negative pagination + null body, 404 undocumented on missing role lookups, 400 undocumented on duplicate name conflict). Phase 9 inspect required to classify codegen-bug vs product-bug."
+    completed_at: "2026-06-15"
+  inspect:
+    status: done
+    inspect_mode: primary
+    classification_performed: true
+    batch_id: 20260615-182414
+    final_status: FAIL
+    failure_count: 12
+    hard_fail_count: 9
+    needs_review_count: 0
+    category_breakdown:
+      assertion_failure: 2
+      locator_failure: 2
+      wait_strategy_failure: 1
+      fuzz_configuration_error: 7
+    fix_proposal_eligible_count: 3
+    output_files:
+      - qa/changes/20260615-role-mgmt/inspect/failure-analysis.json
+      - qa/changes/20260615-role-mgmt/inspect/failure-summary.md
+      - qa/changes/20260615-role-mgmt/inspect/quality-gate-result.json
+      - qa/changes/20260615-role-mgmt/execution/failure-analysis.json
+      - qa/changes/20260615-role-mgmt/execution/failure-summary.md
+    quality_gate:
+      functional: FAIL
+      coverage: SKIPPED
+      non_functional: SKIPPED
+      final_status: FAIL
+    classifier_observations:
+      - id: CLI-FUZZ-CLASSIFIER-01
+        severity: medium
+        description: "CLI classified all 7 fuzz failures as fuzz_configuration_error (no-fix, 'Not a product bug') based on heuristic detection. Evidence shows mixed nature: real product bugs (HTTP 500 on GET /role/list with negative page_size; HTTP 500 on POST /role/update with [null,null] body) AND OpenAPI spec gaps (404 undocumented for missing role on GET /role/get, DELETE /role/delete, GET /role/authorized, POST /role/authorized; 400 undocumented on POST /role/create duplicate name). Per skill hard rule, MUST NOT override CLI classification. These warrant human review and potential reclassification to fuzz_stateful_failure or known_product_issue."
+        action: "Documented for Phase 10 (aws-fix-proposal) and human review. No file modification performed."
+      - id: CLI-API-CLASSIFIER-01
+        severity: low
+        description: "TC-ROLE-002 assertion was triggered by HTTP 500 on POST /role/create with valid Chinese-prefixed unique name (status 500 != 200). Likely real backend bug under specific input — not a pure assertion mismatch in the codegen sense. CLI categorized as assertion_failure (no-fix). May warrant human review for product investigation."
+        action: "Documented for human review."
+    notes: "CLI classification complete; 3 of 12 failures eligible for automated fix proposal (2 locator + 1 wait_strategy on E2E layer). 9 hard fails remain (2 API assertion + 7 fuzz config). CLI heuristic on fuzz layer flags all as configuration_error rather than stateful_failure; mixed evidence suggests real product bugs in some endpoints. Following skill hard rule: do NOT override CLI assignment."
+    completed_at: "2026-06-15"
+  healing:
+    status: applied
+    max_attempts: 2
+    attempts:
+      - attempt: 1
+        source_analysis: qa/changes/20260615-role-mgmt/inspect/failure-analysis.json
+        eligible_count: 3
+        not_eligible_count: 9
+        eligible_failures:
+          - TC-ROLE-100
+          - TC-ROLE-101
+          - TC-ROLE-102
+        proposals:
+          - FIX-001
+          - FIX-002
+          - FIX-003
+        proposal_file: qa/changes/20260615-role-mgmt/healing/fix-proposal.md
+        proposal_json: qa/changes/20260615-role-mgmt/healing/fix-proposal.json
+        result: applied_partial
+        target: e2e
+        e2e_apply_status: partial
+        e2e_apply_summary_json: qa/changes/20260615-role-mgmt/healing/e2e-apply-summary.json
+        e2e_apply_summary_md: qa/changes/20260615-role-mgmt/healing/e2e-apply-summary.md
+        applied_fixes:
+          - FIX-001
+        skipped_fixes:
+          - id: FIX-002
+            status: not_applicable
+            reason: "proposed locator pattern absent in TC-ROLE-101 function body; real cause is backend HTTP 500 on POST /role/create (raw log e2e.log:299-300)"
+          - id: FIX-003
+            status: not_applicable
+            reason: "real cause is httpx.HTTPStatusError 500 in fixture create_role_via_api before any wait_strategy executes (raw log e2e.log:618)"
+        files_modified:
+          - tests/e2e/test_role_e2e.py
+        safety_gate: passed
+        agent_warnings_added:
+          - AGENT-WARN-HEAL-01
+    notes: "FIX-001 applied (line 30 columnheader 角色名称→角色名). FIX-002/003 skipped: raw e2e.log proves they are blocked by backend HTTP 500 on POST /role/create (same product bug as Phase 9 API findings TC-ROLE-001/002), NOT test-code defects. Per skill hard rule, did NOT override CLI fix_proposal_eligible classification; documented in agent_warnings AGENT-WARN-HEAL-01 instead. User confirmed approach."
+    post_heal_inspect:
+      status: done
+      batch_id: 20260617-090841
+      previous_batch_id: 20260615-190106
+      final_status: FAIL
+      failure_count: 11
+      hard_fail_count: 10
+      needs_review_count: 0
+      category_breakdown:
+        assertion_failure: 2
+        locator_failure: 1
+        business_logic_failure: 1
+        fuzz_configuration_error: 7
+      fix_proposal_eligible_count: 1
+      delta_from_pre_heal:
+        failures: -1
+        tc_role_100: "FAIL → PASS (FIX-001 effective)"
+        tc_role_101: "locator_failure → locator_failure (CLI re-misclassified; real cause unchanged: backend HTTP 500 on POST /role/create)"
+        tc_role_102: "wait_strategy_failure → business_logic_failure (CLI partially corrected; still product_bug-blocked)"
+      determinism_check:
+        re_run_batch: 20260617-090841
+        result: identical
+        comparison: "Same 11 failures, same categories, same hard-fail count, same eligibility flags as batch 20260615-190106. Confirms test results are deterministic and reproducible (no flake)."
+      output_files:
+        - qa/changes/20260615-role-mgmt/inspect/failure-analysis.json
+        - qa/changes/20260615-role-mgmt/inspect/failure-summary.md
+        - qa/changes/20260615-role-mgmt/inspect/quality-gate-result.json
+      completed_at: "2026-06-17"
+    heal2_decision:
+      action: skip
+      reason: >
+        Heal budget remaining: 1 of 2. Skipping second iteration with documented evidence:
+        (a) TC-ROLE-101 root cause is backend HTTP 500 on POST /role/create (already proven via raw log e2e.log:299-300, AGENT-WARN-HEAL-01).
+        (b) The proposed locator fix pattern '角色名称' → '角色名' would be a no-op for TC-ROLE-101: lines 40-79 (test_create_role_via_ui) contain no '角色名称' columnheader locator.
+        (c) Applying a CLI-suggested fix that we have evidence will not work would waste heal2 and falsify healing telemetry.
+        (d) TC-ROLE-101 + TC-ROLE-102 + TC-ROLE-001 + TC-ROLE-002 all share the same backend root cause; resolution requires developer fix in app/controllers/role.py, not test code change.
+      eligible_failures_at_decision_time:
+        - TC-ROLE-101  # locator_failure, eligible=true per CLI but evidence-blocked
+      proceeding_to: report
+      decision_authority: "agent + AGENT-WARN-HEAL-01 evidence; user authorized Apply-FIX-001-Only path"
+  report:
+    status: done
+    quality_score: 66
+    risk_level: HIGH
+    final_status: FAIL
+    recommendation: "Do not release: failing tests or hard blockers must be resolved first."
+    score_breakdown:
+      functional: 66.3
+      coverage: N/A
+      fuzz: 0
+      performance: N/A
+    output_files:
+      - qa/changes/20260615-role-mgmt/report/quality-report.json
+      - qa/changes/20260615-role-mgmt/report/quality-report.md
+      - qa/changes/20260615-role-mgmt/report/executive-summary.md
+    based_on_batch: 20260617-090841
+    previous_batch_id: 20260615-190106
+    determinism_note: "Quality score, breakdown, and recommendation identical to prior batch 20260615-190106. Confirms scoring is deterministic across re-runs."
+    completed_at: "2026-06-17"
+  archive:
+    status: pending
+
+gates:
+  data_knowledge:
+    status: present
+    decision: pass
+  healing_available: true
+
+known_product_issues: []
+
+agent_warnings:
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline
+    workaround:
+      - use file-based phase contracts
+      - use document-driven subagents only if parallelism is needed
+    status: acknowledged
+  - id: AWS-ORCHESTRATION-SHADOW-UNAVAILABLE
+    severity: low
+    phase: skill_registry_check
+    command: aws status
+    error: workflow-schema.yaml not found
+    action_taken: continued_with_prose_workflow
+    status: recorded
+  - id: SKILL-TOOL-UNREGISTERED
+    severity: low
+    title: Skill exists on disk but not registered with skill tool
+    detail: >
+      AWS skills could not be loaded via the OpenCode skill tool but were found on disk.
+      The workflow will read SKILL.md directly as an equivalent fallback. This is expected
+      for OhMyOpenCode environments where AWS skills live under ~/skills/ and are not
+      auto-registered with the skill tool registry.
+    affected_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+      - aws-api-plan
+      - aws-e2e-plan
+      - aws-api-plan-reviewer
+      - aws-e2e-plan-reviewer
+      - aws-api-plan-fixer
+      - aws-e2e-plan-fixer
+      - aws-api-codegen
+      - aws-e2e-codegen
+      - aws-run
+      - aws-inspect
+      - aws-report-generator
+      - aws-archive
+      - aws-fuzz-plan
+      - aws-fuzz-plan-reviewer
+      - aws-fuzz-codegen
+      - aws-fix-proposal
+      - aws-api-codegen-fixer
+      - aws-e2e-codegen-fixer
+    status: acknowledged
+
+  - id: AGENT-WARN-HEAL-01
+    severity: high
+    phase: healing
+    title: CLI failure-analysis over-classified 2 of 3 E2E failures as test-code defects
+    detail: >
+      Phase 9 inspect classified TC-ROLE-101 as locator_failure and TC-ROLE-102 as
+      wait_strategy_failure with fix_proposal_eligible=true. Raw e2e.log evidence proves
+      both failures stem from backend HTTP 500 on POST /role/create (same product bug
+      already documented in Phase 9 for TC-ROLE-001 and TC-ROLE-002). The proposed
+      replace_locator pattern for FIX-002 does not exist in TC-ROLE-101 function body,
+      and FIX-003's wait_strategy fix cannot resolve a fixture-level httpx.HTTPStatusError 500.
+    skill_compliance:
+      did_not_override_cli_classification: true
+      no_edits_to_failure_analysis_json: true
+      no_edits_to_fix_proposal_json: true
+      action_taken: "documented as not_applicable in healing/e2e-apply-summary.{json,md} with raw-log line evidence; user confirmed via question prompt"
+    evidence:
+      - "qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/raw/e2e.log:299-300 (TC-ROLE-101 success toast not visible)"
+      - "qa/changes/20260615-role-mgmt/execution/runs/20260615-182414/raw/e2e.log:618 (TC-ROLE-102 httpx.HTTPStatusError 500)"
+      - "tests/e2e/test_role_e2e.py:40-79 (TC-ROLE-101 body contains no 角色名称 columnheader)"
+    affected_fixes:
+      - FIX-002
+      - FIX-003
+    recommended_action: >
+      Phase 10 quality report should classify TC-ROLE-101/102 as product_bug-blocked,
+      not test-code defect. Consider filing CLI improvement ticket: classifier should
+      detect httpx.HTTPStatusError in fixture stack-frames and route to environment_failure
+      or product_bug instead of wait_strategy_failure.
+    status: recorded
