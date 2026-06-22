@@ -21,7 +21,11 @@ describe('eval-workflow-run write-scan evidence', () => {
 
     execFileSync('git', ['init'], { cwd: projectDir });
     execFileSync('git', ['add', '.'], { cwd: projectDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: projectDir });
+    execFileSync(
+      'git',
+      ['-c', 'user.email=eval@test.local', '-c', 'user.name=eval-test', 'commit', '-m', 'init'],
+      { cwd: projectDir }
+    );
 
     attemptDir = path.join(tmpRoot, 'attempt-0');
     archiveDir = path.join(attemptDir, 'raw-output');
