@@ -1,0 +1,12 @@
+id: WEEC-003
+annotation_source: human
+tags: ["workflow-e2e-codegen", "eval-sample-003", "menus"]
+input:
+  change_id: eval-sample-003
+  fixture_tier: L2-e2e-codegen-seed-menu
+  run_mode: codegen-only
+  project_dir: bench/fastapi-vue-admin
+  test_types: [e2e]
+  test_collect_paths: ["tests/e2e/eval"]
+  pytest_confcutdir: "tests/e2e/eval"
+expected: {}

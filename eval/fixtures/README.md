@@ -18,6 +18,9 @@ L0-case-seed
 | **L0** | `workflow-case` (case-only) | `proposal.md`, `.qa.yaml`, `.aws/data-knowledge.yaml` |
 | **L1** | (plan-only baseline, not a suite) | L0 + `cases/**`, `review/case-review.json`, `facts/fact-baseline.json`, `workflow-state.yaml` |
 | **L2-api** | `workflow-api-codegen` (codegen-only) | L1 + API plan files + `review/api-plan-review.json` |
+| **L2-e2e** | `workflow-e2e-codegen` | L1 + E2E plans + `review/e2e-plan-review.json` |
+| **L2-fuzz** | `workflow-fuzz-codegen` | L1 + fuzz plans + `review/fuzz-plan-review.json` |
+| **L2-perf** | `workflow-performance-codegen` | L1 + performance plans + `review/performance-plan-review.json` |
 | **L3** | `workflow-run` (aws run) | L2 + generated `tests/api/**` stubs |
 
 `paths` are **relative to the sample root** (`eval/fixtures/samples/<sample-id>/`). The seed script copies each listed path from the sample into the target change directory (or bench `tests/` for L3 test paths — see Task 3 `copyTierToChangeDir`).
@@ -54,9 +57,20 @@ Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
 
 ## Golden sample
 
-`eval/fixtures/samples/eval-sample-001/` is trimmed from `bench/fastapi-vue-admin/qa/changes/20260612-user-mgmt/` (user management module). It excludes heavy runtime artifacts (`execution/`, `healing/`, `inspect/`). API test stubs under `tests/` are copied from the bench project's generated tests for that change.
+| Sample | Module | Dataset | L0 tier |
+|--------|--------|---------|---------|
+| `eval-sample-001` | users（用户管理） | WC-001 | `L0-case-seed` |
+| `eval-sample-002` | roles（角色管理） | WC-002 | `L0-case-seed-roles` |
+| `eval-sample-003` | menus（菜单管理） | WC-003 | `L0-case-seed-menu` |
+| `eval-sample-004` | depts（部门管理） | WC-004 | `L0-case-seed-dept` |
 
-`L0-case-seed.yaml` sets `source_prefix: eval/fixtures/samples/eval-sample-001` so tier resolution knows where to read files when no per-dataset sample override exists.
+E2b/E2c/E2d codegen datasets (`WEEC-*`, `WFUZ-*`, `WPER-*`) map samples 002–004 to module-specific L2 tiers.
+
+`eval-sample-001` is trimmed from `bench/fastapi-vue-admin/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
+
+Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
+
+**E4 (`workflow-full`)** datasets WF-001 … WF-004 map to `eval-sample-001` … `004` with module-specific `L3-run-seed*` tiers (same as E3 `WR-*`).
 
 ## Adding tiers or samples
 

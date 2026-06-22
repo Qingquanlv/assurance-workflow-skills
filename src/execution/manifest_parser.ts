@@ -50,6 +50,7 @@ export function normalizeExecutionManifest(
     batch_id: batchId,
     selected_targets: selectedTargets,
     result_files: resultFiles,
+    ...(typeof doc.final_status === 'string' ? { final_status: doc.final_status as ExecutionManifest['final_status'] } : {}),
   };
 }
 

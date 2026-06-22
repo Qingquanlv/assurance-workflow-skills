@@ -70,16 +70,26 @@ export function runPytestCollectOnly(opts: {
   projectDir: string;
   testPaths: string[];
   syncFromRawOutput?: string;
+  /** Relative paths under raw-output to sync into projectDir (default: tests). */
+  syncSubpaths?: string[];
+  /** When set, passed as pytest --confcutdir to avoid parent conftest.py. */
+  confcutdir?: string;
 }): CollectResult {
   if (opts.syncFromRawOutput) {
-    const srcTests = path.join(opts.syncFromRawOutput, 'tests');
-    const destTests = path.join(opts.projectDir, 'tests');
-    if (fs.existsSync(srcTests)) {
-      copyDirRecursive(srcTests, destTests);
+    for (const sub of opts.syncSubpaths ?? ['tests']) {
+      const src = path.join(opts.syncFromRawOutput, sub);
+      const dest = path.join(opts.projectDir, sub);
+      if (fs.existsSync(src)) {
+        copyDirRecursive(src, dest);
+      }
     }
   }
 
-  const args = ['--collect-only', '-q', ...opts.testPaths];
+  const args = ['--collect-only', '-q'];
+  if (opts.confcutdir) {
+    args.push('--confcutdir', opts.confcutdir);
+  }
+  args.push(...opts.testPaths);
   let stdout = '';
   let stderr = '';
   let exitCode = 1;

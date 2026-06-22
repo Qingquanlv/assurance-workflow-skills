@@ -89,6 +89,8 @@ export interface ExecutionManifest {
   batch_id: string;
   selected_targets: SelectedTargets;
   result_files: Partial<Record<keyof SelectedTargets | 'coverage' | 'summary', string>>;
+  /** Quality gate outcome for this batch — written by `aws run` (CLI primary mode). */
+  final_status?: GateStatus;
 }
 
 // ─── Failure analysis types (M5) ─────────────────────────────────────────────

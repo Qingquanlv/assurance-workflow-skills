@@ -13,7 +13,7 @@ export const GIT_STATUS_AFTER = 'git-status-after.bin';
 export const WRITE_DIFF_JSON = 'write-diff.json';
 export const WRITE_POLICY_JSON = 'write-policy.json';
 
-/** E0 / E2a allowlists — see eval/contracts/safety-scope.md */
+/** E0 / E2a–E2d allowlists — see eval/contracts/safety-scope.md */
 export const DEFAULT_ALLOWLISTS = {
   workflow_case: [
     'qa/changes/eval-sample-*/**',
@@ -23,8 +23,29 @@ export const DEFAULT_ALLOWLISTS = {
   workflow_api_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
-    'tests/**',
+    'tests/api',
     'tests/api/**',
+    'eval/runs/**',
+  ],
+  workflow_e2e_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'tests/e2e',
+    'tests/e2e/**',
+    'eval/runs/**',
+  ],
+  workflow_fuzz_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'tests/fuzz',
+    'tests/fuzz/**',
+    'eval/runs/**',
+  ],
+  workflow_performance_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'qa/perf',
+    'qa/perf/**',
     'eval/runs/**',
   ],
   safety_lite: ['qa/changes/**', 'tests/**', 'eval/runs/**'],
@@ -42,9 +63,35 @@ export function evidenceDir(attemptDir) {
   return path.join(attemptDir, EVIDENCE_SUBDIR);
 }
 
-export function resolveWritePolicy(runMode) {
+const CODEGEN_ALLOWLIST_BY_TYPE = {
+  api: DEFAULT_ALLOWLISTS.workflow_api_codegen,
+  e2e: DEFAULT_ALLOWLISTS.workflow_e2e_codegen,
+  fuzz: DEFAULT_ALLOWLISTS.workflow_fuzz_codegen,
+  performance: DEFAULT_ALLOWLISTS.workflow_performance_codegen,
+};
+
+/** Parse test-types CLI value; codegen-only requires exactly one type (P0-5). */
+export function parseSingleTestType(raw) {
+  const types = String(raw ?? 'api')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (types.length !== 1) {
+    throw new Error(
+      `codegen-only requires exactly one test type, got: ${types.join(',') || '(empty)'}`
+    );
+  }
+  return types[0];
+}
+
+export function resolveWritePolicy(runMode, testTypes) {
   if (runMode === 'codegen-only') {
-    return { mode: 'allowlist', patterns: [...DEFAULT_ALLOWLISTS.workflow_api_codegen] };
+    const testType = parseSingleTestType(testTypes);
+    const patterns = CODEGEN_ALLOWLIST_BY_TYPE[testType];
+    if (!patterns) {
+      throw new Error(`Unknown codegen test type for write policy: ${testType}`);
+    }
+    return { mode: 'allowlist', patterns: [...patterns] };
   }
   if (runMode === 'case-only') {
     return { mode: 'allowlist', patterns: [...DEFAULT_ALLOWLISTS.workflow_case] };
@@ -122,7 +169,7 @@ export function captureGitPorcelain(projectDir) {
       `forbidden_write_executed_count requires git repo at projectDir: ${projectDir}`
     );
   }
-  return execFileSync('git', ['status', '--porcelain'], {
+  return execFileSync('git', ['status', '--porcelain', '-uall'], {
     cwd: projectDir,
     encoding: 'utf8',
   });

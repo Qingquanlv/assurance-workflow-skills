@@ -1,0 +1,1003 @@
+schema_version: "1.0"
+
+added:
+  # ─────────────────────────── API CASES ────────────────────────────
+  - case_id: TC-ROLES-API-001
+    title: 管理员可分页获取角色列表
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-001
+    feature_name: role-list
+    test_condition_id: COND-ROLES-001
+    design_technique: use_case
+    tags: [list, pagination, happy-path]
+    objective: 验证管理员调用角色列表接口时，能按默认分页获取角色集合及总数。
+    summary: >
+      管理员携带有效 token 调用角色列表接口，返回符合分页约定的数据集合与 total 字段。
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: 列表接口是前端进入角色管理页的第一交互，失败将导致整页不可用。
+    preconditions:
+      - 系统已初始化，至少存在 seed 角色「管理员」「普通用户」
+      - 测试客户端已使用 admin 账户完成登录并获取有效 access_token
+    test_data:
+      - 使用默认 seed 角色无需额外构造
+      - 通过 admin/123456 登录拿到 token
+    steps:
+      - 以管理员身份登录获取 access_token
+      - 携带有效 token 调用角色列表接口，使用默认分页参数
+      - 查看响应体
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - 响应包含 total 字段，且 total ≥ 2
+      - 响应 data 为数组，每个元素包含 id、name、desc 字段
+    postconditions:
+      - 测试完成不修改任何角色数据
+    edge_cases:
+      - 自定义 page / page_size 分页
+      - 大于实际页数的分页请求
+    related_cases:
+      - TC-ROLES-API-002
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 角色列表是角色管理模块入口，必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-001]
+      change_reason: 新建角色管理 API 全量覆盖
+
+  - case_id: TC-ROLES-API-002
+    title: 按 role_name 模糊搜索角色列表
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-001
+    feature_name: role-list-search
+    test_condition_id: COND-ROLES-002
+    design_technique: equivalence_partitioning
+    tags: [list, search]
+    objective: 验证传入 role_name 关键词时，列表返回仅包含名称匹配的角色。
+    summary: >
+      管理员使用 role_name 关键词调用角色列表接口，应仅返回名称包含该关键词的角色集合。
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: 搜索功能用户高频使用，但故障可降级为浏览全量列表。
+    preconditions:
+      - 系统中存在至少两个角色，其中之一名称包含 seed 关键词
+      - 已获得 admin 账户 token
+    test_data:
+      - 默认 seed 角色 (「管理员」「普通用户」) 已存在
+    steps:
+      - 以管理员身份登录获取 token
+      - 调用角色列表接口，传入 role_name 关键词「管理」
+      - 查看响应中的 data 列表
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - data 列表中每个角色的 name 字段都包含关键词「管理」
+    postconditions:
+      - 不修改任何角色数据
+    edge_cases:
+      - role_name 关键词无匹配时返回空列表
+      - role_name 关键词包含特殊字符
+    related_cases:
+      - TC-ROLES-API-001
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 搜索为常用查询场景，列入回归。
+    trace:
+      related_requirements: [REQ-ROLES-001]
+
+  - case_id: TC-ROLES-API-003
+    title: 未携带 token 访问角色列表返回 401
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-001
+    feature_name: role-list-auth
+    test_condition_id: COND-ROLES-003
+    design_technique: negative
+    tags: [auth, negative]
+    objective: 验证未登录时调用角色列表接口被认证中间件拒绝。
+    summary: >
+      不携带 Authorization header 调用角色列表接口，应被认证中间件拒绝并返回 401。
+    risk:
+      likelihood: 4
+      impact: 5
+      level: critical
+      rationale: 未鉴权暴露角色信息属于严重安全风险。
+    preconditions:
+      - 测试客户端不持有任何 token
+    test_data:
+      - 无
+    steps:
+      - 不携带 Authorization header 调用角色列表接口
+      - 查看响应状态码与错误体
+    assertions:
+      - 接口返回 HTTP 401
+      - 响应业务码或 detail 指示未授权
+    postconditions:
+      - 不修改任何角色数据
+    edge_cases:
+      - 携带过期 token
+      - 携带格式错误的 token
+    related_cases:
+      - TC-ROLES-API-001
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [security_related, critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 鉴权边界必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-001]
+
+  - case_id: TC-ROLES-API-004
+    title: 按 id 获取单个角色详情
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-002
+    feature_name: role-get
+    test_condition_id: COND-ROLES-004
+    design_technique: use_case
+    tags: [get, happy-path]
+    objective: 验证按 role_id 查询单个角色时返回完整角色信息。
+    summary: >
+      使用合法 role_id 调用 /role/get，应返回包含 id、name、desc 的角色详情。
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 详情接口为编辑入口提供初始数据，失败将阻断编辑流程。
+    preconditions:
+      - 系统存在 seed 角色「管理员」(id=1)
+      - 已登录获取 token
+    test_data:
+      - seed 角色 id=1
+    steps:
+      - 以管理员身份登录获取 token
+      - 调用 /role/get 传入 role_id=1
+      - 查看响应数据
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - data.id 等于 1
+      - data.name 为「管理员」
+    postconditions:
+      - 不修改角色数据
+    edge_cases:
+      - role_id 为字符串
+      - role_id 缺失
+    related_cases:
+      - TC-ROLES-API-005
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 单条查询是编辑流程前置依赖。
+    trace:
+      related_requirements: [REQ-ROLES-002]
+
+  - case_id: TC-ROLES-API-005
+    title: 查询不存在的角色返回 404
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-002
+    feature_name: role-get
+    test_condition_id: COND-ROLES-005
+    design_technique: negative
+    tags: [get, negative]
+    objective: 验证传入不存在的 role_id 时返回 DoesNotExist 错误。
+    summary: >
+      使用极大不存在的 role_id 调用 /role/get，系统应返回 404 表示资源不存在。
+    risk:
+      likelihood: 3
+      impact: 2
+      level: medium
+      rationale: 负向路径未正确处理可能导致 500，影响前端容错。
+    preconditions:
+      - 已登录获取 token
+      - role_id=999999 在数据库中不存在
+    test_data:
+      - 不存在的 role_id=999999
+    steps:
+      - 以管理员身份登录
+      - 调用 /role/get 传入 role_id=999999
+      - 查看响应
+    assertions:
+      - 接口返回 HTTP 404
+      - 响应体包含错误说明（业务码或 detail 字段）
+    postconditions:
+      - 不修改角色数据
+    edge_cases: []
+    related_cases:
+      - TC-ROLES-API-004
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [contract_boundary]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 负向边界覆盖。
+    trace:
+      related_requirements: [REQ-ROLES-002]
+
+  - case_id: TC-ROLES-API-006
+    title: 创建唯一名称角色成功
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-003
+    feature_name: role-create
+    test_condition_id: COND-ROLES-006
+    design_technique: use_case
+    tags: [create, happy-path]
+    objective: 验证使用全新角色名调用 /role/create 时角色被成功创建。
+    summary: >
+      管理员使用唯一 name 调用 /role/create，系统应创建角色并返回成功响应。
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: 创建是 RBAC 体系的源头操作，失败将无法扩展角色。
+    preconditions:
+      - 已登录获取 token
+      - 待创建的角色名在系统中不存在
+    test_data:
+      - 测试脚本生成的唯一名称，如「测试角色-<timestamp>」
+      - 描述字段「自动化测试创建的角色」
+    steps:
+      - 以管理员身份登录
+      - 调用 /role/create，传入唯一的 name 与 desc
+      - 查看响应
+      - 通过 /role/list 验证新角色出现在列表中
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - 响应消息为「Created Successfully」
+      - 后续列表查询能查询到该角色
+    postconditions:
+      - 测试结束后删除该角色以清理
+    edge_cases:
+      - name 包含特殊字符
+      - desc 为空
+    related_cases:
+      - TC-ROLES-API-007
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 角色创建是 CRUD 入口。
+    trace:
+      related_requirements: [REQ-ROLES-003]
+
+  - case_id: TC-ROLES-API-007
+    title: 创建重名角色返回 400
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-003
+    feature_name: role-create-duplicate
+    test_condition_id: COND-ROLES-007
+    design_technique: negative
+    tags: [create, negative, validation]
+    objective: 验证使用已存在的角色名创建角色被业务层拒绝。
+    summary: >
+      管理员使用已存在的 name 调用 /role/create，应返回 HTTP 400 并提示角色已存在。
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: 重名校验失效会破坏 RBAC 唯一性约束。
+    preconditions:
+      - 系统中已存在 seed 角色「管理员」
+      - 已登录获取 token
+    test_data:
+      - 与 seed 角色重名的 name=「管理员」
+    steps:
+      - 以管理员身份登录
+      - 调用 /role/create 传入 name=「管理员」
+      - 查看响应
+    assertions:
+      - 接口返回 HTTP 400
+      - 响应 detail 提示角色已存在（包含 "already exists" 关键词）
+    postconditions:
+      - 不创建新角色
+    edge_cases: []
+    related_cases:
+      - TC-ROLES-API-006
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [contract_boundary]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 唯一性约束需常态保障。
+    trace:
+      related_requirements: [REQ-ROLES-003]
+
+  - case_id: TC-ROLES-API-008
+    title: 更新已存在角色成功
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-004
+    feature_name: role-update
+    test_condition_id: COND-ROLES-008
+    design_technique: use_case
+    tags: [update, happy-path]
+    objective: 验证管理员使用合法 id 更新角色信息时数据持久化。
+    summary: >
+      管理员调用 /role/update 修改测试角色的 name 与 desc，应返回成功并通过列表确认变更。
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: 更新失败会阻断角色维护流程。
+    preconditions:
+      - 已登录获取 token
+      - 已创建测试角色，并知其 id
+    test_data:
+      - 通过创建 fixture 准备测试角色及 id
+      - 新 name = 唯一字符串；新 desc = 「更新后描述」
+    steps:
+      - 以管理员身份登录
+      - 创建一个临时角色作为更新目标
+      - 调用 /role/update 传入新 name 与 desc
+      - 通过 /role/get 验证字段已更新
+    assertions:
+      - update 接口返回 HTTP 200
+      - 响应消息为「Updated Successfully」
+      - 后续 /role/get 返回的 name 与 desc 等于更新值
+    postconditions:
+      - 测试结束清理该测试角色
+    edge_cases:
+      - desc 留空
+    related_cases:
+      - TC-ROLES-API-009
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 更新是日常维护核心操作。
+    trace:
+      related_requirements: [REQ-ROLES-004]
+
+  - case_id: TC-ROLES-API-009
+    title: 更新不存在的角色返回 404
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-004
+    feature_name: role-update
+    test_condition_id: COND-ROLES-009
+    design_technique: negative
+    tags: [update, negative]
+    objective: 验证使用不存在的 id 更新角色时被拒绝。
+    summary: >
+      管理员调用 /role/update 传入不存在的 role id 时，系统应返回 404。
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: 异常路径未正确处理会暴露 500。
+    preconditions:
+      - 已登录获取 token
+      - role id=999999 不存在
+    test_data:
+      - role id=999999, name= 随机, desc= 随机
+    steps:
+      - 以管理员身份登录
+      - 调用 /role/update 传入不存在的 id
+      - 查看响应
+    assertions:
+      - 接口返回 HTTP 404
+      - 响应体包含错误说明
+    postconditions:
+      - 数据库无变更
+    edge_cases: []
+    related_cases:
+      - TC-ROLES-API-008
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [contract_boundary]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 负向覆盖。
+    trace:
+      related_requirements: [REQ-ROLES-004]
+
+  - case_id: TC-ROLES-API-010
+    title: 删除已存在角色成功
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-005
+    feature_name: role-delete
+    test_condition_id: COND-ROLES-010
+    design_technique: use_case
+    tags: [delete, happy-path]
+    objective: 验证管理员调用 /role/delete 删除测试角色后角色不再存在。
+    summary: >
+      管理员调用 /role/delete 删除测试角色，应返回成功且后续查询返回 404。
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 删除链路失效将阻塞角色生命周期管理。
+    preconditions:
+      - 已登录获取 token
+      - 测试角色已存在
+    test_data:
+      - 通过创建 fixture 准备测试角色及 id
+    steps:
+      - 以管理员身份登录
+      - 创建一个临时角色
+      - 调用 /role/delete 传入该 role_id
+      - 通过 /role/get 验证该角色已不存在
+    assertions:
+      - delete 接口返回 HTTP 200
+      - 响应消息为「Deleted Success」
+      - 随后 /role/get 返回 HTTP 404
+    postconditions:
+      - 该测试角色已删除，无需额外清理
+    edge_cases:
+      - 删除已被引用的角色（用户已绑定）
+    related_cases:
+      - TC-ROLES-API-011
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 删除是 CRUD 关键路径。
+    trace:
+      related_requirements: [REQ-ROLES-005]
+
+  - case_id: TC-ROLES-API-011
+    title: 删除不存在的角色返回 404
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-005
+    feature_name: role-delete
+    test_condition_id: COND-ROLES-011
+    design_technique: negative
+    tags: [delete, negative]
+    objective: 验证删除不存在的角色时返回明确错误。
+    summary: >
+      管理员调用 /role/delete 传入不存在的 role_id，应返回 HTTP 404。
+    risk:
+      likelihood: 3
+      impact: 2
+      level: medium
+      rationale: 负向路径异常控制。
+    preconditions:
+      - 已登录获取 token
+      - role_id=999999 不存在
+    test_data:
+      - 不存在的 role_id=999999
+    steps:
+      - 以管理员身份登录
+      - 调用 /role/delete 传入不存在的 role_id
+      - 查看响应
+    assertions:
+      - 接口返回 HTTP 404
+      - 响应体包含错误说明
+    postconditions:
+      - 数据库无变更
+    edge_cases: []
+    related_cases:
+      - TC-ROLES-API-010
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [contract_boundary]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 负向覆盖。
+    trace:
+      related_requirements: [REQ-ROLES-005]
+
+  - case_id: TC-ROLES-API-012
+    title: 更新并查询角色菜单/API 授权
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: roles
+    requirement_id: REQ-ROLES-006
+    feature_name: role-authorized
+    test_condition_id: COND-ROLES-012
+    design_technique: state_transition
+    tags: [authorized, happy-path, rbac]
+    objective: 验证授权写入 (POST /role/authorized) 后通过 GET /role/authorized 能读出最终绑定状态。
+    summary: >
+      管理员对测试角色提交 menu_ids 与 api_infos 后，再次查询授权应返回相同的最终绑定集合（clear+add 语义）。
+    risk:
+      likelihood: 4
+      impact: 5
+      level: critical
+      rationale: 授权绑定是 RBAC 核心，失败将导致权限失控。
+    preconditions:
+      - 已登录获取 token
+      - 测试角色已存在，可被授权
+      - seed 菜单与 API 数据已初始化
+    test_data:
+      - 通过创建 fixture 准备测试角色
+      - 从 GET /menu/list 选取一组 menu_id
+      - 从 GET /api/list 选取一组 api 三元组 (path, method, tags 或对应字段)
+    steps:
+      - 以管理员身份登录
+      - 创建临时测试角色
+      - 调用 POST /role/authorized 提交一组 menu_ids 与 api_infos
+      - 调用 GET /role/authorized 查询该角色权限
+      - 比较返回的 menus / apis 集合与提交内容
+    assertions:
+      - POST 接口返回 HTTP 200，响应消息为「Updated Successfully」
+      - GET 接口返回 HTTP 200
+      - GET 响应中的 menus 列表 id 集合等于提交的 menu_ids 集合
+      - GET 响应中的 apis 列表条目与提交的 api_infos 集合等价（clear+add 语义，无残留旧绑定）
+    postconditions:
+      - 测试结束清理测试角色
+    edge_cases:
+      - 提交空 menu_ids 与 api_infos 清空所有授权
+      - 重复提交相同授权应保持幂等
+    related_cases:
+      - TC-ROLES-E2E-004
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_roles_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey, security_related]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 授权链路是 RBAC 安全核心，必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-006]
+
+  # ─────────────────────────── E2E CASES ────────────────────────────
+  - case_id: TC-ROLES-E2E-001
+    title: 管理员登录后访问角色管理页加载列表
+    status: draft
+    priority: P0
+    severity: blocker
+    type: E2E
+    module: roles
+    requirement_id: REQ-ROLES-E2E-001
+    feature_name: role-page-load
+    test_condition_id: COND-ROLES-E2E-001
+    design_technique: use_case
+    tags: [e2e, page-load, happy-path]
+    objective: 验证管理员登录后能进入角色管理页并看到角色列表渲染。
+    summary: >
+      管理员从登录页登录成功后，进入 /system/role 角色管理页，列表表格应渲染至少一条 seed 角色。
+    risk:
+      likelihood: 4
+      impact: 5
+      level: critical
+      rationale: 页面加载失败意味着用户完全无法管理角色。
+    preconditions:
+      - 后端服务可访问
+      - 前端服务可访问
+      - 系统已初始化，存在 seed 管理员账号与角色
+    test_data:
+      - admin / 123456 登录凭据（来自 seed）
+    steps:
+      - 在浏览器中打开登录页
+      - 输入管理员账号与密码并提交
+      - 进入工作台后从菜单进入「系统管理 → 角色管理」
+      - 等待角色列表表格渲染完成
+    assertions:
+      - 页面 URL 包含 /system/role
+      - 表格中可见至少一行角色记录
+      - 表格列包含角色名称与描述列
+    postconditions:
+      - 测试结束登出或关闭浏览器
+    edge_cases:
+      - 列表为空时空状态提示
+    related_cases:
+      - TC-ROLES-API-001
+    automation:
+      required: true
+      framework: pytest-playwright
+      suggested_file: tests/e2e/test_role_management_e2e.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 角色管理页入口必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-E2E-001]
+
+  - case_id: TC-ROLES-E2E-002
+    title: 在角色管理页新建角色并在列表确认
+    status: draft
+    priority: P0
+    severity: critical
+    type: E2E
+    module: roles
+    requirement_id: REQ-ROLES-E2E-002
+    feature_name: role-create-ui
+    test_condition_id: COND-ROLES-E2E-002
+    design_technique: use_case
+    tags: [e2e, create, happy-path]
+    objective: 验证通过 UI 表单新建角色后列表会反映新角色。
+    summary: >
+      管理员在角色管理页点击「新建」，填写唯一名称与描述并提交，列表刷新后应显示该角色。
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: UI 创建是非技术用户最直接的角色管理操作。
+    preconditions:
+      - 已登录管理员账号且位于角色管理页
+    test_data:
+      - 唯一角色名（脚本生成）与描述
+    steps:
+      - 进入角色管理页
+      - 点击「新建」按钮，弹出表单
+      - 在表单中填写唯一名称与描述
+      - 提交表单
+      - 等待列表刷新
+    assertions:
+      - 表单提交后出现成功提示
+      - 列表中能找到刚刚创建的角色名称
+    postconditions:
+      - 通过后端 API 删除该测试角色，避免污染列表
+    edge_cases:
+      - 名称留空时表单校验
+    related_cases:
+      - TC-ROLES-API-006
+    automation:
+      required: true
+      framework: pytest-playwright
+      suggested_file: tests/e2e/test_role_management_e2e.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 角色创建用户旅程必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-E2E-002]
+
+  - case_id: TC-ROLES-E2E-003
+    title: 在角色管理页编辑角色描述并保存
+    status: draft
+    priority: P1
+    severity: major
+    type: E2E
+    module: roles
+    requirement_id: REQ-ROLES-E2E-003
+    feature_name: role-edit-ui
+    test_condition_id: COND-ROLES-E2E-003
+    design_technique: use_case
+    tags: [e2e, update, happy-path]
+    objective: 验证管理员能通过 UI 编辑角色描述并保存生效。
+    summary: >
+      管理员在角色管理页点击列表中的编辑按钮，修改角色描述并保存，列表应反映新描述。
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: 编辑功能影响日常维护体验。
+    preconditions:
+      - 已登录管理员账号
+      - 已存在可编辑的测试角色（脚本预置）
+    test_data:
+      - 预置测试角色 id 与原描述
+      - 新描述文本（脚本生成）
+    steps:
+      - 进入角色管理页
+      - 在表格中找到测试角色一行，点击「编辑」
+      - 修改描述字段为新值
+      - 提交表单
+      - 等待列表刷新
+    assertions:
+      - 出现保存成功提示
+      - 列表中该角色描述列显示新值
+    postconditions:
+      - 测试结束通过后端 API 删除该测试角色
+    edge_cases: []
+    related_cases:
+      - TC-ROLES-API-008
+    automation:
+      required: true
+      framework: pytest-playwright
+      suggested_file: tests/e2e/test_role_management_e2e.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 编辑流程是常规回归。
+    trace:
+      related_requirements: [REQ-ROLES-E2E-003]
+
+  - case_id: TC-ROLES-E2E-004
+    title: 在角色管理页配置角色菜单/API 授权并保存
+    status: draft
+    priority: P0
+    severity: critical
+    type: E2E
+    module: roles
+    requirement_id: REQ-ROLES-E2E-004
+    feature_name: role-authorize-ui
+    test_condition_id: COND-ROLES-E2E-004
+    design_technique: state_transition
+    tags: [e2e, authorized, rbac]
+    objective: 验证通过 UI 配置角色菜单 / API 授权并保存后，重新打开仍能看到所选授权。
+    summary: >
+      管理员在角色管理页点击测试角色的「权限配置」入口，勾选若干菜单与 API 并保存，关闭后再次打开应保留所选项。
+    risk:
+      likelihood: 4
+      impact: 5
+      level: critical
+      rationale: 授权配置 UI 直接影响安全管控有效性。
+    preconditions:
+      - 已登录管理员
+      - 已存在测试角色（脚本预置）
+      - seed 菜单与 API 已初始化
+    test_data:
+      - 测试角色 id
+      - 一组预期勾选的菜单与 API 名称
+    steps:
+      - 进入角色管理页
+      - 在测试角色一行点击「权限配置」或对应授权入口
+      - 在抽屉/弹层中勾选若干菜单与 API
+      - 保存
+      - 关闭抽屉并再次打开测试角色的权限配置
+    assertions:
+      - 保存后出现成功提示
+      - 再次打开时之前勾选的菜单与 API 仍为选中状态
+    postconditions:
+      - 通过后端 API 清空授权并删除测试角色
+    edge_cases:
+      - 全部取消后保存（清空授权）
+    related_cases:
+      - TC-ROLES-API-012
+    automation:
+      required: true
+      framework: pytest-playwright
+      suggested_file: tests/e2e/test_role_management_e2e.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: [critical_user_journey, security_related]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: UI 授权配置是 RBAC 链路终点，必须列入冒烟。
+    trace:
+      related_requirements: [REQ-ROLES-E2E-004]
+
+  - case_id: TC-ROLES-E2E-005
+    title: 在角色管理页删除角色并确认列表更新
+    status: draft
+    priority: P1
+    severity: major
+    type: E2E
+    module: roles
+    requirement_id: REQ-ROLES-E2E-005
+    feature_name: role-delete-ui
+    test_condition_id: COND-ROLES-E2E-005
+    design_technique: use_case
+    tags: [e2e, delete, happy-path]
+    objective: 验证管理员能通过 UI 删除角色并从列表中移除。
+    summary: >
+      管理员在角色管理页点击测试角色的「删除」按钮并确认，列表刷新后该角色应消失。
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 删除链路 UI 失效将阻塞角色清理。
+    preconditions:
+      - 已登录管理员
+      - 已存在测试角色（脚本预置）
+    test_data:
+      - 测试角色 id 与名称
+    steps:
+      - 进入角色管理页
+      - 在测试角色一行点击「删除」按钮
+      - 在确认弹窗中确认删除
+      - 等待列表刷新
+    assertions:
+      - 出现删除成功提示
+      - 列表中已查不到该角色名称
+    postconditions:
+      - 测试角色已删除，无需额外清理
+    edge_cases:
+      - 取消删除时角色应保留
+    related_cases:
+      - TC-ROLES-API-010
+    automation:
+      required: true
+      framework: pytest-playwright
+      suggested_file: tests/e2e/test_role_management_e2e.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-15T08:00:00Z"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: [critical_user_journey]
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 删除流程是常规回归。
+    trace:
+      related_requirements: [REQ-ROLES-E2E-005]
+
+  - case_id: TC-ROLES-FUZZ-001
+    title: 角色列表接口 schema fuzz
+    status: draft
+    priority: P2
+    severity: major
+    type: Fuzz
+    module: roles
+    tags: [fuzz, role-list]
+    objective: 对 /api/v1/role/list 做 schema-based fuzz，断言无 5xx。
+    automation:
+      required: true
+      framework: schemathesis
+      suggested_file: tests/fuzz/test_roles_fuzz.py
+      status: planned
+    trace:
+      related_requirements: [REQ-ROLES-FUZZ-001]
+
+  - case_id: TC-ROLES-PERF-001
+    title: 角色列表查询性能基线
+    status: draft
+    priority: P2
+    severity: major
+    type: Performance
+    module: roles
+    tags: [performance, role-list]
+    objective: 对角色列表接口施加轻量负载并验证 p95 延迟。
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: role-list-query
+      load:
+        users: 5
+        spawn_rate: 1
+        run_time: 30s
+    automation:
+      required: true
+      framework: locust
+      suggested_file: qa/perf/locustfile_roles.py
+      status: planned
+    trace:
+      related_requirements: [REQ-ROLES-PERF-001]
+
+modified: []
+
+removed: []

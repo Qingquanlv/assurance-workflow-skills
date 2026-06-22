@@ -56,6 +56,42 @@
 
 ---
 
+## E2b — E2E Codegen (`workflow-e2e-codegen`)
+
+同 E2a hard 核心；路径 `tests/e2e/**`；review → `review/e2e-plan-review.json`。  
+Observe：`framework_compliance_rate`（无 `tests/e2e/**/*.spec.ts`）、`plan_gate_satisfied_rate`。
+
+---
+
+## E2c — Fuzz Codegen (`workflow-fuzz-codegen`)
+
+同 E2a；路径 `tests/fuzz/**`；`schema_valid_rate` 含 `import schemathesis`。  
+Review → `review/fuzz-plan-review.json`。  
+Observe：`openapi_ref_valid_rate`（v1 静态检查，不启 live backend）。
+
+---
+
+## E2d — Performance Codegen (`workflow-performance-codegen`)
+
+路径 `qa/perf/**`；collect  via `locust --list`（CI 锁定 `locust==2.32.4`），AST fallback（`HttpUser` + `@task`）。  
+Review → `review/performance-plan-review.json`。  
+Observe：`threshold_declared_rate`（Performance case thresholds 或 plan 声明）。
+
+### Secret scan（E2a–E2d 共用）
+
+`buildCodegenSecretScanOpts`：生成文件 + stdout/stderr + raw-output + evidence/ + codegen summary。
+
+### Write allowlist（单 test type，禁止 union）
+
+| Suite | Allowlist |
+|-------|-----------|
+| E2a | `tests/api/**` |
+| E2b | `tests/e2e/**` |
+| E2c | `tests/fuzz/**` |
+| E2d | `qa/perf/**` |
+
+---
+
 ## E3 — Run (`workflow-run`，`aws run`)
 
 | 指标 | 定义 | Gate | 阈值 | 统计方式 |

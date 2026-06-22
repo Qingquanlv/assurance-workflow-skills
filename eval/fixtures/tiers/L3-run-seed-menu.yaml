@@ -1,0 +1,17 @@
+name: L3-run-seed-menu
+extends: L2-api-codegen-seed-menu
+description: Run eval seed — menus API tests generated, ready for aws run
+paths:
+  - "tests/__init__.py"
+  - "tests/api/__init__.py"
+  - "tests/api/conftest.py"
+  - "tests/api/test_menu_api.py"
+  - "tests/api/helpers/__init__.py"
+  - "tests/api/helpers/auth.py"
+  - "tests/api/helpers/menu_api.py"
+resets:
+  workflow_state:
+    phases.api_codegen.status: done
+    phases.execution.status: pending
+  qa_yaml:
+    test_types: [api]

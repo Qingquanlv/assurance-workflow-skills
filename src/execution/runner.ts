@@ -216,6 +216,7 @@ export function run(opts: RunnerOptions): RunnerResult {
     batch_id: batchId,
     selected_targets: selectedTargets,
     result_files: resultFiles,
+    final_status: qualityGate.final_status,
   };
   const batchManifestPath = path.join(batchDir, 'execution-manifest.yaml');
   fs.writeFileSync(batchManifestPath, yaml.dump(manifest), 'utf-8');

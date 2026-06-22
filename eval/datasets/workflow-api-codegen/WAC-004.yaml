@@ -1,0 +1,13 @@
+id: WAC-004
+annotation_source: human
+tags: ["workflow-api-codegen", "eval-sample-004", "depts"]
+input:
+  change_id: eval-sample-004
+  fixture_tier: L2-api-codegen-seed-dept
+  run_mode: codegen-only
+  project_dir: bench/fastapi-vue-admin
+  test_types: [api]
+  test_collect_paths: ["tests/api"]
+expected:
+  test_collect_paths: ["tests/api"]
+  target_files_globs: ["tests/api/test_dept*.py"]

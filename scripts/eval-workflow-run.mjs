@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import {
   captureWriteScanAfter,
   captureWriteScanBefore,
+  parseSingleTestType,
   resolveWritePolicy,
 } from './lib/write-scan.mjs';
 import {
@@ -70,7 +71,14 @@ function main() {
   let opencodeSignal = null;
   let timedOut = false;
   let beforePorcelain = '';
-  const writePolicy = resolveWritePolicy(runMode);
+  let testType = 'api';
+  try {
+    testType = runMode === 'codegen-only' ? parseSingleTestType(values['test-types']) : 'api';
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const writePolicy = resolveWritePolicy(runMode, values['test-types']);
 
   const fakeScript = path.join(repoRoot, 'scripts/fake-opencode-eval.mjs');
   let opencodeBin;
@@ -83,9 +91,15 @@ function main() {
     spawnCwd = repoRoot;
   } else {
     opencodeBin = values['opencode-bin'];
+    const CODEGEN_SKILLS = {
+      api: 'aws-api-codegen',
+      e2e: 'aws-e2e-codegen',
+      fuzz: 'aws-fuzz-codegen',
+      performance: 'aws-performance-codegen',
+    };
     const skill =
       values.entry === 'phase-skill' && runMode === 'codegen-only'
-        ? 'aws-api-codegen'
+        ? CODEGEN_SKILLS[testType] ?? 'aws-api-codegen'
         : 'aws-workflow';
     const prompt = [
       `use skill ${skill}`,
@@ -138,6 +152,7 @@ function main() {
         EVAL_CHANGE_ID: changeId,
         EVAL_PROJECT_DIR: projectDir,
         EVAL_REPO_ROOT: repoRoot,
+        EVAL_TEST_TYPES: testType,
       },
       maxBuffer: 100 * 1024 * 1024,
     });

@@ -33,6 +33,19 @@ describe('manifest_parser', () => {
     });
   });
 
+  it('preserves final_status from CLI manifest', () => {
+    const manifest = normalizeExecutionManifest({
+      schema_version: '1.0',
+      change_id: 'REQ-001',
+      batch_id: '20260615-120000',
+      selected_targets: { api: true, e2e: false, fuzz: false, performance: false },
+      final_status: 'PASS',
+      result_files: { api: 'runs/20260615-120000/api-result.json' },
+    }, executionDir);
+
+    expect(manifest?.final_status).toBe('PASS');
+  });
+
   it('normalises skill extended format with primary_runner.result_files array', () => {
     const manifest = normalizeExecutionManifest({
       schema_version: '1.0',

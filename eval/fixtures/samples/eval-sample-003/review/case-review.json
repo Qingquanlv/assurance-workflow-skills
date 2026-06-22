@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "eval-sample-003",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "9 cases under added/, all type:API targeting menus module. Schema, layering, assertions, traceability all valid. No blockers. Coverage maps directly to proposal.md Test Conditions COND-MENUS-001..009. Layer assignments correctly keep error-code matrix and business-rejection scenarios at the API layer. P0/P1 cases have automation.required=true and risk consistent with priority. Ready for downstream planning (deferred — case-only run mode).",
+  "reviewed_files": [
+    "qa/changes/eval-sample-003/proposal.md",
+    "qa/changes/eval-sample-003/.qa.yaml",
+    "qa/changes/eval-sample-003/cases/menus/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-22T00:00:00Z"
+}

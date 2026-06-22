@@ -27,6 +27,11 @@ const P0_METRIC_NAMES = new Set([
   'forbidden_write_executed_count',
   'codegen_summary_present_rate',
   'plan_gate_satisfied_rate',
+  'framework_compliance_rate',
+  'fuzz_plan_gate_pass_rate',
+  'openapi_ref_valid_rate',
+  'performance_plan_gate_pass_rate',
+  'threshold_declared_rate',
   'target_file_coverage_rate',
   'execution_pass_rate',
   'api_pass_rate',
@@ -119,7 +124,11 @@ describe('P0 eval contracts', () => {
     const workflowSuites = [
       'workflow-case',
       'workflow-api-codegen',
+      'workflow-e2e-codegen',
+      'workflow-fuzz-codegen',
+      'workflow-performance-codegen',
       'workflow-run',
+      'workflow-full',
       'safety-lite',
       'classification-unit',
     ];

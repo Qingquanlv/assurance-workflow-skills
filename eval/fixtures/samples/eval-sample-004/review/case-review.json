@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "eval-sample-004",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "Case delta for the depts module is complete and ready for downstream API planning. 14 ADDED cases cover all five backend endpoints (list, get, create, update, delete) with happy-path, negative, and edge cases (closure rebuild, unique-name constraint, dept_id parameter name, auth boundary). All cases satisfy the four-layer rule (single source of truth in type=API, framework=pytest), use natural-language steps and observable assertions, and reference existing fixtures from .aws/data-knowledge.yaml. E2E scope deliberately deferred per runtime test_types=api (overriding .qa.yaml default), documented in proposal.md Out-of-Scope and Layer Rationale sections.",
+  "reviewed_files": [
+    "qa/changes/eval-sample-004/proposal.md",
+    "qa/changes/eval-sample-004/.qa.yaml",
+    "qa/changes/eval-sample-004/cases/depts/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [
+    {
+      "id": "CASE-FINDING-001",
+      "severity": "low",
+      "category": "clarity",
+      "file": "qa/changes/eval-sample-004/cases/depts/case.yaml",
+      "message": "Five P1 cases (TC-DEPT-API-002/004/007/011/013) carry risk.level=medium rather than high/critical, which deviates from the default Priority↔Risk consistency guidance.",
+      "suggestion": "No action — the mismatch is intentional and explicitly documented in proposal.md under 'Priority / Risk-Level Mismatch (Documented)'. Each is a negative case whose impact is bounded by the loose assertion (non-5xx + controlled error), keeping likelihood×impact in the medium band.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    },
+    {
+      "id": "CASE-FINDING-002",
+      "severity": "low",
+      "category": "scope",
+      "file": "qa/changes/eval-sample-004/cases/depts/case.yaml",
+      "message": "TC-DEPT-API-014 (auth boundary) currently exercises only the list endpoint without a token; the other four endpoints' auth behaviour is asserted by inheritance (FastAPI router-level DependPermission) rather than by direct case coverage.",
+      "suggestion": "Acceptable for this baseline: the FastAPI router mounts all dept endpoints under a single DependPermission dependency (verified in app/api/v1/__init__.py), so testing one endpoint is a sound representative sample. If the team later splits the dependency per-endpoint, add cases for the remaining four endpoints.",
+      "auto_fix_allowed": false,
+      "human_review_required": false
+    }
+  ],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-22T04:27:04Z",
+  "review_metrics": {
+    "cases_reviewed": {
+      "added": 14,
+      "modified": 0,
+      "removed": 0
+    },
+    "criteria_checked": {
+      "requirement_coverage": "pass",
+      "case_clarity": "pass",
+      "yaml_structure": "pass",
+      "testability": "pass",
+      "automation_readiness": "pass",
+      "data_and_preconditions": "pass",
+      "assertions": "pass",
+      "traceability": "pass",
+      "forbidden_content": "pass",
+      "delta_operation_correctness": "pass",
+      "duplicate_and_conflicting_cases": "pass",
+      "risk_and_ambiguity": "pass_with_documented_mismatch",
+      "layering": "pass"
+    },
+    "delta_operation_validation": {
+      "target_case_file": "qa/cases/depts/case.yaml",
+      "target_exists": false,
+      "all_in_added": true,
+      "result": "pass — target file does not exist, all 14 cases correctly placed in 'added'"
+    },
+    "endpoint_coverage_matrix": {
+      "GET /api/v1/dept/list (happy)": "TC-DEPT-API-001",
+      "GET /api/v1/dept/list (search by name)": "TC-DEPT-API-002",
+      "GET /api/v1/dept/get (happy)": "TC-DEPT-API-003",
+      "GET /api/v1/dept/get (negative — not found)": "TC-DEPT-API-004",
+      "POST /api/v1/dept/create (root, happy)": "TC-DEPT-API-005",
+      "POST /api/v1/dept/create (child, state transition)": "TC-DEPT-API-006",
+      "POST /api/v1/dept/create (negative — parent not found)": "TC-DEPT-API-007",
+      "POST /api/v1/dept/create (negative — unique name)": "TC-DEPT-API-008",
+      "POST /api/v1/dept/update (basic fields, happy)": "TC-DEPT-API-009",
+      "POST /api/v1/dept/update (parent_id change, closure rebuild)": "TC-DEPT-API-010",
+      "POST /api/v1/dept/update (negative — not found)": "TC-DEPT-API-011",
+      "DELETE /api/v1/dept/delete (happy + soft delete + param name)": "TC-DEPT-API-012",
+      "DELETE /api/v1/dept/delete (negative — not found)": "TC-DEPT-API-013",
+      "AuthN/Z boundary (401 on missing token)": "TC-DEPT-API-014"
+    }
+  }
+}
