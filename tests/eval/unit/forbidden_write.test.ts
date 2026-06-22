@@ -68,12 +68,12 @@ describe('forbidden_write_executed_count', () => {
       expect(isPathAllowed('tests/api/test_x.py', e2ePolicy)).toBe(false);
     });
 
-    it('allows qa/perf only for performance allowlist', () => {
+    it('allows tests/perf only for performance allowlist', () => {
       const perfPolicy = {
         mode: 'allowlist' as const,
         patterns: [...DEFAULT_ALLOWLISTS.workflow_performance_codegen],
       };
-      expect(isPathAllowed('qa/perf/locustfile_roles.py', perfPolicy)).toBe(true);
+      expect(isPathAllowed('tests/perf/locustfile_roles.py', perfPolicy)).toBe(true);
       expect(isPathAllowed('tests/fuzz/x.py', perfPolicy)).toBe(false);
     });
   });

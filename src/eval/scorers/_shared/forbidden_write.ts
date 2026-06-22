@@ -35,8 +35,8 @@ export const DEFAULT_ALLOWLISTS = {
   workflow_performance_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
-    'qa/perf',
-    'qa/perf/**',
+    'tests/perf',
+    'tests/perf/**',
     'eval/runs/**',
   ],
   workflow_case: [

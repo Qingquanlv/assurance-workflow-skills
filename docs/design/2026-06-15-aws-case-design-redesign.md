@@ -93,7 +93,7 @@ automation:
 | API | pytest | tests/api/ |
 | E2E | pytest-playwright | tests/e2e/ |
 | Fuzz | schemathesis | tests/fuzz/ |
-| Performance | locust | qa/perf/ |
+| Performance | locust | tests/perf/ |
 
 readiness check 新增:`framework` 必须与 `type` 匹配(上表)。
 
@@ -111,7 +111,7 @@ readiness check 新增:`framework` 必须与 `type` 匹配(上表)。
 │    表单提交触发列表刷新 / 确认弹窗交互
 ├─ 复杂输入 / Schema / 边界 / Parser  → type: Fuzz        (tests/fuzz/)
 │    用户输入端点的鲁棒性(不崩、不 5xx、schema 合法输入不误拒)
-└─ 高频 / 核心 / 复杂查询 / 关键能力   → type: Performance (qa/perf/)
+└─ 高频 / 核心 / 复杂查询 / 关键能力   → type: Performance (tests/perf/)
      绝对阈值(P95 / error_rate),无历史基线
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: aws-performance-codegen
-description: "AWS M3 Performance Stage 2: generate Locust load tests from a reviewed performance plan. Use only after performance-plan-review.json has decision == pass and codegen_readiness in [ready, ready_with_warnings]. Reads performance plan files and writes qa/perf/locustfile_<module>.py. Does NOT execute Locust — execution is Phase 8 aws-run."
+description: "AWS M3 Performance Stage 2: generate Locust load tests from a reviewed performance plan. Use only after performance-plan-review.json has decision == pass and codegen_readiness in [ready, ready_with_warnings]. Reads performance plan files and writes tests/perf/locustfile_<module>.py. Does NOT execute Locust — execution is Phase 8 aws-run."
 ---
 
 ## Context Contract
@@ -25,7 +25,7 @@ Do not rely on prior conversation context.
 **After completing work:**
 
 1. Write generated Locust files per `performance-codegen-plan.md` Target Files:
-   - `qa/perf/locustfile_<module>.py` (required path — runner discovers `qa/perf/`)
+   - `tests/perf/locustfile_<module>.py` (required path — runner discovers `tests/perf/`)
    - `qa/changes/<change-id>/codegen/performance-codegen-summary.md`
 2. Update `workflow-state.yaml`:
    - Set `phases.performance_codegen.status = done`
@@ -56,8 +56,8 @@ class MenuListUser(HttpUser):
 
 - Endpoints, task weights, and the `name=` labels come from the plan and MUST match the scenario `capability` so the runner can map measured stats back to thresholds.
 - The locustfile declares **load behavior only**; absolute thresholds (`p95_ms`, `error_rate_max`) live in the case/plan and are enforced by the CLI runner against Locust output — do **not** re-encode thresholds inside the locustfile.
-- Output exactly to `qa/perf/locustfile_<module>.py`.
-- `performance-codegen-plan.md` is a codegen guidance artifact, not the runner's execution target list. Phase 8 `aws-run` discovers executable Locust files via `qa/perf/locustfile*.py` and reads thresholds/load from selected `type: Performance` cases.
+- Output exactly to `tests/perf/locustfile_<module>.py`.
+- `performance-codegen-plan.md` is a codegen guidance artifact, not the runner's execution target list. Phase 8 `aws-run` discovers executable Locust files via `tests/perf/locustfile*.py` and reads thresholds/load from selected `type: Performance` cases.
 
 ## Test Failure Integrity
 
@@ -82,4 +82,4 @@ If any answer is unsafe, fix the locustfile before reporting codegen complete.
 - Do not run Locust or produce execution results — that is Phase 8 `aws-run`.
 - Do not encode pass/fail thresholds in the locustfile; thresholds are enforced by the CLI against absolute values from the case.
 - Do not design new cases or change scope.
-- Do not write to `tests/api/`, `tests/e2e/`, or `tests/fuzz/` — performance output goes to `qa/perf/` only.
+- Do not write to `tests/api/`, `tests/e2e/`, or `tests/fuzz/` — performance output goes to `tests/perf/` only.

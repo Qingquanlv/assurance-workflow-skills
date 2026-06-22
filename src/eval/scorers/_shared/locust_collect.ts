@@ -9,7 +9,7 @@ export interface LocustCollectResult {
   test_executable_rate: number;
 }
 
-const LOCUSTFILE_GLOB = 'qa/perf/locustfile*.py';
+const LOCUSTFILE_GLOB = 'tests/perf/locustfile*.py';
 
 function walkFiles(dir: string, acc: string[] = []): string[] {
   if (!fs.existsSync(dir)) return acc;
@@ -23,7 +23,7 @@ function walkFiles(dir: string, acc: string[] = []): string[] {
 }
 
 function discoverLocustfiles(projectDir: string): string[] {
-  const perfDir = path.join(projectDir, 'qa', 'perf');
+  const perfDir = path.join(projectDir, 'tests', 'perf');
   if (!fs.existsSync(perfDir)) return [];
   return walkFiles(perfDir).filter((f) => /locustfile.*\.py$/i.test(path.basename(f)));
 }

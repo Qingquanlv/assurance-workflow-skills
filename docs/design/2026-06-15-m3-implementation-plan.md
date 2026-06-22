@@ -140,9 +140,9 @@ Phase D (汇总接入)
 
 ### C1：三个新 skill
 
-- `skills/aws-performance-plan/`：读 `type == Performance`；产 `plans/performance-plan.md`（endpoint/负载档位/绝对阈值）/ `performance-codegen-plan.md`（`qa/perf/<capability>_locustfile.py` 映射）/ `performance-review-summary.md`
+- `skills/aws-performance-plan/`：读 `type == Performance`；产 `plans/performance-plan.md`（endpoint/负载档位/绝对阈值）/ `performance-codegen-plan.md`（`tests/perf/<capability>_locustfile.py` 映射）/ `performance-review-summary.md`
 - `skills/aws-performance-plan-reviewer/`：产 `review/performance-plan-review.json`；额外校验 thresholds 完整（p95_ms/error_rate_max）、负载档位非 0、阈值非占位符
-- `skills/aws-performance-codegen/`：gate=review pass；产 `qa/perf/<capability>_locustfile.py`（Locust `HttpUser`）；C5 规则
+- `skills/aws-performance-codegen/`：gate=review pass；产 `tests/perf/<capability>_locustfile.py`（Locust `HttpUser`）；C5 规则
 
 ### C2：locust_runner + parser + 阈值判定（核心新增）
 

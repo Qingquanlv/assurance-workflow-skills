@@ -8,4 +8,4 @@ input:
   project_dir: bench/fastapi-vue-admin
   test_types: [performance]
 expected:
-  locustfile_glob: "qa/perf/locustfile*.py"
+  locustfile_glob: "tests/perf/locustfile*.py"

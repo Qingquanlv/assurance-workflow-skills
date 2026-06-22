@@ -1,1 +1,1 @@
-- qa/perf/locustfile_dept.py
+- tests/perf/locustfile_dept.py

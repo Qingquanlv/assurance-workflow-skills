@@ -1092,5 +1092,31 @@ added:
       proposal: "qa/changes/20260612-user-mgmt/proposal.md"
       requirement: "REQ-USER-PAGE-SEARCH"
 
+  - case_id: TC-USER-PERF-001
+    title: 用户列表接口性能
+    status: draft
+    priority: P2
+    severity: minor
+    type: Performance
+    module: users
+    tags: [performance, user-list]
+    objective: 对用户列表接口施加轻量负载并验证 p95 延迟。
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: user-list-query
+      load:
+        users: 5
+        spawn_rate: 1
+        run_time: 30s
+    automation:
+      required: true
+      framework: locust
+      suggested_file: tests/perf/locustfile_users.py
+      status: planned
+    trace:
+      related_requirements: [REQ-USER-PERF-001]
+
 modified: []
 removed: []

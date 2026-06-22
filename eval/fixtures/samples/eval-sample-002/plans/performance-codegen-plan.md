@@ -4,7 +4,7 @@
 
 ## Target Files
 
-- `qa/perf/locustfile_roles.py`
+- `tests/perf/locustfile_roles.py`
 
 ## Load behavior
 
@@ -13,4 +13,4 @@
 
 ## Collect Command
 
-`locust -f qa/perf/locustfile_roles.py --list`
+`locust -f tests/perf/locustfile_roles.py --list`

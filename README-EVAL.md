@@ -33,7 +33,7 @@
 | **E2b** | `workflow-e2e-codegen` | WEEC-001~004 | E2E Codegen（codegen-only） |
 | **E2c** | `workflow-fuzz-codegen` | WFUZ-001~004 | Fuzz Codegen（codegen-only） |
 | **E2d** | `workflow-performance-codegen` | WPER-001~004 | Performance Codegen（codegen-only） |
-| **E3** | `workflow-run` | WR-001~004 | `aws run` 测试执行 |
+| **E3** | `workflow-run` | WR-001~016 | `aws run` 测试执行（API / E2E / Fuzz / Performance 分层） |
 | **E4** | `workflow-full` | WF-001~004 | 全流程（nightly，observe-only） |
 | 已废弃 | `case-generation` | CG-* | CLI executor 未实现 |
 
@@ -45,6 +45,27 @@
 | *-002 | eval-sample-002 | roles |
 | *-003 | eval-sample-003 | menus |
 | *-004 | eval-sample-004 | depts |
+
+**E3 `workflow-run` 样本（WR-*）：**
+
+| Sample | change_id | Layer | L3 tier |
+|--------|-----------|-------|---------|
+| WR-001 | eval-sample-001 | API | `L3-run-seed` |
+| WR-002 | eval-sample-002 | API | `L3-run-seed-roles` |
+| WR-003 | eval-sample-003 | API | `L3-run-seed-menu` |
+| WR-004 | eval-sample-004 | API | `L3-run-seed-dept` |
+| WR-005 | eval-sample-001 | E2E | `L3-run-seed-e2e` |
+| WR-006 | eval-sample-002 | E2E | `L3-run-seed-e2e-roles` |
+| WR-007 | eval-sample-003 | E2E | `L3-run-seed-e2e-menu` |
+| WR-008 | eval-sample-004 | E2E | `L3-run-seed-e2e-dept` |
+| WR-009 | eval-sample-001 | Fuzz | `L3-run-seed-fuzz` |
+| WR-010 | eval-sample-002 | Fuzz | `L3-run-seed-fuzz-roles` |
+| WR-011 | eval-sample-003 | Fuzz | `L3-run-seed-fuzz-menu` |
+| WR-012 | eval-sample-004 | Fuzz | `L3-run-seed-fuzz-dept` |
+| WR-013 | eval-sample-001 | Performance | `L3-run-seed-perf` |
+| WR-014 | eval-sample-002 | Performance | `L3-run-seed-perf-roles` |
+| WR-015 | eval-sample-003 | Performance | `L3-run-seed-perf-menu` |
+| WR-016 | eval-sample-004 | Performance | `L3-run-seed-perf-dept` |
 
 ### WC-001~004 与 `proposal.md` 的关系
 
@@ -195,6 +216,10 @@ EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-performance-
 
 # E3
 node dist/cli.js eval run --suite workflow-run --sample WR-001 --fail-on-verdict
+
+# E3 — E2E / Fuzz（单 layer）
+node dist/cli.js eval run --suite workflow-run --sample WR-006 --fail-on-verdict
+node dist/cli.js eval run --suite workflow-run --sample WR-010 --fail-on-verdict
 
 # E4 — 全流程（真实 OpenCode，~10–15 min / sample）
 node dist/cli.js eval run --suite workflow-full --sample WF-002 --fail-on-verdict
@@ -387,7 +412,16 @@ Fixture tier：`L2-e2e-codegen-seed-*` / `L2-fuzz-codegen-seed-*` / `L2-performa
 
 ---
 
-### E3 — `workflow-run`（WR-001~004）
+### E3 — `workflow-run`（WR-001~016）
+
+| 分组 | Samples | Layer | L3 tier 后缀 |
+|------|---------|-------|--------------|
+| API | WR-001~004 | api | `L3-run-seed` / `-roles` / `-menu` / `-dept` |
+| E2E | WR-005~008 | e2e | `L3-run-seed-e2e` / `-e2e-roles` / `-e2e-menu` / `-e2e-dept` |
+| Fuzz | WR-009~012 | fuzz | `L3-run-seed-fuzz` / `-fuzz-roles` / `-fuzz-menu` / `-fuzz-dept` |
+| Performance | WR-013~016 | performance | `L3-run-seed-perf` / `-perf-roles` / `-perf-menu` / `-perf-dept` |
+
+每层 seed 仅含对应 `*-codegen-plan.md` 与测试 stub；`aws run` 按 plan 存在性选层（见 `resolveSelectedTargets`）。
 
 | 指标 | Gate | 阈值 | 含义 |
 |------|------|------|------|
@@ -473,7 +507,7 @@ Tier 为 **extends 链**（子 tier 继承父 tier 的 `paths`）。清单：`ev
 | **L2-e2e-codegen-seed-*** | E2b | L1 + E2E plans + `review/e2e-plan-review.json` |
 | **L2-fuzz-codegen-seed-*** | E2c | L1 + fuzz plans + `review/fuzz-plan-review.json` |
 | **L2-performance-codegen-seed-*** | E2d | L1 + performance plans + `review/performance-plan-review.json` |
-| **L3-run-seed**（及 `-roles` / `-menu` / `-dept`） | E3 / E4 | L2-api + `tests/api/**` golden stubs |
+| **L3-run-seed**（API / E2E / Fuzz / Perf 变体） | E3 / E4 | L2-* + `tests/api/**` / `tests/e2e/**` / `tests/fuzz/**` / `tests/perf/**` golden stubs |
 
 Golden 样本与模块：
 
@@ -488,7 +522,7 @@ Seed 目标（运行时，gitignore）：
 
 ```text
 bench/fastapi-vue-admin/qa/changes/eval-sample-00N/
-bench/fastapi-vue-admin/tests/api/   # L3 tier 也会 seed 测试 stub
+bench/fastapi-vue-admin/tests/     # L3 tier seed：api / e2e / fuzz / perf stubs
 ```
 
 详见 `eval/fixtures/README.md`。
