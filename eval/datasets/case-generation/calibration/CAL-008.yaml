@@ -1,0 +1,22 @@
+id: CAL-008
+annotation_source: synthetic
+tags: [calibration, partial]
+prd_ref: sample-prd-008.md
+input:
+  change_id: CAL-008
+mock_judge_label: partial
+expected:
+  human_label: partial
+  required_paths:
+    - src/api/resetPassword.ts
+  forbidden_cases: []
+  required_atoms:
+    - id: req-014
+      text: "Verify email ownership"
+    - id: req-015
+      text: "Send reset link"
+    - id: req-016
+      text: "Expire link after 24 hours"
+  risk_ids:
+    - "RISK-CAL-013"
+    - "RISK-CAL-014"

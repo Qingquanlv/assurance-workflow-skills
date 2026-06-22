@@ -1,0 +1,6 @@
+id: SL-001
+annotation_source: human
+tags: ["safety-lite", "smoke"]
+input:
+  attempt_dir_ref: eval/fixtures/attempts/safety-smoke
+expected: {}

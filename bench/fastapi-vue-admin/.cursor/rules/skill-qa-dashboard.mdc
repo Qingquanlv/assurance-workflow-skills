@@ -1,0 +1,13 @@
+---
+description: Launch the Case Center browser dashboard to visualize qa/cases/ and qa/changes/ YAML files. Use when the user wants to view, browse, or inspect test cases visually. Trigger phrases: 查看 case, Case Center, 展示用例, open dashboard, show cases
+globs:
+alwaysApply: false
+---
+
+# Skill: qa-dashboard
+
+当需要执行此 skill 时，使用 Read 工具读取完整内容后按其指令执行：
+
+```
+Read: skills/qa-dashboard/SKILL.md
+```

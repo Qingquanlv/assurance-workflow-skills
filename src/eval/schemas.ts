@@ -74,6 +74,13 @@ export const JudgeConfigSchema = z.object({
   confidence_threshold: z.number().min(0).max(1),
 });
 
+export const JudgeCalibrationThresholdsSchema = z.object({
+  judge_human_agreement: z.string(),
+  judge_human_kappa: z.string(),
+  critical_label_disagreement: z.string(),
+  invalid_judge_output_rate: z.string(),
+});
+
 export const EvalSuiteSchema = z.object({
   name: z.string().min(1),
   version: z.string().min(1),
@@ -84,6 +91,7 @@ export const EvalSuiteSchema = z.object({
   thresholds: z.record(z.string(), z.string()),
   hard_gates: z.array(z.string()),
   judge: JudgeConfigSchema.optional(),
+  judge_calibration: JudgeCalibrationThresholdsSchema.optional(),
 });
 
 // ── Dataset Sample Schema ─────────────────────────────────────────────────────

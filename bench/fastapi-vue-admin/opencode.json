@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [
+      "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/.opencode/skills",
+      "/Users/lvqingquan/skills/assurance-workflow-skills/skills"
+    ]
+  },
+  "plugin": [
+    "assurance-workflow-skills@git+https://github.com/Qingquanlv/assurance-workflow-skills.git"
+  ]
+}

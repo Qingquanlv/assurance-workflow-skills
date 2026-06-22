@@ -1,0 +1,21 @@
+id: CG-001
+annotation_source: human
+tags: ["case-generation", "menu", "crud"]
+prd_ref: CG-001.prd.md
+input:
+  change_id: CG-001
+mock_judge_label: covered
+expected:
+  required_paths:
+    - "POST /api/v1/menu/create"
+    - "GET /api/v1/menu/list"
+  forbidden_cases:
+    - "delete all"
+  required_atoms:
+    - id: RA-001
+      text: "Create menu item"
+    - id: RA-002
+      text: "List menu items"
+  risk_ids:
+    - "RISK-001"
+    - "RISK-002"

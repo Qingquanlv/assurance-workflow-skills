@@ -70,6 +70,7 @@ export interface EvalSuite {
   thresholds: Record<string, string>;
   hard_gates: string[];
   judge?: JudgeConfig;
+  judge_calibration?: JudgeCalibrationThresholds;
 }
 
 // ── Dataset Sample ─────────────────────────────────────────────────────────────
@@ -181,6 +182,13 @@ export interface SuiteMetrics {
 }
 
 // ── Judge ─────────────────────────────────────────────────────────────────────
+
+export interface JudgeCalibrationThresholds {
+  judge_human_agreement: string;
+  judge_human_kappa: string;
+  critical_label_disagreement: string;
+  invalid_judge_output_rate: string;
+}
 
 export interface JudgeConfig {
   model: string;

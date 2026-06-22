@@ -1,0 +1,21 @@
+id: CG-004
+annotation_source: human
+tags: ["case-generation", "inventory", "stock"]
+prd_ref: CG-004.prd.md
+input:
+  change_id: CG-004
+mock_judge_label: hallucinated
+expected:
+  required_paths:
+    - "GET /api/v1/inventory/stock"
+    - "PUT /api/v1/inventory/update"
+  forbidden_cases:
+    - "negative stock"
+  required_atoms:
+    - id: RA-007
+      text: "Check inventory stock"
+    - id: RA-008
+      text: "Update inventory levels"
+  risk_ids:
+    - "RISK-007"
+    - "RISK-008"

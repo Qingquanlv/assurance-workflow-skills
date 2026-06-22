@@ -1,0 +1,9 @@
+id: FC-004
+annotation_source: human
+tags: ["classification-unit", "api", "environment"]
+input:
+  message: "Connection refused: cannot connect to localhost:8000"
+  log_excerpt: "httpx.ConnectError: [Errno 61] Connection refused"
+  target: api
+expected:
+  category: environment_failure

@@ -1,0 +1,13 @@
+---
+description: Use only after E2E plan files have been reviewed and the user explicitly requests codegen. Triggers on: generate E2E test code from plan, continue E2E codegen, implement e2e-codegen-plan, generate /tests/e2e. Reads Stage 1 plan files and generates Playwright tests, fixtures, script-based data setup,
+globs:
+alwaysApply: false
+---
+
+# Skill: e2e-codegen-for-qa
+
+当需要执行此 skill 时，使用 Read 工具读取完整内容后按其指令执行：
+
+```
+Read: skills/e2e-codegen-for-qa/SKILL.md
+```

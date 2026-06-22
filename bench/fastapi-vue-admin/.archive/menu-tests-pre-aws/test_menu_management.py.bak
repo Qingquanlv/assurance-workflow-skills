@@ -1,0 +1,437 @@
+"""
+E2E Tests: Menu Management Page
+Change: REQ-004-menu-management
+Covers: TC-MENU-UI-001 ~ TC-MENU-UI-005
+
+Run:
+    uv run pytest tests/e2e/test_menu_management.py -v
+    uv run pytest tests/e2e/test_menu_management.py -v --headed  # debug mode
+
+Environment:
+    BASE_URL        Frontend URL  (default: http://localhost:3100)
+    API_BASE_URL    Backend URL   (default: http://localhost:9999)
+    ADMIN_USERNAME  Admin account (default: admin)
+    ADMIN_PASSWORD  Admin password (default: 123456)
+"""
+
+import sys
+import uuid
+from pathlib import Path
+
+import pytest
+import requests
+from playwright.sync_api import Page, expect
+
+_e2e_dir = Path(__file__).resolve().parent
+if str(_e2e_dir) not in sys.path:
+    sys.path.insert(0, str(_e2e_dir))
+from conftest import API_BASE_URL, _api_headers  # noqa: E402
+
+MENU_MGMT_PATH = "/system/menu"
+MENU_LIST_URL = f"{API_BASE_URL}/api/v1/menu/list"
+MENU_CREATE_URL = f"{API_BASE_URL}/api/v1/menu/create"
+MENU_DELETE_URL = f"{API_BASE_URL}/api/v1/menu/delete"
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def admin_page_menu(page: Page) -> Page:
+    """
+    Page fixture with admin auth, navigated to /system/menu.
+    Waits for the menu list table to be ready.
+    """
+    page.goto(f"{BASE_URL}/system/menu", timeout=20000)
+    page.wait_for_selector("text=菜单列表", timeout=15000)
+    page.wait_for_selector(".n-data-table-tr", timeout=10000)
+    return page
+
+
+@pytest.fixture
+def test_menu_a(admin_token: str) -> dict:
+    """Creates a test catalog menu for edit test, deletes on teardown."""
+    suffix = uuid.uuid4().hex[:8]
+    name = f"TC-MenuA-{suffix}"
+    path = f"/test/menua/{suffix}"
+
+    resp = requests.post(
+        MENU_CREATE_URL,
+        json={
+            "menu_type": "catalog",
+            "name": name,
+            "path": path,
+            "component": "Layout",
+            "order": 1,
+            "parent_id": 0,
+        },
+        headers=_api_headers(admin_token),
+        timeout=10,
+    )
+    _assert_create_ok(resp, "test_menu_a")
+
+    menu_id = _get_menu_id_by_name(admin_token, name)
+    menu = {"id": menu_id, "name": name}
+
+    yield menu
+
+    _delete_menu(admin_token, menu_id)
+
+
+@pytest.fixture
+def test_menu_b(admin_token: str) -> dict:
+    """Creates a test leaf menu for deletion test. No teardown (test deletes it)."""
+    suffix = uuid.uuid4().hex[:8]
+    name = f"TC-MenuB-{suffix}"
+    path = f"/test/menub/{suffix}"
+
+    resp = requests.post(
+        MENU_CREATE_URL,
+        json={
+            "menu_type": "menu",
+            "name": name,
+            "path": path,
+            "component": "/system/user",
+            "order": 1,
+            "parent_id": 0,
+        },
+        headers=_api_headers(admin_token),
+        timeout=10,
+    )
+    _assert_create_ok(resp, "test_menu_b")
+
+    menu_id = _get_menu_id_by_name(admin_token, name)
+    menu = {"id": menu_id, "name": name}
+
+    yield menu
+
+    # Cleanup only if test failed to delete
+    try:
+        menus = _flatten_menu_tree(
+            requests.get(
+                MENU_LIST_URL,
+                headers=_api_headers(admin_token),
+                timeout=10,
+            )
+            .json()
+            .get("data", [])
+        )
+        if any(m["id"] == menu_id for m in menus):
+            _delete_menu(admin_token, menu_id)
+    except Exception:
+        pass
+
+
+@pytest.fixture
+def test_parent_menu(admin_token: str) -> dict:
+    """Creates a catalog menu for child menu test, deletes on teardown."""
+    suffix = uuid.uuid4().hex[:8]
+    name = f"TC-Par-{suffix}"
+    path = f"/test/parentmenu/{suffix}"
+
+    resp = requests.post(
+        MENU_CREATE_URL,
+        json={
+            "menu_type": "catalog",
+            "name": name,
+            "path": path,
+            "component": "Layout",
+            "order": 1,
+            "parent_id": 0,
+        },
+        headers=_api_headers(admin_token),
+        timeout=10,
+    )
+    _assert_create_ok(resp, "test_parent_menu")
+
+    menu_id = _get_menu_id_by_name(admin_token, name)
+    menu = {"id": menu_id, "name": name}
+
+    yield menu
+
+    _delete_menu(admin_token, menu_id)
+
+
+# Need BASE_URL for the page fixture
+try:
+    from conftest import BASE_URL
+except ImportError:
+    import os
+
+    BASE_URL = os.environ.get("BASE_URL", "http://localhost:3100")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-MENU-UI-001: 菜单管理页面加载并显示树形列表  [P0 / blocker / smoke]
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_menu_page_load(admin_page_menu: Page):
+    """
+    [TC-MENU-UI-001] 菜单管理页面加载并显示树形列表
+    COND-MENU-009 | design: checklist | priority: P0 | regression: smoke
+    """
+    page = admin_page_menu
+
+    expect(page.get_by_text("菜单列表")).to_be_visible(timeout=8000)
+    table = page.get_by_role("table")
+    expect(table).to_be_visible(timeout=8000)
+    expect(page.locator(".n-data-table-tr").first).to_be_visible(timeout=8000)
+    expect(page.locator(".n-message").filter(has_text="错误")).not_to_be_visible(timeout=3000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-MENU-UI-002: 前端新建根目录菜单  [P0 / blocker / smoke]
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_create_root_catalog_menu(admin_page_menu: Page, admin_token: str):
+    """
+    [TC-MENU-UI-002] 前端新建根目录菜单
+    COND-MENU-009 | design: use_case | priority: P0 | regression: smoke
+    """
+    suffix = uuid.uuid4().hex[:8]
+    new_name = f"e2e_menu_{suffix}"
+    new_path = f"/test/e2e/{suffix}"
+
+    page = admin_page_menu
+
+    # 1. 点击"新建根菜单"按钮
+    page.get_by_role("button", name="新建根菜单").click()
+
+    # 2. 等待弹窗打开
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible(timeout=8000)
+
+    # 3. "目录"类型默认已选中，无需手动点击
+
+    # 4. 填写表单
+    dialog.get_by_placeholder("请输入唯一菜单名称").fill(new_name)
+    dialog.get_by_placeholder("请输入访问路径").fill(new_path)
+
+    # 5. 点击保存
+    with page.expect_response(lambda r: "menu/list" in r.url):
+        dialog.get_by_role("button", name="保存").click()
+
+    # 6. 弹窗关闭
+    expect(dialog).not_to_be_visible(timeout=8000)
+
+    # 7. 验证列表中出现新菜单
+    expect(page.get_by_text(new_name)).to_be_visible(timeout=8000)
+
+    # Teardown: cleanup via API
+    _yield_cleanup_menu(admin_token, new_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-MENU-UI-003: 前端新建子菜单  [P1 / critical / regression]
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_create_child_menu(admin_page_menu: Page, admin_token: str, test_parent_menu: dict):
+    """
+    [TC-MENU-UI-003] 前端新建子菜单
+    COND-MENU-009 | design: use_case | priority: P1 | regression: regression
+    """
+    parent_name = test_parent_menu["name"]
+    suffix = uuid.uuid4().hex[:8]
+    child_name = f"e2e_child_{suffix}"
+    child_path = f"/test/child/{suffix}"
+
+    page = admin_page_menu
+    page.reload()
+    page.wait_for_selector(".n-data-table-tr", timeout=10000)
+
+    # 找到父菜单行，点击"子菜单"按钮
+    parent_row = _menu_row(page, parent_name)
+    parent_row.get_by_role("button", name="子菜单").click()
+
+    # 等待弹窗打开
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible(timeout=8000)
+
+    # "菜单"类型默认已选中，无需手动点击
+
+    # 填写表单
+    dialog.get_by_placeholder("请输入唯一菜单名称").fill(child_name)
+    dialog.get_by_placeholder("请输入访问路径").fill(child_path)
+    dialog.get_by_placeholder("请输入组件路径，例如：/system/user").fill("/system/user")
+
+    # 点击保存
+    with page.expect_response(lambda r: "menu/list" in r.url):
+        dialog.get_by_role("button", name="保存").click()
+
+    # 弹窗关闭
+    expect(dialog).not_to_be_visible(timeout=8000)
+
+    # 验证子菜单通过API可查到（树形表格默认折叠子行，UI不可见）
+    menus = _flatten_menu_tree(
+        requests.get(
+            MENU_LIST_URL,
+            headers=_api_headers(admin_token),
+            timeout=10,
+        )
+        .json()
+        .get("data", [])
+    )
+    assert any(m.get("name") == child_name for m in menus), f"Child menu '{child_name}' not found in API"
+
+    # Teardown: cleanup child via API
+    _yield_cleanup_menu(admin_token, child_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-MENU-UI-004: 前端编辑菜单信息  [P1 / critical / regression]
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_edit_menu_info(admin_page_menu: Page, test_menu_a: dict):
+    """
+    [TC-MENU-UI-004] 前端编辑菜单信息
+    COND-MENU-009 | design: use_case | priority: P1 | regression: regression
+    """
+    page = admin_page_menu
+    original_name = test_menu_a["name"]
+    updated_name = f"{original_name[:12]}_ed"
+
+    # Reload to pick up menu created by fixture
+    page.reload()
+    page.wait_for_selector(".n-data-table-tr", timeout=10000)
+
+    # 找到目标菜单行
+    menu_row = _menu_row(page, original_name)
+    menu_row.get_by_role("button", name="编辑").click()
+
+    # 等待弹窗打开，验证已预填充
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible(timeout=8000)
+    name_input = dialog.get_by_placeholder("请输入唯一菜单名称")
+    expect(name_input).to_have_value(original_name, timeout=5000)
+
+    # 修改名称
+    name_input.click(click_count=3)
+    name_input.fill(updated_name)
+
+    # 点击保存
+    with page.expect_response(lambda r: "menu/list" in r.url):
+        dialog.get_by_role("button", name="保存").click()
+
+    # 弹窗关闭
+    expect(dialog).not_to_be_visible(timeout=8000)
+
+    # 验证更新后名称出现
+    expect(page.get_by_text(updated_name)).to_be_visible(timeout=8000)
+
+    test_menu_a["name"] = updated_name
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-MENU-UI-005: 前端删除叶子菜单  [P1 / critical / regression]
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_delete_leaf_menu(admin_page_menu: Page, test_menu_b: dict):
+    """
+    [TC-MENU-UI-005] 前端删除叶子菜单
+    COND-MENU-009 | design: use_case | priority: P1 | regression: regression
+    """
+    page = admin_page_menu
+    name = test_menu_b["name"]
+
+    # Reload to pick up menu created by fixture
+    page.reload()
+    page.wait_for_selector(".n-data-table-tr", timeout=10000)
+
+    # 找到目标菜单行
+    menu_row = _menu_row(page, name)
+    menu_row.get_by_role("button", name="删除").click()
+
+    # 等待确认弹窗出现
+    expect(page.get_by_text("确定删除该菜单吗?")).to_be_visible(timeout=5000)
+    with page.expect_response(lambda r: "menu/list" in r.url):
+        page.get_by_role("button", name="确认").click()
+
+    # 验证菜单不再出现在表格中
+    expect(page.get_by_role("table").get_by_text(name, exact=True)).not_to_be_visible(timeout=8000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _menu_row(page: Page, name: str):
+    return page.locator(".n-data-table-tr").filter(has=page.get_by_text(name, exact=True))
+
+
+def _flatten_menu_tree(nodes: list) -> list:
+    """Flatten a nested menu tree into a flat list of menu dicts."""
+    result = []
+    for node in nodes:
+        children = node.pop("children", []) if "children" in node else []
+        result.append(node)
+        result.extend(_flatten_menu_tree(children))
+    return result
+
+
+def _get_menu_id_by_name(token: str, name: str) -> int:
+    """Get menu ID by name with retry for eventual consistency."""
+    import time
+
+    for _ in range(3):
+        resp = requests.get(
+            MENU_LIST_URL,
+            headers=_api_headers(token),
+            timeout=10,
+        )
+        menus = _flatten_menu_tree(resp.json().get("data", []))
+        matches = [m for m in menus if m.get("name") == name]
+        if matches:
+            return matches[0]["id"]
+        time.sleep(0.5)
+    raise AssertionError(f"Menu '{name}' not found after creation")
+
+
+def _delete_menu(token: str, menu_id: int) -> None:
+    """Best-effort deletion of a menu by ID."""
+    try:
+        requests.delete(
+            MENU_DELETE_URL,
+            params={"id": menu_id},
+            headers=_api_headers(token),
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"Warning: failed to delete menu_id={menu_id}: {e}")
+
+
+def _assert_create_ok(resp: requests.Response, label: str) -> None:
+    """Assert that a create API call succeeded."""
+    if not resp.ok:
+        raise AssertionError(f"Failed to create {label}: HTTP {resp.status_code} {resp.text[:500]}")
+    try:
+        body = resp.json()
+    except requests.exceptions.JSONDecodeError as e:
+        raise AssertionError(f"Failed to create {label}: invalid JSON {resp.status_code} {resp.text[:500]}") from e
+    assert body.get("code") == 200, f"Failed to create {label}: {body}"
+
+
+def _yield_cleanup_menu(token: str, name: str) -> None:
+    """Best-effort cleanup of a menu created during the test."""
+    try:
+        resp = requests.get(
+            MENU_LIST_URL,
+            headers=_api_headers(token),
+            timeout=10,
+        )
+        menus = _flatten_menu_tree(resp.json().get("data", []))
+        matches = [m for m in menus if m.get("name") == name]
+        if matches:
+            requests.delete(
+                MENU_DELETE_URL,
+                params={"id": matches[0]["id"]},
+                headers=_api_headers(token),
+                timeout=10,
+            )
+    except Exception as e:
+        print(f"Warning: cleanup failed for {name}: {e}")

@@ -1,0 +1,9 @@
+id: FC-003
+annotation_source: human
+tags: ["classification-unit", "api", "assertion"]
+input:
+  message: "AssertionError: expected status code 200 but received 401"
+  log_excerpt: "assert response.status_code == 200"
+  target: api
+expected:
+  category: assertion_failure

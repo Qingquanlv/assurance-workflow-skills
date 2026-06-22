@@ -1,0 +1,1096 @@
+schema_version: "1.0"
+module: users
+change_id: "eval-sample-001"
+generated_at: "2026-06-12"
+generated_by: aws-case-design
+
+added:
+  - case_id: "TC-USER-001"
+    title: "用户列表 - 默认分页加载"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-LIST-DEFAULT"
+    feature_name: "用户列表分页"
+    test_condition_id: "TC-COND-USER-LIST-001"
+    design_technique: use_case
+    objective: "验证管理员可以按默认分页参数获取用户列表，且响应中不包含敏感字段。"
+    tags: [users, list, pagination, smoke]
+    summary: "以管理员身份调用用户列表查询，期望返回首页数据并隐藏密码字段。"
+    preconditions:
+      - "后端服务已启动并可访问"
+      - "数据库存在默认 admin 账号"
+      - "管理员已通过登录获得有效访问凭证"
+    test_data:
+      - "查询参数：第 1 页，每页 10 条"
+    steps:
+      - "管理员发起用户列表查询请求，使用默认分页参数"
+      - "接收并解析响应"
+    assertions:
+      - "响应表示成功状态"
+      - "返回的用户列表至少包含 1 条记录"
+      - "返回的用户列表中至少有一条用户名为 admin 的记录"
+      - "返回结构中分页字段（页码、每页数量、总数）与请求一致"
+      - "响应数据中不包含 password 字段"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-002", "TC-USER-003"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "用户列表是管理员访问其它子操作的入口，回归失败将阻断整条用户管理使用链路。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 happy path", "core list endpoint"]
+      maintenance_rule: "每次后端用户接口变更后必跑"
+      rationale: "smoke 等级保障最小可用性。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-LIST-DEFAULT"
+
+  - case_id: "TC-USER-002"
+    title: "用户列表 - 按用户名模糊搜索"
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: users
+    requirement_id: "REQ-USER-LIST-SEARCH"
+    feature_name: "用户列表按用户名搜索"
+    test_condition_id: "TC-COND-USER-LIST-002"
+    design_technique: equivalence_partitioning
+    objective: "验证用户列表按用户名模糊搜索时仅返回匹配数据。"
+    tags: [users, list, search]
+    summary: "构造一个唯一用户名的测试用户后，按该用户名模糊搜索，期望仅返回该条记录。"
+    preconditions:
+      - "管理员凭证可用"
+      - "测试期间数据库中预置一个用户名唯一的测试用户"
+    test_data:
+      - "测试用户：用户名为唯一标识 qa_user_search"
+      - "查询参数：用户名包含 qa_user_search"
+    steps:
+      - "数据准备：创建测试用户 qa_user_search"
+      - "管理员发起用户列表查询，附带用户名搜索条件"
+      - "接收响应"
+      - "测试结束后清理测试用户"
+    assertions:
+      - "响应表示成功状态"
+      - "返回结果中仅包含 1 条记录"
+      - "记录的用户名等于 qa_user_search"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases:
+      - "搜索关键字不存在时返回空列表（隐式覆盖于此 case 的反向）"
+    related_cases: ["TC-USER-001"]
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: "搜索条件错误会影响管理员排查问题，但有备用全量列表降级路径。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["P1 search filter"]
+      maintenance_rule: "搜索逻辑变更后必跑"
+      rationale: "搜索过滤是高频操作。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-LIST-SEARCH"
+
+  - case_id: "TC-USER-003"
+    title: "用户列表 - 未携带凭证应被拒绝"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-AUTH-LIST"
+    feature_name: "用户列表鉴权保护"
+    test_condition_id: "TC-COND-USER-LIST-003"
+    design_technique: error_guessing
+    objective: "验证未携带访问凭证时用户列表接口拒绝访问。"
+    tags: [users, list, auth, security]
+    summary: "在不携带任何认证凭证的情况下访问用户列表接口，期望被拒绝。"
+    preconditions:
+      - "后端服务已启动"
+    test_data:
+      - "无认证凭证"
+    steps:
+      - "匿名发起用户列表查询请求"
+      - "接收响应"
+    assertions:
+      - "响应表示未授权或拒绝访问的状态"
+      - "响应中不暴露任何用户数据"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-001"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "鉴权失效将导致用户清单泄漏，属于高敏感数据风险。"
+    regression:
+      candidate: true
+      tier: sanity
+      selection_reason: ["security boundary"]
+      maintenance_rule: "认证中间件变更后必跑"
+      rationale: "防止鉴权回归。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-AUTH-LIST"
+
+  - case_id: "TC-USER-010"
+    title: "用户详情 - 按 ID 查询正常返回"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-GET-OK"
+    feature_name: "用户详情查询"
+    test_condition_id: "TC-COND-USER-GET-001"
+    design_technique: use_case
+    objective: "验证管理员按 ID 查询用户时返回该用户详情，且不包含密码字段。"
+    tags: [users, get, smoke]
+    summary: "预置测试用户后按其 ID 查询，期望详情正确返回。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库中预置测试用户并已知其 ID"
+    test_data:
+      - "测试用户 seed_user 与对应的内部 ID"
+    steps:
+      - "数据准备：创建测试用户并记录 ID"
+      - "管理员按 ID 发起用户详情查询"
+      - "接收响应"
+      - "清理测试用户"
+    assertions:
+      - "响应表示成功状态"
+      - "返回的用户 ID 等于查询的 seed_user_id"
+      - "返回数据中不包含 password 字段"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-011"]
+    risk:
+      likelihood: 2
+      impact: 4
+      level: high
+      rationale: "用户详情接口承载编辑表单初始化，回归失败影响所有编辑行为。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 read endpoint"]
+      maintenance_rule: "用户字段变更后必跑"
+      rationale: "保障详情结构稳定。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-GET-OK"
+
+  - case_id: "TC-USER-011"
+    title: "用户详情 - 不存在的 ID 返回错误"
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: users
+    requirement_id: "REQ-USER-GET-MISSING"
+    feature_name: "用户详情查询异常分支"
+    test_condition_id: "TC-COND-USER-GET-002"
+    design_technique: error_guessing
+    objective: "验证查询不存在的用户 ID 时接口返回错误且不泄漏信息。"
+    tags: [users, get, negative]
+    summary: "使用一个数据库中不存在的用户 ID 进行查询，期望返回错误。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库中不存在 ID = 999999 的用户"
+    test_data:
+      - "查询参数：ID = 999999（确保不存在）"
+    steps:
+      - "管理员发起用户详情查询，使用不存在的 ID"
+      - "接收响应"
+    assertions:
+      - "响应表示失败状态"
+      - "响应中包含错误描述信息"
+      - "响应不暴露其它用户数据"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-010"]
+    risk:
+      likelihood: 3
+      impact: 2
+      level: medium
+      rationale: "不存在 ID 的处理影响错误反馈一致性。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["error path"]
+      maintenance_rule: "异常处理中间件变更后必跑"
+      rationale: "保障错误码稳定。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-GET-MISSING"
+
+  - case_id: "TC-USER-020"
+    title: "创建用户 - 携带角色绑定成功"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-CREATE-OK"
+    feature_name: "创建用户并绑定角色"
+    test_condition_id: "TC-COND-USER-CREATE-001"
+    design_technique: use_case
+    objective: "验证管理员创建用户时可以同时绑定角色，且密码经过加密存储。"
+    tags: [users, create, role, smoke]
+    summary: "构造合法用户输入并附带至少一个角色 ID，创建后用户应存在且角色已绑定。"
+    preconditions:
+      - "管理员凭证可用"
+      - "系统中至少存在一个可绑定的角色"
+    test_data:
+      - "新用户输入：唯一的用户名 qa_create_001，唯一邮箱 qa_create_001@test.local，初始密码 Test@1234，绑定一个有效角色 ID"
+    steps:
+      - "数据准备：记录一个可绑定的角色 ID"
+      - "管理员调用创建用户接口提交输入"
+      - "接收响应"
+      - "数据校验：通过 ORM 查询新用户存在且 roles 包含目标角色"
+      - "清理测试用户"
+    assertions:
+      - "响应表示成功状态"
+      - "数据库中存在用户名 qa_create_001 的用户"
+      - "新用户的角色集合包含目标角色"
+      - "新用户的密码哈希值不等于明文 Test@1234（密码已加密）"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases:
+      - "TC-USER-021 覆盖 email 重复"
+      - "TC-USER-022 覆盖必填字段缺失"
+    related_cases: ["TC-USER-021", "TC-USER-022", "TC-USER-030"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "创建用户失败将阻塞租户接入与权限分配。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 critical write"]
+      maintenance_rule: "用户字段或角色绑定变更后必跑"
+      rationale: "守护用户主数据正确性。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-CREATE-OK"
+
+  - case_id: "TC-USER-021"
+    title: "创建用户 - 邮箱重复返回业务错误"
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: users
+    requirement_id: "REQ-USER-CREATE-DUP-EMAIL"
+    feature_name: "创建用户邮箱唯一性校验"
+    test_condition_id: "TC-COND-USER-CREATE-002"
+    design_technique: error_guessing
+    objective: "验证使用已存在邮箱创建用户时返回业务错误，不创建重复账户。"
+    tags: [users, create, validation, duplicate]
+    summary: "预置一个已知邮箱的用户后，再次以同邮箱创建，期望被业务层拒绝。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库中预置一个 email = qa_dup@test.local 的用户"
+    test_data:
+      - "新用户输入：邮箱 qa_dup@test.local（重复），用户名 qa_dup_2，密码 Test@1234"
+    steps:
+      - "数据准备：创建预置用户"
+      - "管理员调用创建用户接口提交重复邮箱输入"
+      - "接收响应"
+      - "清理预置用户"
+    assertions:
+      - "响应表示业务错误（非成功）"
+      - "错误信息提及邮箱已存在"
+      - "数据库中不存在用户名 qa_dup_2 的用户"
+    postconditions:
+      - "预置用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-020"]
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: "邮箱重复绕过会引发数据完整性问题。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["validation logic"]
+      maintenance_rule: "唯一性校验逻辑变更后必跑"
+      rationale: "防止业务校验回归。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-CREATE-DUP-EMAIL"
+
+  - case_id: "TC-USER-022"
+    title: "创建用户 - 缺少必填字段返回参数校验错误"
+    status: draft
+    priority: P2
+    severity: minor
+    type: API
+    module: users
+    requirement_id: "REQ-USER-CREATE-VALIDATION"
+    feature_name: "创建用户参数校验"
+    test_condition_id: "TC-COND-USER-CREATE-003"
+    design_technique: boundary_value_analysis
+    objective: "验证缺少 email 等必填字段时接口返回参数校验错误。"
+    tags: [users, create, validation, schema]
+    summary: "提交缺失 email 字段的输入，期望接口返回字段级校验错误。"
+    preconditions:
+      - "管理员凭证可用"
+    test_data:
+      - "残缺输入：仅含 username 与 password，不含 email"
+    steps:
+      - "管理员调用创建用户接口提交残缺输入"
+      - "接收响应"
+    assertions:
+      - "响应表示参数校验失败状态"
+      - "错误详情中提及 email 字段缺失"
+      - "数据库未新增任何用户"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-020"]
+    risk:
+      likelihood: 4
+      impact: 2
+      level: medium
+      rationale: "Pydantic 校验失败属于框架级保障，但回归会破坏前端表单错误反馈。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["schema validation"]
+      maintenance_rule: "schema 变更后必跑"
+      rationale: "保障字段必填约束。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-CREATE-VALIDATION"
+
+  - case_id: "TC-USER-030"
+    title: "更新用户 - 修改用户名并重写角色集合"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-UPDATE-OK"
+    feature_name: "更新用户基础信息与角色"
+    test_condition_id: "TC-COND-USER-UPDATE-001"
+    design_technique: use_case
+    objective: "验证更新用户时用户名变更生效，且角色集合按入参完全重写（不保留旧角色）。"
+    tags: [users, update, role, smoke]
+    summary: "预置带有 role_a 的用户，更新时仅传入 role_b，期望最终角色仅为 role_b。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库存在两个不同角色 role_a 与 role_b"
+      - "预置一个绑定 role_a 的测试用户"
+    test_data:
+      - "测试用户当前用户名（任意）与目标新用户名 qa_updated"
+      - "目标角色集合：仅含 role_b"
+    steps:
+      - "数据准备：创建测试用户并绑定 role_a"
+      - "管理员调用更新接口，提交新用户名与仅含 role_b 的角色集合"
+      - "接收响应"
+      - "数据校验：查询用户名与角色集合"
+      - "清理测试用户"
+    assertions:
+      - "响应表示成功状态"
+      - "数据库中该用户的用户名等于 qa_updated"
+      - "数据库中该用户的角色集合仅包含 role_b（不再包含 role_a）"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-031"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "角色重写错误将引发越权访问风险。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 critical write", "role boundary"]
+      maintenance_rule: "角色绑定逻辑变更后必跑"
+      rationale: "守护权限边界。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-UPDATE-OK"
+
+  - case_id: "TC-USER-031"
+    title: "更新用户 - 不存在的 ID 返回错误"
+    status: draft
+    priority: P1
+    severity: major
+    type: API
+    module: users
+    requirement_id: "REQ-USER-UPDATE-MISSING"
+    feature_name: "更新用户异常分支"
+    test_condition_id: "TC-COND-USER-UPDATE-002"
+    design_technique: error_guessing
+    objective: "验证更新一个不存在的用户时接口返回错误且不创建新记录。"
+    tags: [users, update, negative]
+    summary: "提交一个数据库中不存在的用户 ID 进行更新，期望返回错误。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库不存在 ID = 999999 的用户"
+    test_data:
+      - "更新输入：ID = 999999, email = ghost@test.local, username = ghost"
+    steps:
+      - "管理员调用更新接口提交不存在 ID 的输入"
+      - "接收响应"
+    assertions:
+      - "响应表示失败状态"
+      - "数据库中不存在 username = ghost 的用户"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-030"]
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: "更新静默成功会导致数据漂移。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["error path"]
+      maintenance_rule: "异常处理变更后必跑"
+      rationale: "保障错误码稳定。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-UPDATE-MISSING"
+
+  - case_id: "TC-USER-040"
+    title: "删除用户 - 按 ID 删除成功"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-DELETE-OK"
+    feature_name: "删除用户"
+    test_condition_id: "TC-COND-USER-DELETE-001"
+    design_technique: use_case
+    objective: "验证按 ID 删除用户后该用户从数据库消失。"
+    tags: [users, delete, smoke]
+    summary: "预置测试用户后按 ID 删除，期望成功且数据库无此记录。"
+    preconditions:
+      - "管理员凭证可用"
+      - "预置一个测试用户并记录其 ID"
+    test_data:
+      - "目标用户 ID"
+    steps:
+      - "数据准备：创建测试用户并记录 ID"
+      - "管理员调用删除接口指定该 ID"
+      - "接收响应"
+      - "数据校验：通过 ORM 查询确认用户不存在"
+    assertions:
+      - "响应表示成功状态"
+      - "数据库中按该 ID 查询不到任何用户"
+    postconditions:
+      - "测试用户已被删除（即测试目标）"
+    edge_cases: []
+    related_cases: ["TC-USER-041"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "删除失败或误删会造成账号丢失/泄漏。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 critical write"]
+      maintenance_rule: "删除逻辑变更后必跑"
+      rationale: "守护数据生命周期。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-DELETE-OK"
+
+  - case_id: "TC-USER-041"
+    title: "删除用户 - 不存在的 ID 返回错误"
+    status: draft
+    priority: P2
+    severity: minor
+    type: API
+    module: users
+    requirement_id: "REQ-USER-DELETE-MISSING"
+    feature_name: "删除用户异常分支"
+    test_condition_id: "TC-COND-USER-DELETE-002"
+    design_technique: error_guessing
+    objective: "验证删除不存在的用户时接口返回错误且不影响其它数据。"
+    tags: [users, delete, negative]
+    summary: "尝试删除一个不存在的用户 ID，期望接口报错。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库不存在 ID = 999999 的用户"
+    test_data:
+      - "目标用户 ID = 999999"
+    steps:
+      - "管理员调用删除接口指定不存在 ID"
+      - "接收响应"
+    assertions:
+      - "响应表示失败状态"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-040"]
+    risk:
+      likelihood: 3
+      impact: 2
+      level: medium
+      rationale: "误差错误码会影响前端反馈。"
+    regression:
+      candidate: false
+      tier: none
+      selection_reason: []
+      maintenance_rule: "可选回归"
+      rationale: "P2 优先级低。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-DELETE-MISSING"
+
+  - case_id: "TC-USER-050"
+    title: "重置密码 - 普通用户重置成功且新密码可用"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-RESET-OK"
+    feature_name: "重置普通用户密码"
+    test_condition_id: "TC-COND-USER-RESET-001"
+    design_technique: use_case
+    objective: "验证管理员重置普通用户密码后，新密码生效，可登录。"
+    tags: [users, reset_password, security]
+    summary: "预置一个非超管用户并记录 ID，调用重置后用新固定密码登录验证。"
+    preconditions:
+      - "管理员凭证可用"
+      - "预置一个非超级管理员的测试用户，初始密码已知（不等于固定重置值）"
+    test_data:
+      - "测试用户 ID"
+      - "重置后预期固定密码：项目内置约定值（在 fact baseline 中确定）"
+    steps:
+      - "数据准备：创建普通用户并记录 ID 与初始密码"
+      - "管理员调用重置密码接口指定该用户 ID"
+      - "接收响应"
+      - "用该用户名 + 重置后的固定密码尝试登录系统"
+      - "清理测试用户"
+    assertions:
+      - "响应表示成功状态"
+      - "响应消息中包含密码已重置的说明"
+      - "用重置后的固定密码登录成功"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases:
+      - "TC-USER-051 单独覆盖超级管理员保护"
+    related_cases: ["TC-USER-051", "TC-USER-052"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "密码重置失败会阻断用户找回路径。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["security flow"]
+      maintenance_rule: "密码哈希策略变更后必跑"
+      rationale: "守护找回链路。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-RESET-OK"
+
+  - case_id: "TC-USER-051"
+    title: "重置密码 - 拒绝重置超级管理员"
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: users
+    requirement_id: "REQ-USER-RESET-PROTECT-SUPER"
+    feature_name: "禁止重置超级管理员密码"
+    test_condition_id: "TC-COND-USER-RESET-002"
+    design_technique: error_guessing
+    objective: "验证当目标用户为超级管理员时重置密码接口拒绝操作。"
+    tags: [users, reset_password, security, permission]
+    summary: "对默认超级管理员 ID 调用重置密码接口，期望被禁止且原密码继续可用。"
+    preconditions:
+      - "管理员凭证可用"
+      - "默认超级管理员账号存在且原密码已知"
+    test_data:
+      - "默认超级管理员的内部 ID"
+    steps:
+      - "管理员调用重置密码接口指定超级管理员 ID"
+      - "接收响应"
+      - "用超级管理员原密码尝试登录"
+    assertions:
+      - "响应表示权限拒绝状态"
+      - "错误信息中提及不允许重置超级管理员密码"
+      - "用原密码登录仍然成功"
+    postconditions:
+      - "超级管理员凭证保持不变"
+    edge_cases: []
+    related_cases: ["TC-USER-050"]
+    risk:
+      likelihood: 1
+      impact: 5
+      level: high
+      rationale: "若超级管理员可被任意管理员重置密码，构成提权风险。"
+    regression:
+      candidate: true
+      tier: sanity
+      selection_reason: ["security guard"]
+      maintenance_rule: "权限保护逻辑变更后必跑"
+      rationale: "守护超级管理员账户安全。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-RESET-PROTECT-SUPER"
+
+  - case_id: "TC-USER-052"
+    title: "重置密码 - 不存在的 ID 返回错误"
+    status: draft
+    priority: P2
+    severity: minor
+    type: API
+    module: users
+    requirement_id: "REQ-USER-RESET-MISSING"
+    feature_name: "重置密码异常分支"
+    test_condition_id: "TC-COND-USER-RESET-003"
+    design_technique: error_guessing
+    objective: "验证重置不存在的用户密码时接口返回错误。"
+    tags: [users, reset_password, negative]
+    summary: "对不存在的 user_id 调用重置密码接口，期望失败。"
+    preconditions:
+      - "管理员凭证可用"
+      - "数据库中不存在 ID = 999999 的用户"
+    test_data:
+      - "目标 ID = 999999"
+    steps:
+      - "管理员调用重置密码接口指定不存在 ID"
+      - "接收响应"
+    assertions:
+      - "响应表示失败状态"
+    postconditions:
+      - "无副作用"
+    edge_cases: []
+    related_cases: ["TC-USER-050"]
+    risk:
+      likelihood: 3
+      impact: 1
+      level: low
+      rationale: "异常路径，业务影响有限。"
+    regression:
+      candidate: false
+      tier: none
+      selection_reason: []
+      maintenance_rule: "可选回归"
+      rationale: "低优先级。"
+    automation:
+      required: true
+      target: API
+      framework: pytest
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-RESET-MISSING"
+
+  - case_id: "TC-USER-100"
+    title: "用户管理页 - 管理员登录后列表正常加载"
+    status: draft
+    priority: P0
+    severity: critical
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-LOAD"
+    feature_name: "用户管理页面加载"
+    test_condition_id: "TC-COND-USER-PAGE-001"
+    design_technique: use_case
+    objective: "验证管理员登录后可进入用户管理页且看到用户列表。"
+    tags: [users, e2e, page_load, smoke]
+    summary: "默认管理员登录系统并进入用户管理页面，期望表格至少展示 1 行用户。"
+    preconditions:
+      - "前端与后端服务均已启动"
+      - "默认管理员账号可用"
+    test_data:
+      - "默认管理员用户名与密码"
+    steps:
+      - "打开前端首页"
+      - "在登录页输入默认管理员凭证并提交"
+      - "通过菜单导航到 系统管理 → 用户管理"
+    assertions:
+      - "当前页面位于用户管理路径"
+      - "用户列表表格至少展示一行数据"
+      - "表头包含用户名、邮箱、角色、状态等关键列"
+    postconditions:
+      - "保持登录态用于后续 E2E 用例"
+    edge_cases: []
+    related_cases: ["TC-USER-101", "TC-USER-103", "TC-USER-104"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "页面加载失败将阻断所有 UI 测试。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["E2E entry point"]
+      maintenance_rule: "前端路由或菜单变更后必跑"
+      rationale: "保障 E2E 入口。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-LOAD"
+
+  - case_id: "TC-USER-101"
+    title: "用户管理页 - 新建用户成功并出现在列表"
+    status: draft
+    priority: P0
+    severity: critical
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-CREATE"
+    feature_name: "用户管理页面新建用户"
+    test_condition_id: "TC-COND-USER-PAGE-002"
+    design_technique: use_case
+    objective: "验证通过用户管理页表单可成功新建用户并立即在列表中可见。"
+    tags: [users, e2e, create]
+    summary: "管理员在用户管理页打开新建表单，填写合法数据并提交，验证成功反馈与列表可见性。"
+    preconditions:
+      - "已登录用户管理页（可复用 TC-USER-100 状态或重新登录）"
+      - "系统中至少存在一个可绑定角色"
+    test_data:
+      - "新用户：用户名 e2e_new_user, 邮箱 e2e_new@test.local, 密码 Test@1234, 至少一个角色"
+    steps:
+      - "进入用户管理页面"
+      - "点击新建用户按钮"
+      - "填写用户名、邮箱、密码"
+      - "选择至少一个角色"
+      - "提交表单"
+      - "在用户列表中按用户名搜索新用户"
+      - "测试结束后通过 ORM 删除该用户"
+    assertions:
+      - "出现创建成功的提示"
+      - "搜索结果中可见新建用户名"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-020", "TC-USER-100"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "新建流程是高频管理员操作，回归失败立即阻塞业务。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 critical UI"]
+      maintenance_rule: "新建表单或角色控件变更后必跑"
+      rationale: "守护核心管理流程。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-CREATE"
+
+  - case_id: "TC-USER-102"
+    title: "用户管理页 - 编辑用户名持久化"
+    status: draft
+    priority: P1
+    severity: major
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-EDIT"
+    feature_name: "用户管理页面编辑用户名"
+    test_condition_id: "TC-COND-USER-PAGE-003"
+    design_technique: use_case
+    objective: "验证通过编辑表单修改用户名后刷新页面仍然生效。"
+    tags: [users, e2e, edit]
+    summary: "预置 e2e_edit_src 用户，在 UI 中改名为 e2e_edit_dst，刷新后再编辑确认值已持久化。"
+    preconditions:
+      - "已登录用户管理页"
+      - "数据库预置用户 e2e_edit_src"
+    test_data:
+      - "源用户名 e2e_edit_src 与目标用户名 e2e_edit_dst"
+    steps:
+      - "进入用户管理页面"
+      - "搜索 e2e_edit_src 并点击编辑"
+      - "在编辑表单中将用户名改为 e2e_edit_dst 并保存"
+      - "刷新列表后再次搜索 e2e_edit_dst"
+      - "再次打开编辑面板查看用户名"
+      - "测试结束清理 e2e_edit_dst 用户"
+    assertions:
+      - "搜索结果中出现 e2e_edit_dst"
+      - "再次打开编辑面板时用户名字段值为 e2e_edit_dst"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-030", "TC-USER-100"]
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: "前后端字段绑定错误会引发数据丢失。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["data persistence"]
+      maintenance_rule: "编辑表单结构变更后必跑"
+      rationale: "保障表单数据闭环。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-EDIT"
+
+  - case_id: "TC-USER-103"
+    title: "用户管理页 - 给用户分配并保留角色"
+    status: draft
+    priority: P1
+    severity: major
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-ROLE"
+    feature_name: "用户管理页面分配角色"
+    test_condition_id: "TC-COND-USER-PAGE-004"
+    design_technique: use_case
+    objective: "验证通过用户编辑面板分配角色后角色保存并在再次打开时回显。"
+    tags: [users, e2e, role]
+    summary: "预置一个无角色的用户，在 UI 中为其勾选一个角色并保存，再次打开编辑面板验证回显与数据库一致。"
+    preconditions:
+      - "已登录用户管理页"
+      - "数据库存在一个名称已知的角色（在 fact baseline 中确定）"
+      - "预置一个不绑定任何角色的测试用户 e2e_role_user"
+    test_data:
+      - "测试用户名 e2e_role_user 与目标角色名称"
+    steps:
+      - "进入用户管理页面 → 搜索 e2e_role_user → 点击编辑"
+      - "在角色多选控件中勾选目标角色 → 保存"
+      - "再次打开编辑面板查看角色多选回显"
+      - "通过 ORM 校验该用户的角色集合包含目标角色"
+      - "测试结束清理用户"
+    assertions:
+      - "再次打开编辑面板时目标角色仍处于选中状态"
+      - "数据库中该用户的角色集合包含目标角色"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-030", "TC-USER-100"]
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: "前端漏传角色集合会导致权限丢失（结合后端 clear+add 行为）。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["role assignment"]
+      maintenance_rule: "角色控件或后端角色更新逻辑变更后必跑"
+      rationale: "守护权限端到端。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-ROLE"
+
+  - case_id: "TC-USER-104"
+    title: "用户管理页 - 删除用户从列表移除"
+    status: draft
+    priority: P0
+    severity: critical
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-DELETE"
+    feature_name: "用户管理页面删除用户"
+    test_condition_id: "TC-COND-USER-PAGE-005"
+    design_technique: use_case
+    objective: "验证管理员通过用户管理页可以删除用户，确认弹窗后列表与数据库均不再出现该用户。"
+    tags: [users, e2e, delete]
+    summary: "预置 e2e_delete_me 用户后在 UI 中删除并确认，验证列表与数据库一致更新。"
+    preconditions:
+      - "已登录用户管理页"
+      - "预置测试用户 e2e_delete_me"
+    test_data:
+      - "测试用户名 e2e_delete_me"
+    steps:
+      - "进入用户管理页面 → 搜索 e2e_delete_me"
+      - "点击删除按钮 → 在确认弹窗中点击确认"
+      - "再次搜索 e2e_delete_me"
+      - "通过 ORM 校验数据库不存在该用户"
+    assertions:
+      - "出现删除成功的提示"
+      - "再次搜索 e2e_delete_me 列表为空"
+      - "数据库不存在用户名 e2e_delete_me 的用户"
+    postconditions:
+      - "测试用户已被删除（即测试目标）"
+    edge_cases:
+      - "若取消确认弹窗用户应仍存在（在自动化中不强制覆盖）"
+    related_cases: ["TC-USER-040", "TC-USER-100"]
+    risk:
+      likelihood: 2
+      impact: 5
+      level: high
+      rationale: "删除按钮误绑定可能造成误删。"
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason: ["P0 destructive flow"]
+      maintenance_rule: "删除确认弹窗变更后必跑"
+      rationale: "守护破坏性操作的确认链路。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-DELETE"
+
+  - case_id: "TC-USER-105"
+    title: "用户管理页 - 用户名搜索过滤生效"
+    status: draft
+    priority: P2
+    severity: minor
+    type: E2E
+    module: users
+    requirement_id: "REQ-USER-PAGE-SEARCH"
+    feature_name: "用户管理页面搜索"
+    test_condition_id: "TC-COND-USER-PAGE-006"
+    design_technique: equivalence_partitioning
+    objective: "验证用户名搜索框能正确过滤列表，清空后恢复全部数据。"
+    tags: [users, e2e, search]
+    summary: "预置唯一用户名 e2e_search_target 后在搜索框输入该名，验证过滤；清空后验证恢复。"
+    preconditions:
+      - "已登录用户管理页"
+      - "预置 e2e_search_target 用户"
+    test_data:
+      - "搜索关键字 e2e_search_target"
+    steps:
+      - "进入用户管理页面"
+      - "在用户名搜索框输入 e2e_search_target → 触发搜索"
+      - "记录列表内容"
+      - "清空搜索框 → 再次搜索"
+      - "测试结束清理用户"
+    assertions:
+      - "首次搜索后列表只显示 e2e_search_target 一行"
+      - "清空搜索后列表至少恢复到包含默认 admin 的状态"
+    postconditions:
+      - "测试用户已被删除"
+    edge_cases: []
+    related_cases: ["TC-USER-002", "TC-USER-100"]
+    risk:
+      likelihood: 3
+      impact: 2
+      level: medium
+      rationale: "搜索失效不阻断业务但影响效率。"
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason: ["search UX"]
+      maintenance_rule: "搜索控件变更后必跑"
+      rationale: "保障日常运营效率。"
+    automation:
+      required: true
+      target: E2E
+      framework: pytest-playwright
+      status: planned
+    trace:
+      proposal: "qa/changes/20260612-user-mgmt/proposal.md"
+      requirement: "REQ-USER-PAGE-SEARCH"
+
+modified: []
+removed: []
