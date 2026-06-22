@@ -685,5 +685,27 @@ added:
     trace:
       change_reason: 建立 menus 删除约束（含子节点拒绝）基线
 
+  - case_id: TC-MENUS-FUZZ-001
+    title: 菜单列表接口 schema fuzz
+    type: Fuzz
+    module: menus
+    automation:
+      required: true
+      suggested_file: tests/fuzz/test_menu_fuzz.py
+    thresholds: {}
+
+  - case_id: TC-MENUS-PERF-001
+    title: 菜单列表查询性能基线
+    type: Performance
+    module: menus
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: menu-list-query
+    automation:
+      required: true
+      suggested_file: qa/perf/locustfile_menu.py
+
 modified: []
 removed: []

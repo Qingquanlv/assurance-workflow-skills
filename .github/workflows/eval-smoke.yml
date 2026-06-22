@@ -70,8 +70,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install pytest
-        run: pip install pytest httpx
+      - name: Install pytest + schemathesis + locust
+        run: pip install pytest httpx schemathesis locust==2.32.4
 
       - name: Build CLI
         run: npm run build
@@ -95,6 +95,27 @@ jobs:
           EVAL_USE_FAKE_OPENCODE: "1"
         run: |
           run_id=$(node dist/cli.js eval run --suite workflow-api-codegen --sample WAC-001 --output id)
+          node dist/cli.js eval gate --run "$run_id"
+
+      - name: Run workflow-e2e-codegen (fake OpenCode)
+        env:
+          EVAL_USE_FAKE_OPENCODE: "1"
+        run: |
+          run_id=$(node dist/cli.js eval run --suite workflow-e2e-codegen --sample WEEC-001 --output id)
+          node dist/cli.js eval gate --run "$run_id"
+
+      - name: Run workflow-fuzz-codegen (fake OpenCode)
+        env:
+          EVAL_USE_FAKE_OPENCODE: "1"
+        run: |
+          run_id=$(node dist/cli.js eval run --suite workflow-fuzz-codegen --sample WFUZ-001 --output id)
+          node dist/cli.js eval gate --run "$run_id"
+
+      - name: Run workflow-performance-codegen (fake OpenCode)
+        env:
+          EVAL_USE_FAKE_OPENCODE: "1"
+        run: |
+          run_id=$(node dist/cli.js eval run --suite workflow-performance-codegen --sample WPER-001 --output id)
           node dist/cli.js eval gate --run "$run_id"
 
   eval-smoke-run-e3:

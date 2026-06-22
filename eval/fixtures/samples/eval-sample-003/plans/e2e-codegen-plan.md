@@ -1,0 +1,5 @@
+# E2E Codegen Plan
+
+## Target Files
+
+- `tests/e2e/eval/test_menu_eval_smoke.py`

@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { parseCoverage, loadCoverageConfig } from '../../src/execution/coverage_parser';
 import { buildQualityGate } from '../../src/report/quality_gate';
 import { computeQualityScore } from '../../src/report/quality_score';
 import { generateReport } from '../../src/report/report_generator';
 import { run } from '../../src/execution/runner';
-import { ApiResult, CoverageResult, E2eResult, FailureAnalysis, QualityGateResult } from '../../src/core/types';
+import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, QualityGateResult } from '../../src/core/types';
 
 function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -267,6 +268,24 @@ describe('M1 runner coverage output', () => {
     expect(result.coverage?.kind).toBe('coverage');
     // In CI without pytest-cov, coverage is SKIPPED — never fabricated as PASS.
     expect(['SKIPPED', 'PASS', 'PASS_WITH_WARNINGS']).toContain(result.coverage?.status);
+  });
+
+  it('writes final_status to execution-manifest.yaml (batch + latest pointer)', () => {
+    const changeId = 'REQ-MANIFEST-STATUS-001';
+    fs.mkdirSync(path.join(projectRoot, 'qa', 'changes', changeId, 'plans'), { recursive: true });
+
+    const result = run({ changeId, projectRoot });
+    const execDir = path.join(projectRoot, 'qa', 'changes', changeId, 'execution');
+    const latestManifest = yaml.load(
+      fs.readFileSync(path.join(execDir, 'execution-manifest.yaml'), 'utf8'),
+    ) as ExecutionManifest;
+    const batchManifest = yaml.load(
+      fs.readFileSync(path.join(result.batchDir, 'execution-manifest.yaml'), 'utf8'),
+    ) as ExecutionManifest;
+
+    expect(latestManifest.final_status).toBe(result.qualityGate.final_status);
+    expect(batchManifest.final_status).toBe(result.qualityGate.final_status);
+    expect(result.manifest.final_status).toBe(result.qualityGate.final_status);
   });
 
   it('does not execute or write result files for unselected targets', () => {

@@ -14,6 +14,7 @@ from tests.api.helpers.dept_api import (
     get_dept_tree,
     list_dept_flat,
     safe_delete_dept,
+    unique_dept_name,
     update_dept,
 )
 
@@ -22,10 +23,6 @@ pytestmark = pytest.mark.api
 NONEXISTENT_DEPT_ID = 99_999_999
 
 DEPT_FIELDS = {"id", "name", "desc", "order", "parent_id", "children"}
-
-
-def _unique_name(prefix: str = "qa-dept") -> str:
-    return f"{prefix}-{secrets.token_hex(4)}"
 
 
 @pytest.mark.case_id("TC-DEPT-API-001")
@@ -47,8 +44,9 @@ def test_tc_dept_api_001_list_returns_tree(api_client: httpx.Client) -> None:
 @pytest.mark.case_id("TC-DEPT-API-002")
 def test_tc_dept_api_002_list_filter_by_name(api_client: httpx.Client) -> None:
     keyword = secrets.token_hex(4)
-    match_name = f"qa-dept-{keyword}-match"
-    other_name = f"qa-dept-{secrets.token_hex(4)}-other"
+    # Dept.name max_length=20 — embed keyword in short names (10 chars each).
+    match_name = f"q{keyword}m"
+    other_name = f"x{secrets.token_hex(4)}"
 
     match_id: int | None = None
     other_id: int | None = None
@@ -83,7 +81,7 @@ def test_tc_dept_api_002_list_filter_by_name(api_client: httpx.Client) -> None:
 
 @pytest.mark.case_id("TC-DEPT-API-003")
 def test_tc_dept_api_003_get_detail_by_id(api_client: httpx.Client) -> None:
-    name = _unique_name()
+    name = unique_dept_name()
     dept_id: int | None = None
     try:
         create_response = create_dept(api_client, name=name, desc="detail-test")
@@ -124,7 +122,7 @@ def test_tc_dept_api_004_get_detail_not_found(api_client: httpx.Client) -> None:
 
 @pytest.mark.case_id("TC-DEPT-API-005")
 def test_tc_dept_api_005_create_root_dept(api_client: httpx.Client) -> None:
-    name = _unique_name("qa-dept-root")
+    name = unique_dept_name("qr")
     dept_id: int | None = None
     try:
         create_response = create_dept(
@@ -150,8 +148,8 @@ def test_tc_dept_api_005_create_root_dept(api_client: httpx.Client) -> None:
 
 @pytest.mark.case_id("TC-DEPT-API-006")
 def test_tc_dept_api_006_create_child_dept(api_client: httpx.Client) -> None:
-    parent_name = _unique_name("qa-dept-parent")
-    child_name = f"{parent_name}-child"
+    parent_name = unique_dept_name("qp")
+    child_name = unique_dept_name("qc")
     parent_id: int | None = None
     child_id: int | None = None
     try:
@@ -194,7 +192,7 @@ def test_tc_dept_api_006_create_child_dept(api_client: httpx.Client) -> None:
 def test_tc_dept_api_007_create_child_nonexistent_parent_rejected(
     api_client: httpx.Client,
 ) -> None:
-    name = _unique_name("qa-dept-orphan")
+    name = unique_dept_name("qo")
     created_id: int | None = None
     try:
         response = create_dept(api_client, name=name, parent_id=NONEXISTENT_DEPT_ID)
@@ -221,7 +219,13 @@ def test_tc_dept_api_007_create_child_nonexistent_parent_rejected(
 def test_tc_dept_api_008_create_duplicate_name_rejected(
     api_client: httpx.Client,
 ) -> None:
-    name = _unique_name("qa-dept-dup")
+    """Duplicate name must be rejected with a controlled error (not HTTP 5xx).
+
+    EXPECTED-PRODUCT-FAIL — ANOMALY-003 from facts/fact-baseline.json:
+    backend does not translate ORM IntegrityError on duplicate Dept.name into 4xx;
+    second create may return HTTP 500. Test data uses unique_dept_name (≤20 chars).
+    """
+    name = unique_dept_name("qd")
     dept_id: int | None = None
     try:
         first = create_dept(api_client, name=name, parent_id=0)
@@ -231,7 +235,11 @@ def test_tc_dept_api_008_create_duplicate_name_rejected(
         assert dept_id is not None
 
         second = create_dept(api_client, name=name, parent_id=0)
-        assert second.status_code < 500
+        assert second.status_code < 500, (
+            f"EXPECTED-PRODUCT-FAIL (ANOMALY-003): duplicate create returned "
+            f"HTTP {second.status_code}; backend should reject with 4xx/business error. "
+            f"body={second.text}"
+        )
         body = second.json()
         http_non_2xx = not (200 <= second.status_code < 300)
         business_non_200 = body.get("code") != 200
@@ -247,9 +255,10 @@ def test_tc_dept_api_008_create_duplicate_name_rejected(
 
 @pytest.mark.case_id("TC-DEPT-API-009")
 def test_tc_dept_api_009_update_basic_fields(api_client: httpx.Client) -> None:
-    original_name = _unique_name("qa-dept-upd")
-    new_name = f"{original_name}-updated"
-    new_desc = "updated-desc-" + secrets.token_hex(2)
+    original_name = unique_dept_name("qu")
+    # Renamed value must also fit max_length=20 — do not append long suffixes.
+    new_name = unique_dept_name("qv")
+    new_desc = "upd-" + secrets.token_hex(2)
     dept_id: int | None = None
     try:
         r_create = create_dept(api_client, name=original_name, desc="orig-desc")
@@ -285,8 +294,8 @@ def test_tc_dept_api_009_update_basic_fields(api_client: httpx.Client) -> None:
 def test_tc_dept_api_010_update_parent_id_rebuilds_tree(
     api_client: httpx.Client,
 ) -> None:
-    name_a = _unique_name("qa-dept-a")
-    name_b = _unique_name("qa-dept-b")
+    name_a = unique_dept_name("qa")
+    name_b = unique_dept_name("qb")
     id_a: int | None = None
     id_b: int | None = None
     try:
@@ -335,7 +344,7 @@ def test_tc_dept_api_010_update_parent_id_rebuilds_tree(
 
 @pytest.mark.case_id("TC-DEPT-API-011")
 def test_tc_dept_api_011_update_not_found_rejected(api_client: httpx.Client) -> None:
-    name = _unique_name("qa-dept-upd-missing")
+    name = unique_dept_name("qm")
 
     response = update_dept(
         api_client,
@@ -359,7 +368,7 @@ def test_tc_dept_api_011_update_not_found_rejected(api_client: httpx.Client) -> 
 
 @pytest.mark.case_id("TC-DEPT-API-012")
 def test_tc_dept_api_012_delete_soft_deletes_dept(api_client: httpx.Client) -> None:
-    name = _unique_name("qa-dept-del")
+    name = unique_dept_name("qx")
     dept_id: int | None = None
     try:
         r_create = create_dept(api_client, name=name)

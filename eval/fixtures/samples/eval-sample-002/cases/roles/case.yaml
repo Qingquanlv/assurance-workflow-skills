@@ -955,6 +955,49 @@ added:
     trace:
       related_requirements: [REQ-ROLES-E2E-005]
 
+  - case_id: TC-ROLES-FUZZ-001
+    title: 角色列表接口 schema fuzz
+    status: draft
+    priority: P2
+    severity: major
+    type: Fuzz
+    module: roles
+    tags: [fuzz, role-list]
+    objective: 对 /api/v1/role/list 做 schema-based fuzz，断言无 5xx。
+    automation:
+      required: true
+      framework: schemathesis
+      suggested_file: tests/fuzz/test_roles_fuzz.py
+      status: planned
+    trace:
+      related_requirements: [REQ-ROLES-FUZZ-001]
+
+  - case_id: TC-ROLES-PERF-001
+    title: 角色列表查询性能基线
+    status: draft
+    priority: P2
+    severity: major
+    type: Performance
+    module: roles
+    tags: [performance, role-list]
+    objective: 对角色列表接口施加轻量负载并验证 p95 延迟。
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: role-list-query
+      load:
+        users: 5
+        spawn_rate: 1
+        run_time: 30s
+    automation:
+      required: true
+      framework: locust
+      suggested_file: qa/perf/locustfile_roles.py
+      status: planned
+    trace:
+      related_requirements: [REQ-ROLES-PERF-001]
+
 modified: []
 
 removed: []

@@ -9,9 +9,26 @@ Endpoint quirks captured from .aws/data-knowledge.yaml:
 """
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 import httpx
+
+# Dept.name ORM CharField max_length=20 (see app/models/admin.py Dept).
+DEPT_NAME_MAX_LENGTH = 20
+DEFAULT_DEPT_HEX_CHARS = 8
+
+
+def unique_dept_name(prefix: str = "qa", *, hex_chars: int = DEFAULT_DEPT_HEX_CHARS) -> str:
+    """Build a unique dept name within ORM max_length (prefix + '-' + hex token)."""
+    token = secrets.token_hex(hex_chars // 2)
+    name = f"{prefix}-{token}"
+    if len(name) > DEPT_NAME_MAX_LENGTH:
+        raise ValueError(
+            f"dept name {name!r} exceeds max_length={DEPT_NAME_MAX_LENGTH}; "
+            f"shorten prefix {prefix!r} (max {DEPT_NAME_MAX_LENGTH - 1 - hex_chars} chars)"
+        )
+    return name
 
 
 def get_dept_tree(client: httpx.Client, name: str | None = None) -> httpx.Response:

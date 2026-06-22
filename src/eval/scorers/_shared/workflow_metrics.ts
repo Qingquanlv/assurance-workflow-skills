@@ -193,13 +193,19 @@ export function scorePySyntaxValidRate(scanRoot: string, globPattern = '**/*.py'
   return valid / files.length;
 }
 
-export function scoreCodegenSummaryPresentRate(rawOutputDir: string): number {
-  const p = path.join(rawOutputDir, 'codegen/api-codegen-summary.md');
+export function scoreCodegenSummaryPresentRate(
+  rawOutputDir: string,
+  summaryRelativePath = 'codegen/api-codegen-summary.md'
+): number {
+  const p = path.join(rawOutputDir, summaryRelativePath);
   return fs.existsSync(p) ? 1 : 0;
 }
 
-export function scorePlanGateSatisfiedRate(rawOutputDir: string): number {
-  const p = path.join(rawOutputDir, 'review/api-plan-review.json');
+export function scorePlanGateSatisfiedRate(
+  rawOutputDir: string,
+  reviewRelativePath = 'review/api-plan-review.json'
+): number {
+  const p = path.join(rawOutputDir, reviewRelativePath);
   if (!fs.existsSync(p)) return 0;
   try {
     const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as { decision?: string };
@@ -207,6 +213,21 @@ export function scorePlanGateSatisfiedRate(rawOutputDir: string): number {
   } catch {
     return 0;
   }
+}
+
+export function scoreSchemathesisImportAvailable(): number {
+  try {
+    execFileSync('python3', ['-c', 'import schemathesis'], { stdio: 'ignore' });
+    return 1;
+  } catch {
+    return 0;
+  }
+}
+
+export function scoreFuzzSchemaValidRate(projectDir: string): number {
+  const pyRate = scorePySyntaxValidRate(projectDir, 'tests/fuzz/**/*.py');
+  if (pyRate === 0) return 0;
+  return pyRate * scoreSchemathesisImportAvailable();
 }
 
 export function parseTargetFilesFromPlan(planContent: string): string[] {
@@ -227,21 +248,34 @@ export function parseTargetFilesFromPlan(planContent: string): string[] {
   return targets;
 }
 
-export function scoreTargetFileCoverageRate(rawOutputDir: string): number {
-  const planPath = path.join(rawOutputDir, 'plans/api-codegen-plan.md');
+export function scoreTargetFileCoverageRate(
+  rawOutputDir: string,
+  planRelativePath = 'plans/api-codegen-plan.md',
+  /** Generated tests land on bench projectDir; archived raw-output may omit tests/. */
+  projectDir?: string
+): number {
+  const planPath = path.join(rawOutputDir, planRelativePath);
   if (!fs.existsSync(planPath)) return 0;
   const targets = parseTargetFilesFromPlan(fs.readFileSync(planPath, 'utf8'));
   if (targets.length === 0) return 1;
+  const searchRoots = projectDir ? [rawOutputDir, projectDir] : [rawOutputDir];
   let covered = 0;
   for (const t of targets) {
-    const candidate = path.join(rawOutputDir, t);
-    if (fs.existsSync(candidate)) {
-      covered += 1;
-      continue;
+    let found = false;
+    for (const root of searchRoots) {
+      const candidate = path.join(root, t);
+      if (fs.existsSync(candidate)) {
+        found = true;
+        break;
+      }
+      const base = path.basename(t);
+      const hits = walkFiles(root).filter((f) => path.basename(f) === base);
+      if (hits.length > 0) {
+        found = true;
+        break;
+      }
     }
-    const base = path.basename(t);
-    const hits = walkFiles(rawOutputDir).filter((f) => path.basename(f) === base);
-    if (hits.length > 0) covered += 1;
+    if (found) covered += 1;
   }
   return covered / targets.length;
 }

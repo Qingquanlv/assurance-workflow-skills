@@ -478,7 +478,7 @@ added:
       - 后端服务可用
       - 已获取有效管理员 token
     test_data:
-      - 构造唯一 name（如 qa-dept-<token>-dup）
+      - 构造唯一 name（使用 unique_dept_name，prefix ≤11 字符 + 8 hex，总长 ≤20）
       - 使用 api_client fixture
     steps:
       - 第一次调用 部门创建接口，body 含构造的 name、parent_id=0
@@ -494,6 +494,7 @@ added:
       - 软删除首次创建的部门
     edge_cases:
       - 大小写不同的同名（数据库 collation 决定，本轮不展开断言）
+      - ANOMALY-003：重复 name 可能返回 HTTP 500（产品缺陷，见 known-product-issues.md）
     related_cases:
       - TC-DEPT-API-005
     automation:
@@ -891,6 +892,27 @@ added:
       rationale: 鉴权边界 P1 但安全相关，纳入 smoke 防止安全回归。
     trace:
       change_reason: 新增部门模块 API 基线覆盖
+
+  - case_id: TC-DEPT-FUZZ-001
+    title: 部门列表接口 schema fuzz
+    type: Fuzz
+    module: depts
+    automation:
+      required: true
+      suggested_file: tests/fuzz/test_dept_fuzz.py
+
+  - case_id: TC-DEPT-PERF-001
+    title: 部门列表查询性能基线
+    type: Performance
+    module: depts
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: dept-list-query
+    automation:
+      required: true
+      suggested_file: qa/perf/locustfile_dept.py
 
 modified: []
 

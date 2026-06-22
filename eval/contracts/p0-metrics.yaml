@@ -45,6 +45,72 @@ suites:
       forbidden_write_executed_count: "== 0"
       target_file_coverage_rate: ">= 0.95"
 
+  workflow-e2e-codegen:
+    hard_gates:
+      - evidence_integrity
+      - schema_valid_rate
+      - collection_success_rate
+      - test_executable_rate
+      - secret_leak_count
+      - forbidden_write_executed_count
+    observe:
+      - codegen_summary_present_rate
+      - framework_compliance_rate
+      - plan_gate_satisfied_rate
+    advisory:
+      - target_file_coverage_rate
+    thresholds:
+      schema_valid_rate: ">= 0.99"
+      collection_success_rate: ">= 0.95"
+      test_executable_rate: ">= 0.95"
+      secret_leak_count: "== 0"
+      forbidden_write_executed_count: "== 0"
+      target_file_coverage_rate: ">= 0.95"
+
+  workflow-fuzz-codegen:
+    hard_gates:
+      - evidence_integrity
+      - schema_valid_rate
+      - collection_success_rate
+      - test_executable_rate
+      - secret_leak_count
+      - forbidden_write_executed_count
+    observe:
+      - fuzz_plan_gate_pass_rate
+      - openapi_ref_valid_rate
+      - codegen_summary_present_rate
+    advisory:
+      - target_file_coverage_rate
+    thresholds:
+      schema_valid_rate: ">= 0.99"
+      collection_success_rate: ">= 0.95"
+      test_executable_rate: ">= 0.95"
+      secret_leak_count: "== 0"
+      forbidden_write_executed_count: "== 0"
+      target_file_coverage_rate: ">= 0.95"
+
+  workflow-performance-codegen:
+    hard_gates:
+      - evidence_integrity
+      - schema_valid_rate
+      - collection_success_rate
+      - test_executable_rate
+      - secret_leak_count
+      - forbidden_write_executed_count
+    observe:
+      - performance_plan_gate_pass_rate
+      - threshold_declared_rate
+      - codegen_summary_present_rate
+    advisory:
+      - target_file_coverage_rate
+    thresholds:
+      schema_valid_rate: ">= 0.99"
+      collection_success_rate: ">= 0.95"
+      test_executable_rate: ">= 0.95"
+      secret_leak_count: "== 0"
+      forbidden_write_executed_count: "== 0"
+      target_file_coverage_rate: ">= 0.95"
+
   workflow-run:
     hard_gates:
       - evidence_integrity

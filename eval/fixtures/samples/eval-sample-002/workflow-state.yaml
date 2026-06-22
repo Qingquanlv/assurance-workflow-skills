@@ -65,7 +65,29 @@ phases:
 
   e2e_plan_review:
     status: pending
-    gate_file: review/plan-review.json
+    gate_file: review/e2e-plan-review.json
+    fix_attempts: []
+
+  fuzz_plan:
+    status: pending
+    outputs:
+      - plans/fuzz-plan.md
+      - plans/fuzz-codegen-plan.md
+
+  fuzz_plan_review:
+    status: pending
+    gate_file: review/fuzz-plan-review.json
+    fix_attempts: []
+
+  performance_plan:
+    status: pending
+    outputs:
+      - plans/performance-plan.md
+      - plans/performance-codegen-plan.md
+
+  performance_plan_review:
+    status: pending
+    gate_file: review/performance-plan-review.json
     fix_attempts: []
 
   api_codegen:
@@ -84,7 +106,7 @@ phases:
 
   e2e_codegen:
     status: pending
-    review_gate_file: null
+    review_gate_file: review/e2e-plan-review.json
     codegen_readiness: null
     generated_tests:
       framework: pytest-playwright
@@ -101,6 +123,26 @@ phases:
     known_product_issues:
       present: false
       file: null
+
+  fuzz_codegen:
+    status: pending
+    review_gate_file: review/fuzz-plan-review.json
+    codegen_readiness: null
+    generated_tests:
+      framework: pytest-schemathesis
+      language: python
+      files: []
+    warnings_carried: []
+
+  performance_codegen:
+    status: pending
+    review_gate_file: review/performance-plan-review.json
+    codegen_readiness: null
+    generated_tests:
+      framework: locust
+      language: python
+      files: []
+    warnings_carried: []
 
   execution:
     status: pending

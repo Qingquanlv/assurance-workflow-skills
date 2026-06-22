@@ -64,7 +64,21 @@
         "model": "app/models/admin.py:73 DeptClosure (ancestor, descendant, level)",
         "rebuild_on_parent_change_evidence": "app/controllers/dept.py:67-74 — update_dept deletes ancestor=dept_id and descendant=dept_id rows then rebuilds via update_dept_closure"
       }
-    }
+    },
+    "anomalies": [
+      {
+        "id": "ANOMALY-003",
+        "module": "depts",
+        "case_ids": ["TC-DEPT-API-008"],
+        "summary": "Duplicate Dept.name create hits ORM unique constraint but API returns HTTP 500 instead of controlled 4xx/business error.",
+        "evidence": [
+          "app/models/admin.py:63 Dept.name unique=True max_length=20",
+          "app/api/v1/depts/depts.py create_dept — no IntegrityError handler",
+          "app/controllers/dept.py:57-62 create_dept — bare CRUD create"
+        ],
+        "expected_test_behavior": "Second create with same name should return non-5xx + business/HTTP error; HTTP 500 is a known product defect (not test data)."
+      }
+    ]
   },
   "warnings": []
 }

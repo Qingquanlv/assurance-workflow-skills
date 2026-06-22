@@ -264,6 +264,15 @@ Rules:
 - Each test must receive an independent data instance — avoid shared mutable state between tests.
 - Do not hard-code account IDs, tokens, or business-entity IDs in fixture bodies; derive them from `.aws/data-knowledge.yaml` capabilities.
 
+#### ORM field length (dept / menu / role names)
+
+When `.aws/data-knowledge.yaml` or `facts/fact-baseline.json` documents `CharField max_length` enforced at ORM/DB only (Pydantic may not validate):
+
+- **Never** build test entity names longer than the ORM limit — overflow often surfaces as HTTP 500, not 422.
+- **Dept.name** (`max_length=20`): use `tests/api/helpers/dept_api.py` → `unique_dept_name(prefix, hex_chars=8)` where `len(prefix) + 1 + 8 ≤ 20` (prefix ≤ 11 chars). Do **not** append long suffixes like `-updated` on update cases — generate a second `unique_dept_name()` instead.
+- **Menu.name** (`max_length=20`): follow conftest comments (`qa-cat-` + hex ≤ 19 chars).
+- Document **known product issues** (e.g. duplicate key → HTTP 500) in `known-product-issues.md` + `facts/fact-baseline.json` anomalies — separate from test-data length bugs.
+
 ```python
 # Preferred: factory-as-fixture (each test gets independent data)
 # NOTE: Adapt `entity_factory`, `/api/entities`, and field names

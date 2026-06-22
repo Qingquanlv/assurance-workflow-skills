@@ -58,6 +58,24 @@ describe('forbidden_write_executed_count', () => {
       });
       expect(result.forbidden_write_executed_count).toBe(0);
     });
+
+    it('flags writes under tests/api when e2e allowlist active', () => {
+      const e2ePolicy = {
+        mode: 'allowlist' as const,
+        patterns: [...DEFAULT_ALLOWLISTS.workflow_e2e_codegen],
+      };
+      expect(isPathAllowed('tests/e2e/test_x.py', e2ePolicy)).toBe(true);
+      expect(isPathAllowed('tests/api/test_x.py', e2ePolicy)).toBe(false);
+    });
+
+    it('allows qa/perf only for performance allowlist', () => {
+      const perfPolicy = {
+        mode: 'allowlist' as const,
+        patterns: [...DEFAULT_ALLOWLISTS.workflow_performance_codegen],
+      };
+      expect(isPathAllowed('qa/perf/locustfile_roles.py', perfPolicy)).toBe(true);
+      expect(isPathAllowed('tests/fuzz/x.py', perfPolicy)).toBe(false);
+    });
   });
 
   describe('denylist mode (E3 workflow-run)', () => {

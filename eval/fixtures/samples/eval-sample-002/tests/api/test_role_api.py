@@ -30,34 +30,23 @@ def test_tc_role_001_list_default_pagination(api_client: httpx.Client) -> None:
     assert body["code"] == 200
     assert isinstance(body["data"], list)
     assert len(body["data"]) >= 1
-    assert any(r["name"] == "admin" for r in body["data"])
+    assert any(r["name"] == "管理员" for r in body["data"])
     assert body["page"] == 1
     assert body["page_size"] == 10
-    assert body["total"] >= 1
+    assert body["total"] >= 2
 
 
 def test_tc_role_002_list_filter_by_name(api_client: httpx.Client) -> None:
     """TC-ROLE-002: 角色列表 - 按角色名模糊搜索."""
-    role_name = f"qa-role-search-{secrets.token_hex(3)}"
-    safe_delete_role_by_name(api_client, role_name)
-    role_id: int | None = None
-    try:
-        create_response = create_role(api_client, name=role_name, desc="QA 搜索测试")
-        assert create_response.status_code == 200
-        assert create_response.json()["code"] == 200
-        role_id = find_role_id_by_name(api_client, role_name)
-        assert role_id is not None
+    keyword = "管理"
+    response = list_roles(api_client, role_name=keyword, page=1, page_size=10)
 
-        response = list_roles(api_client, role_name=role_name, page=1, page_size=10)
-        assert response.status_code == 200
-        body = response.json()
-        assert body["code"] == 200
-        assert len(body["data"]) == 1
-        assert body["data"][0]["name"] == role_name
-        assert body["total"] == 1
-    finally:
-        if role_id is not None:
-            safe_delete_role(api_client, role_id)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 200
+    assert isinstance(body["data"], list)
+    assert len(body["data"]) >= 1
+    assert all(keyword in item["name"] for item in body["data"])
 
 
 def test_tc_role_003_get_detail_by_id(

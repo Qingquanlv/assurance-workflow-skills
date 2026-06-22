@@ -47,16 +47,14 @@ jobs:
           git add -A
           git -c user.email=eval@ci.local -c user.name=eval-ci commit -m "eval bench seed" || true
 
-      - name: Run workflow-full sample
+      - name: Run workflow-full samples (fake OpenCode)
         id: run
         env:
           EVAL_USE_FAKE_OPENCODE: "1"
           OPENCODE_BIN: opencode
         run: |
-          run_id=$(node dist/cli.js eval run --suite workflow-full --sample WF-001 --output id)
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          node dist/cli.js eval gate --run "$run_id" || true
-
-      - name: Report verdict (non-blocking)
-        run: |
-          node dist/cli.js eval gate --run "${{ steps.run.outputs.run_id }}" || echo "workflow-full is observe-only; gate non-pass expected in fake mode"
+          for sample in WF-001 WF-002 WF-003 WF-004; do
+            echo "=== workflow-full ${sample} ==="
+            run_id=$(node dist/cli.js eval run --suite workflow-full --sample "$sample" --output id)
+            node dist/cli.js eval gate --run "$run_id" || true
+          done

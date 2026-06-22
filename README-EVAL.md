@@ -31,7 +31,7 @@
 | **E0** | `workflow-case` | WC-001 | Case Design + Review（case-only） |
 | **E2a** | `workflow-api-codegen` | WAC-001 | API Codegen（codegen-only） |
 | **E3** | `workflow-run` | WR-001 | `aws run` 测试执行 |
-| **E4** | `workflow-full` | WF-001 | 全流程（nightly，observe-only） |
+| **E4** | `workflow-full` | WF-001 … WF-004 | 全流程（nightly，observe-only） |
 | 已废弃 | `case-generation` | CG-* | CLI executor 未实现 |
 
 ### WC-001 与 `proposal.md` 的关系
@@ -207,9 +207,29 @@ node dist/cli.js eval gate --batch <batch-id>
 ### `eval report` — 查看报告
 
 ```bash
+# 单次 run：含起始/结束时间、duration、token 用量（OpenCode stdout.log）
 node dist/cli.js eval report --run <run-id>
+node dist/cli.js eval report --run <run-id> --html
+node dist/cli.js eval report --run <run-id> --json
+
+# 趋势：按 suite 与时间范围过滤
 node dist/cli.js eval report --trend --suite workflow-case
+node dist/cli.js eval report --trend --suite workflow-case \
+  --from 2026-06-01 --to 2026-06-30 --html
+
+# 自定义 HTML 输出路径
+node dist/cli.js eval report --run <run-id> --html --output /tmp/report.html
 ```
+
+| 参数 | 说明 |
+|------|------|
+| `--from <iso>` | trend 过滤：只含 `started_at >= from` 的 run |
+| `--to <iso>` | trend 过滤：只含 `started_at <= to` 的 run |
+| `--html` | 生成 HTML：`--run` → `eval/runs/<id>/report.html`；`--trend` → `eval/reports/trend-<suite>.html` |
+| `--json` | 输出结构化 JSON（含 execution / tokens 字段） |
+| `--output <path>` | 覆盖默认 HTML 路径 |
+
+Token 统计来自各 sample 的 `stdout.log`（OpenCode NDJSON `step_finish` 事件）；`aws run` / fake OpenCode 显示 N/A。
 
 ### `eval compare` — 与 baseline 对比
 
@@ -356,7 +376,14 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ---
 
-### E4 — `workflow-full`（WF-001，nightly）
+### E4 — `workflow-full`（WF-001 … WF-004，nightly）
+
+| Sample | Module | L3 tier |
+|--------|--------|---------|
+| WF-001 | users | `L3-run-seed` |
+| WF-002 | roles | `L3-run-seed-roles` |
+| WF-003 | menus | `L3-run-seed-menu` |
+| WF-004 | depts | `L3-run-seed-dept` |
 
 | 指标 | Gate | 含义 |
 |------|------|------|
@@ -367,6 +394,8 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | `evidence_integrity_diag` | observe | 证据链诊断 |
 
 **无 PR hard_gates**。
+
+**解读：** gate **PASS** 只表示 harness 流程完整（`full_run_completed_rate=1`）。`end_to_end_pass_rate=0` 表示 `execution-manifest.final_status != PASS` — 这是预期组合，真实质量以 execution manifest / api-result 为准，不要与 eval gate 混淆。
 
 ---
 
@@ -396,7 +425,7 @@ bench/fastapi-vue-admin/qa/changes/eval-sample-001/
 | `eval-smoke.yml` | deterministic | `eval run --plan pr-smoke-deterministic.json` |
 | `eval-smoke.yml` | fake OpenCode | WC-001 + WAC-001（`EVAL_USE_FAKE_OPENCODE=1`） |
 | `eval-smoke.yml` | E3 | WR-001 |
-| `eval-full.yml` | weekly | WF-001（非阻塞） |
+| `eval-full.yml` | weekly | WF-001 … WF-004（非阻塞） |
 
 CI **不测真实 LLM**；验证 harness、fixture、scorer、gate 通路。
 

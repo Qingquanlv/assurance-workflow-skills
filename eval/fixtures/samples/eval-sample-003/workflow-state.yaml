@@ -50,9 +50,66 @@ phases:
 
   layers:
     api: true
-    e2e: false
-    fuzz: false
-    performance: false
+    e2e: true
+    fuzz: true
+    performance: true
+
+  api_plan:
+    status: pending
+    outputs:
+      - plans/api-plan.md
+      - plans/api-test-data-plan.md
+      - plans/api-codegen-plan.md
+
+  e2e_plan:
+    status: pending
+    outputs:
+      - plans/e2e-plan.md
+      - plans/e2e-test-data-plan.md
+      - plans/e2e-codegen-plan.md
+
+  fuzz_plan:
+    status: pending
+    outputs:
+      - plans/fuzz-plan.md
+      - plans/fuzz-codegen-plan.md
+
+  performance_plan:
+    status: pending
+    outputs:
+      - plans/performance-plan.md
+      - plans/performance-codegen-plan.md
+
+  api_plan_review:
+    status: pending
+    gate_file: review/api-plan-review.json
+
+  e2e_plan_review:
+    status: pending
+    gate_file: review/e2e-plan-review.json
+
+  fuzz_plan_review:
+    status: pending
+    gate_file: review/fuzz-plan-review.json
+
+  performance_plan_review:
+    status: pending
+    gate_file: review/performance-plan-review.json
+
+  api_codegen:
+    status: pending
+
+  e2e_codegen:
+    status: pending
+    review_gate_file: review/e2e-plan-review.json
+
+  fuzz_codegen:
+    status: pending
+    review_gate_file: review/fuzz-plan-review.json
+
+  performance_codegen:
+    status: pending
+    review_gate_file: review/performance-plan-review.json
 
 gates:
   data_knowledge:

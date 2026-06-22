@@ -1,0 +1,12 @@
+id: WPER-002
+annotation_source: human
+tags: ["workflow-performance-codegen", "eval-sample-002", "roles"]
+input:
+  change_id: eval-sample-002
+  fixture_tier: L2-performance-codegen-seed-roles
+  run_mode: codegen-only
+  project_dir: bench/fastapi-vue-admin
+  test_types: [performance]
+
+
+expected: {}

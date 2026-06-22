@@ -190,6 +190,11 @@ export function registerEvalCommand(program: Command): void {
     .option('--run <run-id>', 'Run ID to report on')
     .option('--trend', 'Show trend across all runs')
     .option('--suite <name>', 'Filter trend by suite name')
+    .option('--from <iso>', 'Trend filter: runs started on or after this ISO datetime')
+    .option('--to <iso>', 'Trend filter: runs started on or before this ISO datetime')
+    .option('--html', 'Write HTML report (run: report.html; trend: eval/reports/trend-<suite>.html)')
+    .option('--output <path>', 'Override HTML output path')
+    .option('--json', 'Output structured JSON instead of markdown/text')
     .action((opts) => {
       const projectRoot = process.cwd();
       const evalRoot = getEvalRoot(projectRoot);
@@ -197,12 +202,40 @@ export function registerEvalCommand(program: Command): void {
       try {
         if (opts.trend) {
           const runsDir = path.join(evalRoot, 'runs');
-          const trend = generateTrendReport(runsDir, opts.suite);
-          console.log(JSON.stringify(trend, null, 2));
+          const { entries, htmlPath } = generateTrendReport(runsDir, {
+            suite: opts.suite,
+            from: opts.from,
+            to: opts.to,
+            html: opts.html,
+            htmlPath: opts.output,
+            evalRoot,
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify({ entries, html_path: htmlPath ?? null }, null, 2));
+          } else {
+            console.log(JSON.stringify(entries, null, 2));
+          }
+
+          if (htmlPath) {
+            console.error(chalk.green(`HTML report: ${htmlPath}`));
+          }
         } else if (opts.run) {
           const runDir = path.join(evalRoot, 'runs', opts.run);
-          const report = generateRunReport(runDir);
-          console.log(report);
+          const { markdown, data, htmlPath } = generateRunReport(runDir, {
+            html: opts.html,
+            htmlPath: opts.output,
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify({ ...data, html_path: htmlPath ?? null }, null, 2));
+          } else {
+            console.log(markdown);
+          }
+
+          if (htmlPath) {
+            console.error(chalk.green(`HTML report: ${htmlPath}`));
+          }
         } else {
           console.error(chalk.red('Error: --run <id> or --trend required'));
           process.exit(1);

@@ -14,8 +14,29 @@ export const DEFAULT_ALLOWLISTS = {
   workflow_api_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
-    'tests/**',
+    'tests/api',
     'tests/api/**',
+    'eval/runs/**',
+  ],
+  workflow_e2e_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'tests/e2e',
+    'tests/e2e/**',
+    'eval/runs/**',
+  ],
+  workflow_fuzz_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'tests/fuzz',
+    'tests/fuzz/**',
+    'eval/runs/**',
+  ],
+  workflow_performance_codegen: [
+    'qa/changes/eval-sample-*/**',
+    'qa/changes/**',
+    'qa/perf',
+    'qa/perf/**',
     'eval/runs/**',
   ],
   workflow_case: [
@@ -126,7 +147,7 @@ export function captureGitPorcelain(projectDir: string): string {
       `forbidden_write_executed_count requires git repo at projectDir: ${projectDir}`
     );
   }
-  return execFileSync('git', ['status', '--porcelain'], {
+  return execFileSync('git', ['status', '--porcelain', '-uall'], {
     cwd: projectDir,
     encoding: 'utf8',
   });

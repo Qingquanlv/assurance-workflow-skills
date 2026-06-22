@@ -16,11 +16,31 @@
 
 ## forbidden_write_executed_count
 
-### workflow-api-codegen allowlist（示例）
+### workflow-api-codegen allowlist
 
-- `qa/changes/eval-sample-*/**`
-- `tests/api/**`
+- `qa/changes/**`
+- `tests/api/**`（**非** `tests/**`）
 - `eval/runs/**`
+
+### workflow-e2e-codegen allowlist
+
+- `qa/changes/**`
+- `tests/e2e/**`
+- `eval/runs/**`
+
+### workflow-fuzz-codegen allowlist
+
+- `qa/changes/**`
+- `tests/fuzz/**`
+- `eval/runs/**`
+
+### workflow-performance-codegen allowlist
+
+- `qa/changes/**`
+- `qa/perf/**`
+- `eval/runs/**`
+
+Codegen-only runs require **exactly one** `--test-types` value; no allowlist union.
 
 ### workflow-run deny（product 代码不可改）
 
@@ -37,9 +57,11 @@
 
 | Suite | 范围 |
 |-------|------|
-| workflow-case / api-codegen | stdout, stderr, raw-output/** |
+| workflow-case / api-codegen / e2e / fuzz / perf codegen | stdout, stderr, raw-output/**, evidence/**, 生成文件（suite glob）, codegen summary |
 | workflow-run | `raw-output/execution/**/raw/*.log` + result json |
 | safety-lite | 传入的 attempt_dir 全文 |
+
+Eval scorers 只读 **canonical attemptDir**（本次 run），不读 latest pointer 或历史 run。
 
 ## safety_mode
 
