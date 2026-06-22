@@ -9,7 +9,7 @@
 ### 要解决什么问题
 
 - **Skills / Workflow 是非确定性的**：同一份 PRD，LLM 每次产出的 case、测试代码可能不同。
-- **需要分层评测**：Case Design（E0）→ API Codegen（E2a）→ Test Run（E3）→ Full Workflow（E4）各阶段独立 gate，而不是一次跑完才知道哪里坏了。
+- **需要分层评测**：Case Design（E0）→ API Codegen（E2a）→ E2E/Fuzz/Perf Codegen（E2b/E2c/E2d）→ Test Run（E3）→ Full Workflow（E4）各阶段独立 gate，而不是一次跑完才知道哪里坏了。
 - **需要可审计证据链**：每次 run 落盘 `stdout.log`、`execution.json`、`raw-output/`、`score.json`，便于 CI 与人工复核。
 
 ### 设计原则
@@ -24,19 +24,31 @@
 
 ### 阶段与 Suite 对照
 
-| 阶段 | Suite | 样本 | 测什么 |
-|------|-------|------|--------|
+| 阶段 | Suite | 样本（模块） | 测什么 |
+|------|-------|--------------|--------|
 | PR 确定性 smoke | `classification-unit` | FC-001~005 | 失败分类器 |
 | PR 确定性 smoke | `safety-lite` | SL-001 | 秘密泄露 / 非法写 |
-| **E0** | `workflow-case` | WC-001 | Case Design + Review（case-only） |
-| **E2a** | `workflow-api-codegen` | WAC-001 | API Codegen（codegen-only） |
-| **E3** | `workflow-run` | WR-001 | `aws run` 测试执行 |
-| **E4** | `workflow-full` | WF-001 … WF-004 | 全流程（nightly，observe-only） |
+| **E0** | `workflow-case` | WC-001~004（users/roles/menus/depts） | Case Design + Review（case-only） |
+| **E2a** | `workflow-api-codegen` | WAC-001~004 | API Codegen（codegen-only） |
+| **E2b** | `workflow-e2e-codegen` | WEEC-001~004 | E2E Codegen（codegen-only） |
+| **E2c** | `workflow-fuzz-codegen` | WFUZ-001~004 | Fuzz Codegen（codegen-only） |
+| **E2d** | `workflow-performance-codegen` | WPER-001~004 | Performance Codegen（codegen-only） |
+| **E3** | `workflow-run` | WR-001~004 | `aws run` 测试执行 |
+| **E4** | `workflow-full` | WF-001~004 | 全流程（nightly，observe-only） |
 | 已废弃 | `case-generation` | CG-* | CLI executor 未实现 |
 
-### WC-001 与 `proposal.md` 的关系
+样本与 bench change 映射：
 
-正常使用时，`proposal.md` 由 `aws-case-design` 生成。Eval E0 使用 **L0-case-seed** 预先 seed `proposal.md` + `.qa.yaml`，**固定 PRD 输入**，主要评测 agent 能否据此生成 `cases/users/case.yaml` 并通过 review，而非从聊天需求 brainstorm proposal。
+| Sample 后缀 | change_id | 模块 |
+|-------------|-----------|------|
+| *-001 | eval-sample-001 | users |
+| *-002 | eval-sample-002 | roles |
+| *-003 | eval-sample-003 | menus |
+| *-004 | eval-sample-004 | depts |
+
+### WC-001~004 与 `proposal.md` 的关系
+
+正常使用时，`proposal.md` 由 `aws-case-design` 生成。Eval E0 使用 **L0-case-seed**（及 `-roles` / `-menu` / `-dept` 变体）预先 seed `proposal.md` + `.qa.yaml`，**固定 PRD 输入**，主要评测 agent 能否据此生成 `cases/<module>/case.yaml` 并通过 review，而非从聊天需求 brainstorm proposal。
 
 ---
 
@@ -46,12 +58,13 @@
 eval/
 ├── contracts/     # 指标注册表、证据规范、sample schema
 ├── suites/        # Suite 定义（executor、gate、CI 配置）
-├── datasets/      # 样本 YAML（WC-001、FC-001…）
-├── fixtures/      # Golden seed（tiers + eval-sample-001）
+├── datasets/      # 样本 YAML（WC/WAC/WEEC/WFUZ/WPER/WF/WR/FC 等）
+├── fixtures/      # Golden seed（tiers + eval-sample-001~004）
 ├── plans/         # Batch 计划 JSON
 ├── judge/         # LLM judge prompt（case-generation 等）
 ├── baselines/     # 指标基准线（eval compare 用）
-├── runs/          # 单次 run 产物（gitignore）
+├── reports/       # trend HTML（eval report --trend --html）
+├── runs/          # 单次 run 产物（gitignore，只增不覆盖）
 └── batches/       # 多 suite batch 产物（gitignore）
 ```
 
@@ -66,7 +79,7 @@ npm run build
 Workflow 类 suite 还需要：
 
 - `bench/fastapi-vue-admin/opencode.json` 存在
-- E2a/E3：`pip install pytest httpx`
+- E2a/E2b/E2c/E2d/E3：`pip install pytest httpx`（E2b 还需 playwright 等，见 bench README）
 - 真实 LLM run：本机安装 `opencode`，**不要**设 `EVAL_USE_FAKE_OPENCODE=1`
 
 ---
@@ -175,8 +188,16 @@ EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-case --sampl
 # E2a
 EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-api-codegen --sample WAC-001 --fail-on-verdict
 
+# E2b / E2c / E2d
+EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-e2e-codegen --sample WEEC-002 --fail-on-verdict
+EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-fuzz-codegen --sample WFUZ-004 --fail-on-verdict
+EVAL_USE_FAKE_OPENCODE=1 node dist/cli.js eval run --suite workflow-performance-codegen --sample WPER-003 --fail-on-verdict
+
 # E3
 node dist/cli.js eval run --suite workflow-run --sample WR-001 --fail-on-verdict
+
+# E4 — 全流程（真实 OpenCode，~10–15 min / sample）
+node dist/cli.js eval run --suite workflow-full --sample WF-002 --fail-on-verdict
 
 # 失败分类 / 安全
 node dist/cli.js eval run --suite classification-unit --fail-on-verdict
@@ -231,6 +252,20 @@ node dist/cli.js eval report --run <run-id> --html --output /tmp/report.html
 
 Token 统计来自各 sample 的 `stdout.log`（OpenCode NDJSON `step_finish` 事件）；`aws run` / fake OpenCode 显示 N/A。
 
+> **Run ID vs Sample ID**：`eval report --run` 需要的是 **run ID**（如 `eval-20260622-c0bc6874-78z0`），不是 sample ID（如 `WF-003`、`WR-001`）。Sample ID 在 `manifest.json` 的 `selected_sample_ids` 里。查找某 sample 的最新 run：
+>
+> ```bash
+> rg -l '"WR-001"' eval/runs/*/manifest.json
+> ```
+
+### Run 历史与 Baseline
+
+| 存储 | 行为 |
+|------|------|
+| `eval/runs/<run_id>/` | 每次 `eval run` **新建**目录，历史 run 保留 |
+| `eval/runs/<run_id>/metrics.json` | 该 run 结束时写一次 |
+| `eval/baselines/main.json` | 仅 `eval baseline update` 人工更新，按 suite **覆盖**一条 |
+
 ### `eval compare` — 与 baseline 对比
 
 ```bash
@@ -275,11 +310,16 @@ eval/runs/<run_id>/
 ├── metrics.json          # 聚合指标
 ├── gate-result.json      # pass / fail verdict
 ├── report.md
+├── report.json           # 结构化报告（含 execution / tokens）
+├── report.html           # --html 生成
 └── samples/<sample-id>/attempt-0/
     ├── stdout.log / stderr.log / execution.json
     ├── score.json
     ├── evidence/         # write-scan 等
     └── raw-output/       # archive 的 change 产物
+        └── execution/
+            ├── execution-manifest.yaml   # 含 final_status（aws run 写入）
+            └── api-result.json           # E3 layer 通过率来源
 ```
 
 ---
@@ -304,7 +344,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ---
 
-### E0 — `workflow-case`（WC-001）
+### E0 — `workflow-case`（WC-001~004）
 
 | 指标 | Gate | 阈值 | 含义 |
 |------|------|------|------|
@@ -317,7 +357,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ---
 
-### E2a — `workflow-api-codegen`（WAC-001）
+### E2a — `workflow-api-codegen`（WAC-001~004）
 
 | 指标 | Gate | 阈值 | 含义 |
 |------|------|------|------|
@@ -333,7 +373,21 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ---
 
-### E3 — `workflow-run`（WR-001）
+### E2b / E2c / E2d — codegen suites（WEEC / WFUZ / WPER）
+
+与 E2a 共享 hard gate 骨架（`schema_valid_rate`、`collection_success_rate`、`test_executable_rate` Definition A 等），差异在 seed tier 与 observe 指标：
+
+| Suite | observe 指标（节选） |
+|-------|---------------------|
+| `workflow-e2e-codegen` | `framework_compliance_rate`、`codegen_summary_present_rate` |
+| `workflow-fuzz-codegen` | `fuzz_plan_gate_pass_rate`、`openapi_ref_valid_rate` |
+| `workflow-performance-codegen` | `performance_plan_gate_pass_rate`、`threshold_declared_rate` |
+
+Fixture tier：`L2-e2e-codegen-seed-*` / `L2-fuzz-codegen-seed-*` / `L2-performance-codegen-seed-*`（见 `eval/fixtures/tiers/`）。
+
+---
+
+### E3 — `workflow-run`（WR-001~004）
 
 | 指标 | Gate | 阈值 | 含义 |
 |------|------|------|------|
@@ -341,13 +395,21 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | `secret_leak_count` | hard | == 0 | — |
 | `forbidden_write_executed_count` | hard | == 0 | — |
 | `evidence_integrity` | hard | pass | manifest ↔ result 交叉校验 |
-| `execution_pass_rate` | observe | — | 最终 PASS / PASS_WITH_WARNINGS |
-| `api_pass_rate` | observe | — | API 层通过率 |
-| `e2e_pass_rate` | observe | — | E2E 层 |
-| `fuzz_pass_rate` | observe | — | Fuzz 层 |
-| `performance_pass_rate` | observe | — | Performance 层 |
+| `execution_pass_rate` | observe | — | `execution-manifest.final_status ∈ {PASS, PASS_WITH_WARNINGS}` → 1，否则 0 |
+| `api_pass_rate` | observe | — | `api-result.json` 的 `passed / total` |
+| `e2e_pass_rate` | observe | — | `e2e-result.json` 的 `passed / total` |
+| `fuzz_pass_rate` | observe | — | `fuzz-result.json` 的 `passed / total` |
+| `performance_pass_rate` | observe | — | `performance-result.json` 的 `passed / total` |
 
 > **注意**：E2a 与 E3 的 `test_executable_rate` **定义不同**（A vs B），不可混比。
+
+**E3 observe 指标解读示例（WR-001）：**
+
+- `api_pass_rate = 0.9231` → 26 条 API 测试中 24 条通过（读 `execution/api-result.json`）
+- `execution_pass_rate = 0` → `final_status` 非 PASS（或旧 run 未写入 `final_status`）
+- Eval gate 仍可为 **PASS**，因 layer 通过率均为 **observe**，不阻断
+
+`aws run` 结束后会将 `final_status` 写入 `execution-manifest.yaml`（`latest/` 与 batch 归档）。E4 的 `end_to_end_pass_rate` 同样读该字段。
 
 ---
 
@@ -388,33 +450,48 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | 指标 | Gate | 含义 |
 |------|------|------|
 | `full_run_completed_rate` | observe | 未 timeout 完成 |
-| `end_to_end_pass_rate` | observe | 最终 execution 通过 |
+| `end_to_end_pass_rate` | observe | `execution-manifest.final_status` 为 PASS / PASS_WITH_WARNINGS → 1 |
 | `healing_triggered_rate` | observe | 是否进入 healing |
-| `wall_time_seconds` | observe |  wall clock 耗时 |
+| `wall_time_seconds` | observe | wall clock 耗时 |
 | `evidence_integrity_diag` | observe | 证据链诊断 |
 
 **无 PR hard_gates**。
 
-**解读：** gate **PASS** 只表示 harness 流程完整（`full_run_completed_rate=1`）。`end_to_end_pass_rate=0` 表示 `execution-manifest.final_status != PASS` — 这是预期组合，真实质量以 execution manifest / api-result 为准，不要与 eval gate 混淆。
+**解读：** gate **PASS** 只表示 harness 流程完整（`full_run_completed_rate=1`）。`end_to_end_pass_rate=0` 表示 QA execution 未整体通过 — 这是 **预期组合**（E4 无 hard gate）。真实质量看 `execution/api-result.json`、`inspect/failure-analysis.json` 等，不要与 eval gate 混淆。
 
 ---
 
 ## Fixture Tier（seed）
 
-| Tier | 用途 | Seed 内容 |
-|------|------|-----------|
-| **L0-case-seed** | E0 WC-001 | `proposal.md`、`.qa.yaml`、`.aws/data-knowledge.yaml` |
-| **L1-plan-seed** | plan 基线 | L0 + cases、review、facts、workflow-state |
-| **L2-api-codegen-seed** | E2a | L1 + API plans + plan review |
-| **L3-run-seed** | E3 | L2 + `tests/api/**` stubs |
+Tier 为 **extends 链**（子 tier 继承父 tier 的 `paths`）。清单：`eval/fixtures/tiers/`；golden 样本：`eval/fixtures/samples/eval-sample-001~004/`。
 
-清单：`eval/fixtures/tiers/`；golden 样本：`eval/fixtures/samples/eval-sample-001/`。
+| Tier | Suite / 阶段 | Seed 内容 |
+|------|--------------|-----------|
+| **L0-case-seed**（及 `-roles` / `-menu` / `-dept`） | E0 | `proposal.md`、`.qa.yaml`、`.aws/data-knowledge.yaml` |
+| **L1-plan-seed**（及模块变体） | plan 基线 | L0 + `cases/**`、`review/case-review.json`、`facts/`、`workflow-state.yaml` |
+| **L2-api-codegen-seed**（及模块变体） | E2a | L1 + API plans + `review/api-plan-review.json` |
+| **L2-e2e-codegen-seed-*** | E2b | L1 + E2E plans + `review/e2e-plan-review.json` |
+| **L2-fuzz-codegen-seed-*** | E2c | L1 + fuzz plans + `review/fuzz-plan-review.json` |
+| **L2-performance-codegen-seed-*** | E2d | L1 + performance plans + `review/performance-plan-review.json` |
+| **L3-run-seed**（及 `-roles` / `-menu` / `-dept`） | E3 / E4 | L2-api + `tests/api/**` golden stubs |
+
+Golden 样本与模块：
+
+| Sample | 模块 | E0 | E3/E4 tier |
+|--------|------|-----|------------|
+| `eval-sample-001` | users | WC-001 | `L3-run-seed` |
+| `eval-sample-002` | roles | WC-002 | `L3-run-seed-roles` |
+| `eval-sample-003` | menus | WC-003 | `L3-run-seed-menu` |
+| `eval-sample-004` | depts | WC-004 | `L3-run-seed-dept` |
 
 Seed 目标（运行时，gitignore）：
 
 ```text
-bench/fastapi-vue-admin/qa/changes/eval-sample-001/
+bench/fastapi-vue-admin/qa/changes/eval-sample-00N/
+bench/fastapi-vue-admin/tests/api/   # L3 tier 也会 seed 测试 stub
 ```
+
+详见 `eval/fixtures/README.md`。
 
 ---
 
@@ -423,7 +500,7 @@ bench/fastapi-vue-admin/qa/changes/eval-sample-001/
 | Workflow | Job | 命令 |
 |----------|-----|------|
 | `eval-smoke.yml` | deterministic | `eval run --plan pr-smoke-deterministic.json` |
-| `eval-smoke.yml` | fake OpenCode | WC-001 + WAC-001（`EVAL_USE_FAKE_OPENCODE=1`） |
+| `eval-smoke.yml` | fake OpenCode | WC-001 + WAC-001 + WEEC-001 + WFUZ-001 + WPER-001（`EVAL_USE_FAKE_OPENCODE=1`） |
 | `eval-smoke.yml` | E3 | WR-001 |
 | `eval-full.yml` | weekly | WF-001 … WF-004（非阻塞） |
 
@@ -434,6 +511,12 @@ CI **不测真实 LLM**；验证 harness、fixture、scorer、gate 通路。
 ## 已知问题
 
 - **WC-001 真实 run** 常因 `secret_leak_count` 误报 fail（stdout 中出现 `Bearer`、`access_token` 等测试字面量）。
+- **产品缺陷（不计入 codegen 质量）**：
+  - **ANOMALY-002**（menus）：`parent_id` 循环 / 自引用无校验；TC-MENU-008 等可能失败（见 `eval-sample-003` golden）。
+  - **ANOMALY-003**（depts）：重复 `name` 返回 HTTP 500；TC-DEPT-API-008 标记为 `EXPECTED-PRODUCT-FAIL`。
+- **Codegen 约束（depts）**：ORM `name` 字段 `max_length=20`；测试数据须用 `unique_dept_name()`（前缀 ≤11 字符 + 8 位 hex），见 `skills/aws-api-codegen/SKILL.md` 与 `eval-sample-004` golden。
+- **Codegen 约束（roles）**：角色展示名与 seed 数据一致（如 `admin` vs `管理员`）；golden 已对齐 `eval-sample-002`。
+- **旧 run 指标**：2026-06-20 前的 run 可能缺少 `execution-manifest.final_status`，导致 `execution_pass_rate` / `end_to_end_pass_rate` 恒为 0；重跑 E3/E4 或读 `api-result.json` 判断真实通过率。
 - **`eval plan` 与 CI 脱节**：CI 用静态 plan，suite 的 `ci.pr.trigger_paths` 在 Actions 中未启用动态 plan。
 - **`case-generation` suite** 已标记 DEPRECATED。
 
