@@ -1,0 +1,53 @@
+change_id: "eval-sample-002"
+title: "角色管理模块 QA 全量覆盖"
+module: "roles"
+created_at: "2026-06-15"
+created_by: "sisyphus"
+status: "in_progress"
+phase: "case_design"
+
+scope:
+  summary: "对 app/api/v1/roles/ 角色管理模块进行 API + E2E 全量覆盖，含 CRUD 与菜单/API 授权"
+  in_scope:
+    - "GET /api/v1/role/list 角色列表（分页、按 role_name 搜索）"
+    - "GET /api/v1/role/get 查询单个角色"
+    - "POST /api/v1/role/create 创建角色"
+    - "POST /api/v1/role/update 更新角色"
+    - "DELETE /api/v1/role/delete 删除角色"
+    - "GET/POST /api/v1/role/authorized 查询与更新角色授权"
+    - "/system/role 前端角色管理页：列表/新建/编辑/删除/授权配置"
+  out_of_scope:
+    - "用户管理 / 部门管理 / 菜单管理 / API 管理本身的 CRUD"
+    - "系统初始化与数据库迁移"
+
+test_types:
+  - "api"
+  - "e2e"
+
+automation:
+  api_framework: "pytest"
+  e2e_framework: "python-playwright"
+  data_strategy: "scripts_with_cleanup"
+
+constraints:
+  exception_depth: "standard"
+  e2e_pages: ["/system/role"]
+  default_admin: { username: "admin", password: "123456" }
+  base_url_backend: "http://localhost:9999"
+  base_url_frontend: "http://localhost:3100"
+  api_prefix: "/api/v1"
+
+runtime_params:
+  run_mode: "full"
+  run_tests: true
+  auto_archive: false
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 2
+  force_continue: false
+
+artifacts:
+  proposal: "proposal.md"
+  case_delta: "cases/roles/case.yaml"
+  facts_baseline: "facts/fact-baseline.json"
+  case_review: "review/case-review.json"

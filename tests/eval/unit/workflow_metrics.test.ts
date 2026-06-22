@@ -45,6 +45,22 @@ describe('workflow_metrics', () => {
     it('returns 0 for benign text', () => {
       expect(countSecretLeaksInText('all tests passed')).toBe(0);
     });
+
+    it('ignores eval auth documentation false positives', () => {
+      expect(countSecretLeaksInText('Bearer invalid.token.string')).toBe(0);
+      expect(
+        countSecretLeaksInText('Auth header is `token`, NOT `Authorization: Bearer`.')
+      ).toBe(0);
+      expect(countSecretLeaksInText('(NOT `Authorization: Bearer`)')).toBe(0);
+    });
+
+    it('ignores JWT in pytest logs when redactBeforeCount is set', () => {
+      const jwt =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+      const pytestLog = `admin_token = '${jwt}'`;
+      expect(countSecretLeaksInText(pytestLog, { redactBeforeCount: true })).toBe(0);
+      expect(countSecretLeaksInText(pytestLog)).toBeGreaterThan(0);
+    });
   });
 
   describe('scoreSecretLeakCount', () => {
@@ -54,6 +70,28 @@ describe('workflow_metrics', () => {
       fs.mkdirSync(path.join(dir, 'raw-output'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'raw-output', 'note.txt'), 'clean');
       expect(scoreSecretLeakCount({ attemptDir: dir })).toBeGreaterThan(0);
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('redacts JWT in execution logs before counting', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-leak-exec-'));
+      fs.writeFileSync(path.join(dir, 'stdout.log'), '');
+      fs.writeFileSync(path.join(dir, 'stderr.log'), '');
+      const jwt =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+      const logPath = path.join(
+        dir,
+        'raw-output/execution/runs/batch/raw/api.log'
+      );
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      fs.writeFileSync(logPath, `admin_token = '${jwt}'`);
+      expect(
+        scoreSecretLeakCount({
+          attemptDir: dir,
+          rawOutputDir: path.join(dir, 'raw-output'),
+          rawOutputGlobs: ['execution/**/raw/**/*.log'],
+        })
+      ).toBe(0);
       fs.rmSync(dir, { recursive: true, force: true });
     });
   });

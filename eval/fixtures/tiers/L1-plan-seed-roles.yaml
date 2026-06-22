@@ -1,0 +1,8 @@
+name: L1-plan-seed-roles
+extends: L0-case-seed-roles
+description: Plan-ready seed — roles module cases reviewed
+paths:
+  - "cases/**"
+  - "review/case-review.json"
+  - "facts/fact-baseline.json"
+  - "workflow-state.yaml"

@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "change_id": "eval-sample-003",
+  "generated_at": "2026-06-22T00:00:00Z",
+  "source": "seed_file",
+  "seed_file": "app/core/init_app.py",
+  "facts": {
+    "builtin_roles": [
+      {
+        "id": 1,
+        "name": "管理员",
+        "source": "seed_file",
+        "seed_location": "app/core/init_app.py:206-208"
+      },
+      {
+        "id": 2,
+        "name": "普通用户",
+        "source": "seed_file",
+        "seed_location": "app/core/init_app.py:210"
+      }
+    ],
+    "auth": {
+      "default_username": "admin",
+      "default_password": "123456",
+      "source": "seed_file",
+      "seed_location": "app/core/init_app.py:70-74"
+    },
+    "route_prefix": "/api/v1",
+    "module_route_prefix": {
+      "menus": "/api/v1/menu",
+      "users": "/api/v1/user",
+      "roles": "/api/v1/role",
+      "apis": "/api/v1/api",
+      "base": "/api/v1/base"
+    },
+    "token_header": "token",
+    "token_scheme": "raw",
+    "token_dev_bypass": "dev"
+  },
+  "warnings": [
+    {
+      "id": "FACT-WARN-001",
+      "severity": "medium",
+      "scope": "documentation_drift",
+      "message": "proposal.md and .qa.yaml use '/api/v1/menus/*' but actual mounted prefix is '/api/v1/menu' (singular, per app/api/v1/__init__.py:18). Downstream API planning MUST use '/api/v1/menu/list', '/api/v1/menu/get', '/api/v1/menu/create', '/api/v1/menu/update', '/api/v1/menu/delete'.",
+      "affected_documents": [
+        "qa/changes/eval-sample-003/proposal.md",
+        "qa/changes/eval-sample-003/.qa.yaml"
+      ],
+      "blocks_phase": "api_plan_review"
+    },
+    {
+      "id": "FACT-WARN-002",
+      "severity": "medium",
+      "scope": "auth_mechanism",
+      "message": "Auth uses a raw 'token' header (not 'Authorization: Bearer <token>'). proposal.md mentions 'Authorization header' / 'Bearer token' which is incorrect per app/core/dependency.py:13 and app/core/middlewares.py:146. Downstream API plan MUST set request header 'token: <jwt>' directly.",
+      "affected_documents": [
+        "qa/changes/eval-sample-003/proposal.md"
+      ],
+      "blocks_phase": "api_plan_review"
+    },
+    {
+      "id": "FACT-WARN-003",
+      "severity": "low",
+      "scope": "case_yaml_natural_language",
+      "message": "case.yaml correctly uses natural language descriptions (no concrete paths embedded). The path/header mismatches above are not a forbidden-content violation in case.yaml — they only need correction in plan documents during Phase 4 (deferred under case-only run mode).",
+      "affected_documents": [],
+      "blocks_phase": null
+    }
+  ]
+}

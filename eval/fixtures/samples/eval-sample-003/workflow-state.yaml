@@ -1,0 +1,110 @@
+schema_version: "1.0"
+change_id: eval-sample-003
+module: menus
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+run_mode: case-only
+test_types: api
+run_tests: false
+auto_archive: false
+max_healing_attempts: 0
+max_case_fix_attempts: 2
+max_plan_fix_attempts: 2
+force_continue: false
+
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  attempted_skill_loading: false
+  attempted_phase_execution: false
+  affected_gates: false
+
+phases:
+  skill_registry_check:
+    status: pass
+    reason: "case-only mode — verified aws-case-design, aws-case-reviewer, aws-case-fixer via on-disk fallback"
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+
+  case_design:
+    status: done
+    outputs:
+      - .qa.yaml
+      - proposal.md
+      - cases/menus/case.yaml
+
+  case_review:
+    status: pass
+    gate_file: review/case-review.json
+    fix_attempts: []
+
+  fact_baseline:
+    status: done
+    source: seed_file
+    file: facts/fact-baseline.json
+
+  layers:
+    api: true
+    e2e: false
+    fuzz: false
+    performance: false
+
+gates:
+  data_knowledge:
+    status: present
+    decision: pass
+  healing_available: false
+
+known_product_issues: []
+
+agent_warnings:
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline
+    workaround:
+      - use file-based phase contracts
+      - use document-driven subagents only if parallelism is needed
+    status: acknowledged
+  - id: SKILL-TOOL-UNREGISTERED
+    severity: low
+    title: Skill exists on disk but not registered with skill tool
+    detail: >
+      AWS skills could not be loaded via the `skill` tool in this OpenCode
+      session but were found on disk. The orchestrator reads SKILL.md
+      directly as an equivalent fallback per Phase 0 policy.
+    affected_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+    status: acknowledged
+  - id: FACT-WARN-001
+    severity: medium
+    title: Documentation drift — proposal/qa-yaml use /api/v1/menus/* but mounted prefix is /api/v1/menu
+    detail: >
+      Source-of-truth fact discovered in Phase 3.5: app/api/v1/__init__.py:18
+      mounts menus router at prefix='/menu' (singular). proposal.md and
+      .qa.yaml reference '/api/v1/menus/*' paths. case.yaml uses natural
+      language and is NOT affected. Downstream API planning (deferred — case-only)
+      MUST use '/api/v1/menu/*' paths. See facts/fact-baseline.json#FACT-WARN-001.
+    affects_phase_when_resumed: api_plan
+    status: acknowledged
+  - id: FACT-WARN-002
+    severity: medium
+    title: Auth uses raw 'token' header, not Authorization Bearer
+    detail: >
+      Source-of-truth fact: app/core/dependency.py:13 and middlewares.py:146
+      read a 'token' header directly (raw JWT value, no Bearer scheme).
+      proposal.md mentions 'Authorization header'/'Bearer token' which is
+      inaccurate. case.yaml uses natural language ('携带令牌') and is NOT
+      affected. Downstream API planning (deferred — case-only) MUST set
+      request header 'token: <jwt>'. See facts/fact-baseline.json#FACT-WARN-002.
+    affects_phase_when_resumed: api_plan
+    status: acknowledged

@@ -1,0 +1,70 @@
+{
+  "change_id": "eval-sample-004",
+  "generated_at": "2026-06-22T04:27:04Z",
+  "source": "seed_file",
+  "seed_file": "app/core/init_app.py",
+  "facts": {
+    "builtin_roles": [
+      {
+        "name": "管理员",
+        "desc": "管理员角色",
+        "source": "seed_file",
+        "seed_line": "app/core/init_app.py:206-208 (Role.create(name=\"管理员\", desc=\"管理员角色\"))"
+      },
+      {
+        "name": "普通用户",
+        "desc": "普通用户角色",
+        "source": "seed_file",
+        "seed_line": "app/core/init_app.py:210 (user_role = await Role.create(...))"
+      }
+    ],
+    "auth": {
+      "default_username": "admin",
+      "default_password": "123456",
+      "default_email": "admin@admin.com",
+      "is_superuser": true,
+      "source": "seed_file",
+      "seed_lines": "app/core/init_app.py:67-78 (init_superuser → UserCreate(username='admin', password='123456', is_superuser=True))"
+    },
+    "route_prefix": "/api/v1",
+    "route_prefix_evidence": [
+      "app/core/init_app.py:62 — register_routers(app, prefix='/api')",
+      "app/api/__init__.py:6 — api_router.include_router(v1_router, prefix='/v1')",
+      "app/api/v1/__init__.py mounts depts_router at prefix='/dept' under v1_router"
+    ],
+    "token_header": "token",
+    "token_scheme": null,
+    "token_header_evidence": "app/core/dependency.py:13 — async def is_authed(cls, token: str = Header(..., description='token验证')). FastAPI maps the parameter name 'token' to a request header named 'token' (case-insensitive). NO 'Bearer' scheme prefix — the header value is the raw JWT string.",
+    "jwt": {
+      "algorithm": "HS256",
+      "access_token_expire_minutes": 10080,
+      "secret_key_source": "app/settings/config.py:23 (SECRET_KEY hard-coded for dev)"
+    },
+    "depts_module_specific": {
+      "module_route_prefix": "/dept",
+      "endpoints": [
+        {"method": "GET",    "path": "/api/v1/dept/list",   "query": ["name (optional)"]},
+        {"method": "GET",    "path": "/api/v1/dept/get",    "query": ["id (required)"]},
+        {"method": "POST",   "path": "/api/v1/dept/create", "body": "DeptCreate (name, desc, order, parent_id)"},
+        {"method": "POST",   "path": "/api/v1/dept/update", "body": "DeptUpdate (id, name, desc, order, parent_id)"},
+        {"method": "DELETE", "path": "/api/v1/dept/delete", "query": ["dept_id (required)"]}
+      ],
+      "endpoints_evidence": "app/api/v1/depts/depts.py + app/api/v1/__init__.py (depts_router mounted at '/dept' with DependPermission)",
+      "orm": {
+        "model": "app/models/admin.py:62 Dept",
+        "name": {"type": "CharField", "max_length": 20, "unique": true, "index": true, "description": "部门名称"},
+        "desc": {"type": "CharField", "max_length": 500, "null": true, "description": "备注"},
+        "order": {"type": "IntField", "default": 0},
+        "parent_id": {"type": "IntField", "default": 0, "index": true},
+        "is_deleted": {"type": "boolean field via BaseModel, used for soft delete"}
+      },
+      "soft_delete": true,
+      "soft_delete_evidence": "app/controllers/dept.py:78-83 — delete_dept sets is_deleted=True and removes DeptClosure rows where descendant=dept_id",
+      "closure_table": {
+        "model": "app/models/admin.py:73 DeptClosure (ancestor, descendant, level)",
+        "rebuild_on_parent_change_evidence": "app/controllers/dept.py:67-74 — update_dept deletes ancestor=dept_id and descendant=dept_id rows then rebuilds via update_dept_closure"
+      }
+    }
+  },
+  "warnings": []
+}

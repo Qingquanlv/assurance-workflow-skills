@@ -43,7 +43,14 @@ function resolveSampleRoot(fixturesRoot, tier) {
 }
 
 function isL3Tier(tier, fixtureTierArg) {
-  return tier.name === 'L3-run-seed' || fixtureTierArg === 'L3-run-seed';
+  const name = tier.name ?? '';
+  const arg = fixtureTierArg ?? '';
+  return (
+    name === 'L3-run-seed' ||
+    name.startsWith('L3-run-seed-') ||
+    arg === 'L3-run-seed' ||
+    arg.startsWith('L3-run-seed-')
+  );
 }
 
 function splitTestPaths(paths) {

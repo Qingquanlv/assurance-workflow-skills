@@ -1,0 +1,114 @@
+schema_version: "1.0"
+change_id: eval-sample-004
+module: depts
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+run_parameters:
+  run_mode: case-only
+  test_types: api
+  run_tests: false
+  auto_archive: false
+  max_case_fix_attempts: 2
+  max_healing_attempts: 0
+  force_continue: false
+
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  attempted_skill_loading: false
+  attempted_phase_execution: false
+  affected_gates: false
+
+phases:
+  skill_registry_check:
+    status: pass
+    reason: case-only mode — only case skills required
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+
+  case_design:
+    status: done
+    outputs:
+      - .qa.yaml
+      - proposal.md
+      - cases/depts/case.yaml
+    self_review:
+      checks_passed: 50
+      errors: 0
+      documented_warnings:
+        - "P1 risk.level=medium for negative cases TC-DEPT-API-002/004/007/011/013 (documented in proposal.md 'Priority / Risk-Level Mismatch')"
+      cases_added: 14
+      cases_modified: 0
+      cases_removed: 0
+
+  case_review:
+    status: pass
+    gate_file: review/case-review.json
+    decision: pass
+    risk_level: low
+    auto_fix_allowed: false
+    human_review_required: false
+    next_action: continue
+    fix_attempts: []
+
+  fact_baseline:
+    status: done
+    source: seed_file
+    file: facts/fact-baseline.json
+    captured_facts:
+      builtin_roles: ["管理员", "普通用户"]
+      default_admin: { username: "admin", password: "123456" }
+      route_prefix: "/api/v1"
+      token_header: "token"
+      token_scheme: null
+      depts_endpoints_count: 5
+
+  layers:
+    api: true
+    e2e: false
+    fuzz: false
+    performance: false
+    layer_scan_evidence:
+      api_cases_with_automation_required: 14
+      e2e_cases_with_automation_required: 0
+      fuzz_cases_with_automation_required: 0
+      performance_cases_with_automation_required: 0
+      total_added: 14
+      total_modified: 0
+      total_removed: 0
+      note: "E2E intentionally out of scope this run (runtime test_types=api overrode .qa.yaml [api, e2e]); E2E coverage deferred to a future change."
+
+gates:
+  healing_available: false   # max_healing_attempts == 0 → healing disabled
+
+known_product_issues: []
+
+agent_warnings:
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline in primary agent
+    workaround:
+      - file-based phase contracts
+      - document-driven subagents only if parallelism is genuinely needed
+    status: acknowledged
+  - id: SKILL-TOOL-UNREGISTERED
+    severity: low
+    title: AWS skills loaded via on-disk SKILL.md fallback
+    detail: >
+      Required AWS skills are not registered with OpenCode's skill tool in this
+      project; per aws-workflow Phase 0 on-disk fallback rule, SKILL.md is read
+      directly from disk and followed inline. Functionally equivalent to
+      `use skill <name>`.
+    affected_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+    status: acknowledged

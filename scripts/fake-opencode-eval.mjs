@@ -18,7 +18,14 @@ if (!changeId || !projectDir) {
 }
 
 const changeDir = path.join(projectDir, 'qa/changes', changeId);
-const goldenSample = path.join(repoRoot, 'eval/fixtures/samples/eval-sample-001');
+
+function resolveGoldenSample(id) {
+  const candidate = path.join(repoRoot, 'eval/fixtures/samples', id);
+  if (fs.existsSync(candidate)) return candidate;
+  return path.join(repoRoot, 'eval/fixtures/samples/eval-sample-001');
+}
+
+const goldenSample = resolveGoldenSample(changeId);
 
 function copyIfExists(src, dest) {
   if (!fs.existsSync(src)) return;
