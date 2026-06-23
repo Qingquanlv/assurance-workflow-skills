@@ -12,6 +12,8 @@ import {
   resolveTierPaths,
   clearChangeDir,
   copyTierToChangeDir,
+  inferCodegenTestType,
+  applyCodegenOnlyRuntimeResets,
 } from './lib/eval-fixture-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +142,11 @@ export function seedChange({
 
   if (l3 && testPaths.length > 0) {
     copyTestPathsToBench({ sampleRoot, projectDir: resolvedProjectDir, testPaths });
+  }
+
+  const codegenTestType = inferCodegenTestType(tier.name ?? fixtureTier);
+  if (codegenTestType) {
+    applyCodegenOnlyRuntimeResets(changeDir, codegenTestType);
   }
 
   validateSeededFiles(changeDir);
