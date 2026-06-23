@@ -1,9 +1,0 @@
-{
-  "schema_version": "1.0",
-  "review_type": "performance-plan",
-  "change_id": "eval-sample-004",
-  "decision": "pass",
-  "codegen_readiness": "ready",
-  "blockers": [],
-  "needs_review": []
-}

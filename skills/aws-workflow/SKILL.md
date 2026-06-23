@@ -1204,7 +1204,6 @@ never_archive_when:
 
 - Valid `change_id`
 - `.aws/data-knowledge.yaml` (or promotable proposal) on disk under `qa/changes/<change-id>/`
-- For eval / bench runs: fixture tier **L0-case-seed** may pre-seed `proposal.md` and `.qa.yaml` only — case files are produced by Phase 1
 
 **Phase sequence (inline primary agent only):**
 
@@ -1244,8 +1243,6 @@ STOP — case-only complete
   → Final artifacts: cases/, review/case-review.json, facts/fact-baseline.json, workflow-state.yaml
   → Report case count, review decision, and layers.* summary
 ```
-
-**Eval alignment (E0):** `eval-workflow-run.mjs --run-mode case-only` drives this path; scorers read archived `cases/`, `review/case-review.json`, and `workflow-state.yaml`.
 
 ---
 
@@ -1318,8 +1315,6 @@ If run_tests == true:
   → Update workflow-state.yaml: phases.execution
   → STOP — do not auto-enter inspect/healing/archive in codegen-only unless user explicitly requests
 ```
-
-**Eval alignment (E2a):** `eval-workflow-run.mjs --run-mode codegen-only --run-tests false` stops after Phase 7 Gate; `--test-types api` selects 7A path. Fixture tier **L2-api-codegen-seed** supplies plans/reviews; generated tests land under `tests/`.
 
 ---
 

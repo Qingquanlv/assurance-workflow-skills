@@ -1,8 +1,0 @@
-name: L1-plan-seed-dept
-extends: L0-case-seed-dept
-description: Plan-ready seed — depts module cases reviewed
-paths:
-  - "cases/**"
-  - "review/case-review.json"
-  - "facts/fact-baseline.json"
-  - "workflow-state.yaml"
