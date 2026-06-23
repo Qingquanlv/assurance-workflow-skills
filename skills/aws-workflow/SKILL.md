@@ -1215,7 +1215,8 @@ Phase 0 — Skill Registry Check
 
 Phase 1 — Case Design
   → Load aws-case-design
-  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Execute inline (writes cases/<module>/case.yaml; .qa.yaml and proposal.md may be pre-seeded or co-written)
+  → Verify Phase 1 outputs on disk: .qa.yaml, proposal.md, cases/<module>/case.yaml
   → Update workflow-state.yaml: phases.case_design.status = done
 
 Phase 2 — Case Review (initial)
@@ -1333,8 +1334,8 @@ Phase 0 — Skill Registry Check
 
 Phase 1 — Case Design
   → Load skill aws-case-design in primary agent
-  → Execute inline
-  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Execute inline (writes cases/<module>/case.yaml)
+  → Verify Phase 1 outputs on disk: .qa.yaml, proposal.md, cases/<module>/case.yaml
   → Update workflow-state.yaml: phases.case_design.status = done
 
 Phase 2 — Case Review (initial)
