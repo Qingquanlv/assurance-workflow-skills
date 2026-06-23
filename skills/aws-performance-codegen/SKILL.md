@@ -59,6 +59,10 @@ class MenuListUser(HttpUser):
 - Output exactly to `tests/perf/locustfile_<module>.py`.
 - `performance-codegen-plan.md` is a codegen guidance artifact, not the runner's execution target list. Phase 8 `aws-run` discovers executable Locust files via `tests/perf/locustfile*.py` and reads thresholds/load from selected `type: Performance` cases.
 
+## Runner discovery contract (aws-run)
+
+Phase 8 `aws-run` does **not** read `performance-codegen-plan.md` for execution targets. It discovers locustfiles via glob `tests/perf/locustfile*.py`, applies load/thresholds from selected Performance cases, and writes `performance-result.json`. Emit locustfiles under `tests/perf/` so this cross-skill contract holds.
+
 ## Test Failure Integrity
 
 Generated performance tests MUST fail for the right reason. Rules:
