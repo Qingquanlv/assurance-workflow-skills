@@ -7,6 +7,6 @@ input:
   run_mode: codegen-only
   project_dir: bench/fastapi-vue-admin
   test_types: [fuzz]
-  test_collect_paths: ["tests/fuzz"]
-
-expected: {}
+  test_collect_paths: ["tests/fuzz/test_dept_fuzz.py"]
+expected:
+  test_collect_paths: ["tests/fuzz/test_dept_fuzz.py"]
