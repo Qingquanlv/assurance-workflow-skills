@@ -4,4 +4,4 @@
 
 ## Generated files
 
-- `qa/perf/locustfile_roles.py`
+- `tests/perf/locustfile_roles.py`

@@ -71,6 +71,7 @@ dependencies = [
     "uvloop==0.21.0 ; sys_platform != 'win32'",
     "cursor-sdk>=0.1.6",
     "schemathesis>=4,<5",
+    "locust>=2.44.4",
 ]
 
 [tool.black]

@@ -293,8 +293,8 @@ describe('M1 runner coverage output', () => {
     fs.mkdirSync(path.join(projectRoot, 'qa', 'changes', changeId, 'plans'), { recursive: true });
     fs.mkdirSync(path.join(projectRoot, 'tests', 'e2e'), { recursive: true });
     fs.mkdirSync(path.join(projectRoot, 'tests', 'fuzz'), { recursive: true });
-    fs.mkdirSync(path.join(projectRoot, 'qa', 'perf'), { recursive: true });
-    fs.writeFileSync(path.join(projectRoot, 'qa', 'perf', 'locustfile.py'), '# historical perf asset\n');
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'perf'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'perf', 'locustfile.py'), '# historical perf asset\n');
 
     const result = run({
       changeId,

@@ -37,7 +37,7 @@
 ### workflow-performance-codegen allowlist
 
 - `qa/changes/**`
-- `qa/perf/**`
+- `tests/perf/**`
 - `eval/runs/**`
 
 Codegen-only runs require **exactly one** `--test-types` value; no allowlist union.

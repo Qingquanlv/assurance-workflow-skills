@@ -60,7 +60,7 @@ Behavior to verify:
 ├─ 单 HTTP 请求 + 响应断言            → API         (tests/api/)
 ├─ 多步浏览器交互 + UI 反馈           → E2E         (tests/e2e/)
 ├─ 复杂输入 / Schema / 边界 / Parser  → Fuzz        (tests/fuzz/)
-└─ 高频 / 核心 / 复杂查询 / 关键能力   → Performance (qa/perf/)
+└─ 高频 / 核心 / 复杂查询 / 关键能力   → Performance (tests/perf/)
 ```
 
 新增 Hard rules:
@@ -174,7 +174,7 @@ stateful-test-failure (产品 5xx / schema 违约)   → fix_proposal_eligible: 
 - 前置 `phases.case_review.status == pass`;读含 Performance 的 case
 - **产物**:
   - `plans/performance-plan.md` — 每个 scenario 的 endpoint / 负载档位 / **绝对阈值**
-  - `plans/performance-codegen-plan.md` — Locust 文件映射(`qa/perf/<capability>_locustfile.py`)
+  - `plans/performance-codegen-plan.md` — Locust 文件映射(`tests/perf/<capability>_locustfile.py`)
   - `plans/performance-review-summary.md`
 
 ### 6.2 `aws-performance-plan-reviewer`(新 skill)
@@ -187,7 +187,7 @@ stateful-test-failure (产品 5xx / schema 违约)   → fix_proposal_eligible: 
 ### 6.3 `aws-performance-codegen`(新 skill)
 
 - Gate:`review/performance-plan-review.json` decision==pass
-- **产物**:`qa/perf/<capability>_locustfile.py`:
+- **产物**:`tests/perf/<capability>_locustfile.py`:
 
 ```python
 from locust import HttpUser, task, between

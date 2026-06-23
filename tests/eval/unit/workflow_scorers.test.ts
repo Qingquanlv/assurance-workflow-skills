@@ -258,8 +258,8 @@ describe('workflow scorers (fixture snapshots)', () => {
     copyDirSync(FIXTURE_SAMPLE_002, path.join(attemptDir, 'raw-output'));
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-perf-proj-'));
     copyDirSync(
-      path.join(FIXTURE_SAMPLE_002, 'qa/perf'),
-      path.join(projectDir, 'qa/perf')
+      path.join(FIXTURE_SAMPLE_002, 'tests/perf'),
+      path.join(projectDir, 'tests/perf')
     );
 
     const result = scoreWorkflowPerformanceCodegen(

@@ -73,22 +73,8 @@ export function loadPerformanceScenarios(changeBase: string): PerfScenario[] {
     let doc: unknown;
     try { doc = yaml.load(fs.readFileSync(file, 'utf-8')); } catch { continue; }
     for (const c of collectCases(doc)) {
-      if (c.type !== 'Performance') continue;
-      const sc = c.automation?.performance?.scenario;
-      if (!sc || !sc.thresholds) continue;
-      scenarios.push({
-        capability: sc.capability ?? c.case_id ?? 'unknown',
-        endpoint: sc.endpoint ?? '',
-        thresholds: {
-          p95_ms: Number(sc.thresholds.p95_ms),
-          error_rate_max: Number(sc.thresholds.error_rate_max),
-        },
-        load: {
-          users: sc.load?.users ?? 0,
-          spawn_rate: sc.load?.spawn_rate ?? 0,
-          run_time_s: sc.load?.run_time_s ?? 0,
-        },
-      });
+      const parsed = parsePerformanceCase(c);
+      if (parsed) scenarios.push(parsed);
     }
   }
   return scenarios;
@@ -118,7 +104,7 @@ export function runPerformance(opts: PerformanceRunOptions): PerformanceResult {
   if (scenarios.length === 0) return skipped('No type:Performance cases with thresholds found — performance SKIPPED.');
 
   const locustfiles = discoverLocustfiles(cwd);
-  if (locustfiles.length === 0) return skipped('No locustfiles found under qa/perf/ — performance SKIPPED.');
+  if (locustfiles.length === 0) return skipped('No locustfiles found under tests/perf/ — performance SKIPPED.');
 
   const runner = resolveLocustRunner(cwd);
   if (!runner) return skipped('locust not found. Tried: uv run locust, python3 -m locust, locust. Performance SKIPPED.');
@@ -213,11 +199,11 @@ function resolveLocustRunner(cwd: string): LocustRunner | null {
 }
 
 function discoverLocustfiles(cwd: string): string[] {
-  const perfDir = path.join(cwd, 'qa', 'perf');
+  const perfDir = path.join(cwd, 'tests', 'perf');
   if (!fs.existsSync(perfDir)) return [];
   return fs.readdirSync(perfDir)
     .filter(f => /^locustfile.*\.py$/.test(f))
-    .map(f => path.join('qa', 'perf', f));
+    .map(f => path.join('tests', 'perf', f));
 }
 
 export function resolveLoadProfile(
@@ -369,14 +355,79 @@ function collectYaml(dir: string, out: string[]): void {
   }
 }
 
+interface RawLoad {
+  users?: number;
+  spawn_rate?: number;
+  run_time_s?: number;
+  run_time?: string;
+}
+
 interface RawCase {
   case_id?: string;
   type?: string;
-  automation?: { performance?: { scenario?: {
-    capability?: string; endpoint?: string;
-    thresholds?: { p95_ms?: number; error_rate_max?: number };
-    load?: { users?: number; spawn_rate?: number; run_time_s?: number };
-  } } };
+  thresholds?: { p95_ms?: number; error_rate_max?: number };
+  performance?: {
+    capability?: string;
+    endpoint?: string;
+    load?: RawLoad;
+  };
+  automation?: { performance?: {
+    capability?: string;
+    endpoint?: string;
+    load?: RawLoad;
+    scenario?: {
+      capability?: string;
+      endpoint?: string;
+      thresholds?: { p95_ms?: number; error_rate_max?: number };
+      load?: RawLoad;
+    };
+  } };
+}
+
+function parseLoadProfile(load?: RawLoad): PerfScenario['load'] {
+  if (!load) return { users: 0, spawn_rate: 0, run_time_s: 0 };
+  let run_time_s = load.run_time_s ?? 0;
+  if (!run_time_s && load.run_time) {
+    const m = String(load.run_time).match(/^(\d+(?:\.\d+)?)\s*s$/i);
+    if (m) run_time_s = Number(m[1]);
+  }
+  return {
+    users: load.users ?? 0,
+    spawn_rate: load.spawn_rate ?? 0,
+    run_time_s,
+  };
+}
+
+/** Normalizes nested or legacy flat Performance case YAML into a runner scenario. */
+export function parsePerformanceCase(c: RawCase): PerfScenario | null {
+  if (c.type !== 'Performance') return null;
+
+  const nested = c.automation?.performance?.scenario;
+  if (nested?.thresholds?.p95_ms != null) {
+    return {
+      capability: nested.capability ?? c.case_id ?? 'unknown',
+      endpoint: nested.endpoint ?? '',
+      thresholds: {
+        p95_ms: Number(nested.thresholds.p95_ms),
+        error_rate_max: Number(nested.thresholds.error_rate_max ?? 0.01),
+      },
+      load: parseLoadProfile(nested.load),
+    };
+  }
+
+  const thresholds = c.thresholds;
+  if (thresholds?.p95_ms == null) return null;
+
+  const perf = c.performance ?? c.automation?.performance;
+  return {
+    capability: perf?.capability ?? nested?.capability ?? c.case_id ?? 'unknown',
+    endpoint: perf?.endpoint ?? nested?.endpoint ?? '',
+    thresholds: {
+      p95_ms: Number(thresholds.p95_ms),
+      error_rate_max: Number(thresholds.error_rate_max ?? 0.01),
+    },
+    load: parseLoadProfile(perf?.load ?? nested?.load),
+  };
 }
 
 /** Collects case objects from a parsed case-delta or stable case file. */

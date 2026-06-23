@@ -993,7 +993,7 @@ added:
     automation:
       required: true
       framework: locust
-      suggested_file: qa/perf/locustfile_roles.py
+      suggested_file: tests/perf/locustfile_roles.py
       status: planned
     trace:
       related_requirements: [REQ-ROLES-PERF-001]

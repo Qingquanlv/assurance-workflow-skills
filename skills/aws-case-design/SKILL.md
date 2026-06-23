@@ -129,7 +129,7 @@ Behavior to verify:
 │    form submission triggers live list refresh / confirmation dialog interaction
 ├─ Complex input / schema / boundary / parser        → type: Fuzz        (tests/fuzz/)
 │    robustness of a user-input endpoint (no crash, no 5xx, schema-valid input not wrongly rejected)
-└─ High-frequency / core / heavy query / key path    → type: Performance (qa/perf/)
+└─ High-frequency / core / heavy query / key path    → type: Performance (tests/perf/)
      absolute thresholds (P95 / error_rate), no historical baseline
 ```
 
@@ -781,7 +781,7 @@ trace:
 | API | pytest | `tests/api/` |
 | E2E | pytest-playwright | `tests/e2e/` |
 | Fuzz | schemathesis | `tests/fuzz/` |
-| Performance | locust | `qa/perf/` |
+| Performance | locust | `tests/perf/` |
 
 One case has exactly one `type`. Fuzz and Performance are **independent cases** (`type: Fuzz` / `type: Performance`) that link the functional case they harden via `related_cases`. They do **not** replace the functional API/E2E coverage of that endpoint.
 

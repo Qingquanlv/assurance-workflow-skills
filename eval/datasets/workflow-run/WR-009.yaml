@@ -1,0 +1,9 @@
+id: WR-009
+annotation_source: human
+tags: ["workflow-run", "eval-sample-001", "users", "fuzz"]
+input:
+  change_id: eval-sample-001
+  fixture_tier: L3-run-seed-fuzz
+  project_dir: bench/fastapi-vue-admin
+expected:
+  in_scope_layers: [fuzz]

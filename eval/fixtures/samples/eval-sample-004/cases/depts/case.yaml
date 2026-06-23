@@ -912,7 +912,7 @@ added:
       capability: dept-list-query
     automation:
       required: true
-      suggested_file: qa/perf/locustfile_dept.py
+      suggested_file: tests/perf/locustfile_dept.py
 
 modified: []
 

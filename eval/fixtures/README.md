@@ -21,11 +21,13 @@ L0-case-seed
 | **L2-e2e** | `workflow-e2e-codegen` | L1 + E2E plans + `review/e2e-plan-review.json` |
 | **L2-fuzz** | `workflow-fuzz-codegen` | L1 + fuzz plans + `review/fuzz-plan-review.json` |
 | **L2-perf** | `workflow-performance-codegen` | L1 + performance plans + `review/performance-plan-review.json` |
-| **L3** | `workflow-run` (aws run) | L2 + generated `tests/api/**` stubs |
+| **L3** | `workflow-run` (aws run) | L2 + generated `tests/api/**`, `tests/e2e/**`, `tests/fuzz/**`, or `tests/perf/**` stubs (layer-specific L3 tier) |
 
 `paths` are **relative to the sample root** (`eval/fixtures/samples/<sample-id>/`). The seed script copies each listed path from the sample into the target change directory (or bench `tests/` for L3 test paths — see Task 3 `copyTierToChangeDir`).
 
 Optional `resets` blocks patch `workflow-state.yaml` and `.qa.yaml` after copy (e.g. L2 sets `phases.api_codegen.status: pending` so codegen eval does not inherit archive `done` state).
+
+For **L2 *-codegen-seed** tiers (E2b/E2c/E2d), `eval-seed-change.mjs` also applies `applyCodegenOnlyRuntimeResets()` so `workflow-state.yaml` → `runtime_parameters.test_types` matches the eval subprocess prompt (e.g. `fuzz` not stale `api,e2e` from the trimmed golden workflow-state). Without this, OpenCode may run the wrong layer and overwrite seeded plan files before archive.
 
 ## Change-id token
 
@@ -65,6 +67,17 @@ Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
 | `eval-sample-004` | depts（部门管理） | WC-004 | `L0-case-seed-dept` |
 
 E2b/E2c/E2d codegen datasets (`WEEC-*`, `WFUZ-*`, `WPER-*`) map samples 002–004 to module-specific L2 tiers.
+
+**E3 (`workflow-run`)** datasets WR-001 … WR-016:
+
+| Layer | WR samples | L3 tier pattern |
+|-------|------------|-----------------|
+| API | WR-001 … WR-004 | `L3-run-seed`, `L3-run-seed-roles`, `L3-run-seed-menu`, `L3-run-seed-dept` |
+| E2E | WR-005 … WR-008 | `L3-run-seed-e2e`, `L3-run-seed-e2e-roles`, … |
+| Fuzz | WR-009 … WR-012 | `L3-run-seed-fuzz`, `L3-run-seed-fuzz-roles`, … |
+| Performance | WR-013 … WR-016 | `L3-run-seed-perf`, `L3-run-seed-perf-roles`, … |
+
+Users module (`eval-sample-001`) also has `L2-e2e-codegen-seed` / `L2-fuzz-codegen-seed` / `L2-performance-codegen-seed` for WR-005 / WR-009 / WR-013.
 
 `eval-sample-001` is trimmed from `bench/fastapi-vue-admin/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
 

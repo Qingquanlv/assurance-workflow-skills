@@ -65,7 +65,7 @@ For each Performance scenario, document:
 
 ### `plans/performance-codegen-plan.md`
 
-- **Target Files** — `qa/perf/locustfile_<module>.py` per module (this exact location so the runner can discover it)
+- **Target Files** — `tests/perf/locustfile_<module>.py` per module (this exact location so the runner can discover it)
 - **Auth strategy** — how the Locust user authenticates (reuse known fixtures/data-knowledge; never hardcode real tokens)
 - **Task mapping** — which endpoints map to which Locust tasks and weights
 - **Generated File Policy** — append vs overwrite

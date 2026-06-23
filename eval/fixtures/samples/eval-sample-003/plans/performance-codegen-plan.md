@@ -2,4 +2,4 @@
 
 ## Target Files
 
-- `qa/perf/locustfile_menu.py`
+- `tests/perf/locustfile_menu.py`

@@ -138,7 +138,7 @@ Case(含四层测试选型,人机协作)        ← aws-case-design 扩展
 ├─ 单请求 → 响应断言            → API         (tests/api/)
 ├─ 用户流程 / 页面跳转          → E2E         (tests/e2e/)
 ├─ 复杂输入 / Schema / 边界 / Parser → Fuzz   (tests/fuzz/)
-└─ 高频接口 / 核心接口 / 复杂查询 / 关键业务能力 → Performance (qa/perf/)
+└─ 高频接口 / 核心接口 / 复杂查询 / 关键业务能力 → Performance (tests/perf/)
 ```
 
 > 前两层是 `aws-case-design` 现有 `Test Layer Decision Tree`;Fuzz / Performance 为本设计新增分支。
@@ -223,7 +223,7 @@ plans/
 
 ```
 tests/fuzz/test_openapi_schema.py        # schemathesis
-qa/perf/<capability>_locustfile.py       # Locust 脚本
+tests/perf/<capability>_locustfile.py       # Locust 脚本
 ```
 
 ---
@@ -241,7 +241,7 @@ schemathesis run app.main:app       # Fuzz
 ### Non-Functional(Performance,简单模式)
 
 ```bash
-locust -f qa/perf/<capability>_locustfile.py \
+locust -f tests/perf/<capability>_locustfile.py \
   --headless -u 50 -r 10 --run-time 60s \
   --host http://localhost:9999 \
   --json                             # 输出结构化指标

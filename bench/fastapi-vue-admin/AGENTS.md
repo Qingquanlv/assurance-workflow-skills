@@ -47,7 +47,7 @@ Skills 由 opencode.json 从 `assurance-workflow-skills/skills/` 目录加载，
 | `/api-codegen-for-qa`、generate API test code | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-api-codegen/SKILL.md` | 生成 pytest API 测试代码（必须先完成 planning）|
 | `/e2e-codegen-for-qa`、generate E2E test code | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-e2e-codegen/SKILL.md` | 生成 Playwright E2E 测试代码（必须先完成 planning）|
 | `generate fuzz tests`、fuzz codegen | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-fuzz-codegen/SKILL.md` | 生成 schemathesis Fuzz 测试（必须先完成 fuzz planning）|
-| `generate performance tests`、locust codegen | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-performance-codegen/SKILL.md` | 生成 Locust 性能测试文件到 `qa/perf/`（必须先完成 performance planning）|
+| `generate performance tests`、locust codegen | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-performance-codegen/SKILL.md` | 生成 Locust 性能测试文件到 `tests/perf/`（必须先完成 performance planning）|
 | `fix api codegen` | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-api-codegen-fixer/SKILL.md` | 修复 API 测试代码生成问题 |
 | `fix e2e codegen` | `/Users/lvqingquan/skills/assurance-workflow-skills/skills/aws-e2e-codegen-fixer/SKILL.md` | 修复 E2E 测试代码生成问题 |
 

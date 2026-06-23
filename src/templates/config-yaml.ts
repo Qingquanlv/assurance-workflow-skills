@@ -90,7 +90,7 @@ fuzz:
   enabled: true
   schema_source: ""            # OpenAPI URL or file; codegen uses from_uri/from_asgi accordingly
 
-# M3 — Performance layer (Locust, absolute thresholds, no baseline). Locustfiles live under qa/perf/.
+# M3 — Performance layer (Locust, absolute thresholds, no baseline). Locustfiles live under tests/perf/.
 # Cases opt in with type: Performance and confirmed thresholds; SKIPPED if locust is unavailable.
 performance:
   enabled: true

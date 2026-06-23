@@ -705,7 +705,7 @@ added:
       capability: menu-list-query
     automation:
       required: true
-      suggested_file: qa/perf/locustfile_menu.py
+      suggested_file: tests/perf/locustfile_menu.py
 
 modified: []
 removed: []

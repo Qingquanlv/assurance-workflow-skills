@@ -110,8 +110,40 @@ function applyQaYamlResets(changeDir, qaYamlResets) {
   if (!fs.existsSync(target)) return;
 
   const doc = yaml.load(fs.readFileSync(target, 'utf8')) ?? {};
-  Object.assign(doc, qaYamlResets);
+  const { runtime_params: runtimeParamsPatch, ...rest } = qaYamlResets;
+  Object.assign(doc, rest);
+  if (runtimeParamsPatch && typeof runtimeParamsPatch === 'object') {
+    doc.runtime_params = { ...(doc.runtime_params ?? {}), ...runtimeParamsPatch };
+  }
   fs.writeFileSync(target, yaml.dump(doc, { lineWidth: -1 }));
+}
+
+/** L2 *-codegen-seed tiers used by E2b/E2c/E2d eval suites. */
+export function inferCodegenTestType(tierName) {
+  const match = String(tierName ?? '').match(/^L2-(api|e2e|fuzz|performance)-codegen-seed/);
+  return match ? match[1] : null;
+}
+
+export function isL2CodegenTier(tierName) {
+  return inferCodegenTestType(tierName) !== null;
+}
+
+/** Align workflow-state / .qa.yaml with eval codegen-only subprocess args. */
+export function applyCodegenOnlyRuntimeResets(changeDir, testType) {
+  applyWorkflowStateResets(changeDir, {
+    'runtime_parameters.run_mode': 'codegen-only',
+    'runtime_parameters.test_types': testType,
+    'runtime_parameters.run_tests': false,
+    'runtime_parameters.max_healing_attempts': 0,
+  });
+  applyQaYamlResets(changeDir, {
+    test_types: [testType],
+    runtime_params: {
+      run_mode: 'codegen-only',
+      run_tests: false,
+      max_healing_attempts: 0,
+    },
+  });
 }
 
 export function clearChangeDir(changeDir) {

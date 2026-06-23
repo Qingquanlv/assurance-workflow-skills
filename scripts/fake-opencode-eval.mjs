@@ -86,8 +86,8 @@ if (runMode === 'case-only') {
     );
   } else if (testType === 'performance') {
     copyIfExists(
-      path.join(goldenSample, 'qa/perf'),
-      path.join(projectDir, 'qa/perf')
+      path.join(goldenSample, 'tests/perf'),
+      path.join(projectDir, 'tests/perf')
     );
     copyIfExists(
       path.join(goldenSample, 'codegen/performance-codegen-summary.md'),

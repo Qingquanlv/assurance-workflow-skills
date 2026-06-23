@@ -221,7 +221,7 @@ MCP is optional and must not replace the CLI execution chain.
 3. Executes **API tests** via pytest with JUnit XML output. When `coverage.enabled` and `pytest-cov` is detected (via `pytest --help`), it also passes `--cov=<target_package> --cov-branch --cov-report=json:... --cov-report=xml:...` and normalises the result into `coverage-result.json`. **Coverage is collected only during the API pytest run** — E2E (playwright) is not counted.
 4. Executes **E2E tests** via **pytest-playwright** (`pytest tests/e2e/ -v --headed`), **NOT** `npx playwright test`.
 5. Executes **Fuzz tests** (M3) via pytest against `tests/fuzz/` (schemathesis runs on the pytest infra). Requires `schemathesis` to be importable; if `tests/fuzz/` is empty or schemathesis is missing, `fuzz-result.json` is `SKIPPED`.
-6. Executes **Performance tests** (M3) via **Locust headless** against locustfiles under `qa/perf/`. The runner resolves Locust as `uv run locust` → `python3 -m locust` → `locust`. It discovers execution files from `qa/perf/locustfile*.py`, not from `performance-codegen-plan.md`; thresholds and load profile come from selected `type: Performance` cases, with `.aws/config.yaml` defaults used only for missing load fields. Each scenario's verdict is derived from the Locust `_stats.csv` (measured p95 / error_rate) vs. the case's absolute thresholds. If Locust is unavailable, `qa/perf/` is empty, or no traffic is recorded, `performance-result.json` is `SKIPPED`.
+6. Executes **Performance tests** (M3) via **Locust headless** against locustfiles under `tests/perf/`. The runner resolves Locust as `uv run locust` → `python3 -m locust` → `locust`. It discovers execution files from `tests/perf/locustfile*.py`, not from `performance-codegen-plan.md`; thresholds and load profile come from selected `type: Performance` cases, with `.aws/config.yaml` defaults used only for missing load fields. Each scenario's verdict is derived from the Locust `_stats.csv` (measured p95 / error_rate) vs. the case's absolute thresholds. If Locust is unavailable, `tests/perf/` is empty, or no traffic is recorded, `performance-result.json` is `SKIPPED`.
 7. Preserves each run under `execution/runs/<batch-id>/` — consecutive runs never overwrite previous results.
 8. Parses real execution results — **never fabricates** passed / failed / skipped or performance measurements.
 9. Writes normalised result files and a human-readable summary.
@@ -235,7 +235,7 @@ Primary mode (CLI) — per selected targets:
 | API | `selected_targets.api == true` | `uv run pytest tests/api/test_*.py --junitxml=...` |
 | E2E | `selected_targets.e2e == true` | `uv run pytest tests/e2e/test_*.py -v --headed --junitxml=...` |
 | Fuzz | `selected_targets.fuzz == true` | `uv run pytest tests/fuzz/ --junitxml=...` (M3) |
-| Performance | `selected_targets.performance == true` | `uv run locust -f qa/perf/locustfile*.py --headless -u <case users> -r <case rate> -t <case run_time>s --host <base_url> --csv ...` (M3) |
+| Performance | `selected_targets.performance == true` | `uv run locust -f tests/perf/locustfile*.py --headless -u <case users> -r <case rate> -t <case run_time>s --host <base_url> --csv ...` (M3) |
 
 Required Python packages by layer: API/E2E → `pytest`, `pytest-playwright`; coverage → `pytest-cov`; Fuzz → `schemathesis`; Performance → `locust`. Missing packages degrade the corresponding layer to `SKIPPED` (a warning), never a hard `FAIL`.
 

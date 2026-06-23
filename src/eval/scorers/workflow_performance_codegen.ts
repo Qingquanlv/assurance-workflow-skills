@@ -35,7 +35,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       buildCodegenSecretScanOpts({
         attemptDir,
         projectDir,
-        generatedGlobs: ['qa/perf/**/*.py'],
+        generatedGlobs: ['tests/perf/**/*.py'],
         summaryRelativePaths: ['codegen/performance-codegen-summary.md'],
       })
     ),

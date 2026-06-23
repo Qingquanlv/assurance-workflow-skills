@@ -48,7 +48,7 @@ This skill is a **gate producer**. The workflow cannot advance to `aws-performan
 3. **Load profile concrete** — `users`, `spawn_rate`, `run_time_s` are set.
 4. **Target environment resolvable** — base URL comes from `.aws/config.yaml` (or explicitly provided); not vague.
 5. **Auth strategy** — Locust user auth reuses known fixtures/data-knowledge; no hardcoded real tokens.
-6. **Target file path** — outputs map to `qa/perf/locustfile_<module>.py` (required for runner discovery).
+6. **Target file path** — outputs map to `tests/perf/locustfile_<module>.py` (required for runner discovery).
 
 ## Decision Rules
 

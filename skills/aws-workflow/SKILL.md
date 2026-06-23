@@ -518,7 +518,7 @@ phases:
     gate_file: review/performance-plan-review.json
   performance_codegen:
     status: pending | done | failed | stopped | skipped
-    generated_tests: { files: [] }   # qa/perf/**
+    generated_tests: { files: [] }   # tests/perf/**
 
   execution:
     status: pending | PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
@@ -939,7 +939,7 @@ gate: review/performance-plan-review.json must be approved before Phase 7D
 
 # Phase 7D — Performance Codegen (aws-performance-codegen)
 inputs:  [plans/performance-codegen-plan.md, review/performance-plan-review.json (approved)]
-outputs: [qa/perf/** (locustfiles), codegen/performance-codegen-summary.md]
+outputs: [tests/perf/** (locustfiles), codegen/performance-codegen-summary.md]
 gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for locustfiles
 ```
 

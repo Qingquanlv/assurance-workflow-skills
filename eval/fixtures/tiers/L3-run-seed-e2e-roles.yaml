@@ -1,0 +1,14 @@
+name: L3-run-seed-e2e-roles
+extends: L2-e2e-codegen-seed-roles
+description: Run eval seed — roles E2E tests generated, ready for aws run
+paths:
+  - "tests/__init__.py"
+  - "tests/e2e/__init__.py"
+  - "tests/e2e/eval/__init__.py"
+  - "tests/e2e/eval/test_role_eval_smoke.py"
+resets:
+  workflow_state:
+    phases.e2e_codegen.status: done
+    phases.execution.status: pending
+  qa_yaml:
+    test_types: [e2e]

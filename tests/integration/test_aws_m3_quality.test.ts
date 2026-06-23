@@ -5,7 +5,7 @@ import { buildQualityGate } from '../../src/report/quality_gate';
 import { computeQualityScore } from '../../src/report/quality_score';
 import { inspect } from '../../src/report/inspector';
 import { generateReport } from '../../src/report/report_generator';
-import { parseLocustStats, resolveLoadProfile, buildScenarioVerdicts, mergeLocustStatsMaps } from '../../src/execution/locust_runner';
+import { parseLocustStats, resolveLoadProfile, buildScenarioVerdicts, mergeLocustStatsMaps, loadPerformanceScenarios, parsePerformanceCase } from '../../src/execution/locust_runner';
 import { buildSummaryMd } from '../../src/execution/summary_writer';
 import {
   ApiResult,
@@ -283,5 +283,44 @@ describe('M3 performance runner', () => {
     mergeLocustStatsMaps(merged, new Map([['checkout', { p95: 100, requests: 10, failures: 0 }]]));
     mergeLocustStatsMaps(merged, new Map([['checkout', { p95: 200, requests: 50, failures: 1 }]]));
     expect(merged.get('checkout')).toEqual({ p95: 200, requests: 50, failures: 1 });
+  });
+
+  it('parsePerformanceCase reads legacy flat thresholds + performance block', () => {
+    const scenario = parsePerformanceCase({
+      case_id: 'TC-PERF-001',
+      type: 'Performance',
+      thresholds: { p95_ms: 500, error_rate_max: 0.01 },
+      performance: {
+        capability: 'user-list-query',
+        load: { users: 5, spawn_rate: 1, run_time: '30s' },
+      },
+    });
+    expect(scenario).toEqual({
+      capability: 'user-list-query',
+      endpoint: '',
+      thresholds: { p95_ms: 500, error_rate_max: 0.01 },
+      load: { users: 5, spawn_rate: 1, run_time_s: 30 },
+    });
+  });
+
+  it('loadPerformanceScenarios collects scenarios from stable cases: list', () => {
+    const changeBase = tmpDir('aws-perf-scenarios-');
+    const casesDir = path.join(changeBase, 'cases', 'users');
+    fs.mkdirSync(casesDir, { recursive: true });
+    fs.writeFileSync(path.join(casesDir, 'case.yaml'), [
+      'cases:',
+      '  - case_id: TC-ROLES-PERF-001',
+      '    type: Performance',
+      '    thresholds:',
+      '      p95_ms: 500',
+      '      error_rate_max: 0.01',
+      '    performance:',
+      '      capability: role-list-query',
+    ].join('\n'));
+
+    const scenarios = loadPerformanceScenarios(changeBase);
+    expect(scenarios).toHaveLength(1);
+    expect(scenarios[0].capability).toBe('role-list-query');
+    fs.rmSync(changeBase, { recursive: true, force: true });
   });
 });
