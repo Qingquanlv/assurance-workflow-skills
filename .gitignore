@@ -7,14 +7,3 @@ coverage/
 **/.DS_Store
 docs/superpowers/
 .history
-# AI Eval Harness — generated run artifacts
-eval/runs/
-eval/batches/
-eval/reports/
-# Bench fixture (vendored; exclude local deps and nested git metadata)
-bench/**/node_modules/
-bench/**/.git/
-bench/**/__pycache__/
-bench/**/.pytest_cache/
-bench/**/db.sqlite3*
-bench/**/qa/changes/**

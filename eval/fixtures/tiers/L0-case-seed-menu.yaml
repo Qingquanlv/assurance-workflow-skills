@@ -1,7 +1,0 @@
-name: L0-case-seed-menu
-description: Case-only eval — menu management module seed
-paths:
-  - "proposal.md"
-  - ".qa.yaml"
-  - ".aws/data-knowledge.yaml"
-source_prefix: "eval/fixtures/samples/eval-sample-003"

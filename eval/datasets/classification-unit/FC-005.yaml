@@ -1,9 +1,0 @@
-id: FC-005
-annotation_source: human
-tags: ["classification-unit", "api", "unknown"]
-input:
-  message: "Something completely unexpected happened during teardown"
-  log_excerpt: "no recognizable failure signature"
-  target: api
-expected:
-  category: unknown

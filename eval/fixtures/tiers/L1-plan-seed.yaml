@@ -1,8 +1,0 @@
-name: L1-plan-seed
-extends: L0-case-seed
-description: Plan-ready seed — cases reviewed, plans not yet generated
-paths:
-  - "cases/**"
-  - "review/case-review.json"
-  - "facts/fact-baseline.json"
-  - "workflow-state.yaml"
