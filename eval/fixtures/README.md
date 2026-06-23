@@ -2,6 +2,8 @@
 
 Golden seed content and tier manifests for phase-scoped AI eval. Used by `scripts/eval-seed-change.mjs` (Task 3) to populate a bench change directory before each eval attempt.
 
+Ongoing eval harness changes merge via pull request into the protected **`eval`** branch (eval smoke CI required) before landing on `main`.
+
 ## Tier cumulative model
 
 Tiers form an **extends chain** — each tier inherits all `paths` from its parent and adds its own. Manifests live in `eval/fixtures/tiers/*.yaml`.
