@@ -160,6 +160,7 @@ Before starting any workflow phase, verify all required skills can be loaded in 
 
 ```yaml
 required_skills:
+  - aws-risk-advisory
   - aws-case-design
   - aws-case-reviewer
   - aws-case-fixer
@@ -233,6 +234,52 @@ If a subagent is found to have **loaded an AWS skill** or **produced a gate arti
 
 ---
 
+## Phase 0.5 — Risk Advisory
+
+Runs **after Phase 0** and **before Phase 1** (`aws-case-design`) when `run_mode` is `full` or `case-only`.
+
+**Skip** when `run_mode == codegen-only` → set `phases.risk_advisory.status = skipped` and proceed to Phase 1 without advisory.
+
+### workflow-state (initial fields)
+
+```yaml
+phases:
+  risk_advisory:
+    status: pending | done | skipped | unavailable | failed
+    mode: advisory          # advisory | required — default advisory
+    weak_data_treat_as: done  # done | unavailable — default done
+    outputs: []
+    hotspots_count: 0
+    watchlist_high_count: 0
+    degraded: false
+    validation_errors: []
+```
+
+### Steps
+
+```
+Load aws-risk-advisory
+  The skill owns the full pipeline internally:
+    - runs aws risk context (CLI)
+    - applies weak_data_treat_as branch
+    - writes advisory.json + advisory.md
+    - runs aws risk validate-advisory
+    - updates workflow-state.yaml
+```
+
+See `aws-risk-advisory` SKILL.md for the step-by-step.
+
+**Boundary:** Phase 0.5 only produces `risk-advisory/` artifacts. Do not inline or simulate `aws-case-design`.
+
+### Phase 1 gate (summary)
+
+- `status == pending` → **STOP** (must run Phase 0.5 or explicit `skipped`)
+- `status == done` → Phase 1 **must read** advisory; missing files → STOP
+- `mode == required` and `status in [failed, unavailable]` → **STOP**
+- `mode == advisory` and `status in [skipped, unavailable, failed]` → warning + continue without advisory
+
+---
+
 If any **required** skill fails to load via the skill tool:
 
 First, attempt the **on-disk fallback**:
@@ -294,6 +341,7 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 | Phase | Skill to Load |
 |---|---|
 | Phase 0: Registry Check | (verify all required skills above) |
+| Phase 0.5: Risk Advisory | `aws-risk-advisory` (skill runs CLI + synthesis + validation internally) |
 | Phase 1: Case Design | `aws-case-design` |
 | Phase 2: Case Review | `aws-case-reviewer` |
 | Phase 3: Case Fix | `aws-case-fixer` |
@@ -404,6 +452,17 @@ phases:
       - aws-inspect
       - aws-report-generator
       - aws-archive
+      - aws-risk-advisory
+
+  risk_advisory:
+    status: pending | done | skipped | unavailable | failed
+    mode: advisory | required
+    weak_data_treat_as: done | unavailable
+    outputs: []
+    hotspots_count: 0
+    watchlist_high_count: 0
+    degraded: false
+    validation_errors: []
 
   case_design:
     status: pending | done | failed

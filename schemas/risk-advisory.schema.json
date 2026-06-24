@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aws.local/schemas/risk-advisory.schema.json",
+  "title": "RiskAdvisory",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "change_id",
+    "context_ref",
+    "generated_at",
+    "executive_summary",
+    "hotspots",
+    "watchlist",
+    "case_design_guidance",
+    "open_questions_for_case_design"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "change_id": { "type": "string" },
+    "context_ref": { "type": "string" },
+    "hotspots": { "type": "array" },
+    "watchlist": { "type": "array" }
+  },
+  "additionalProperties": true
+}

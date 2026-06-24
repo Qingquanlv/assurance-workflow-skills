@@ -10,10 +10,15 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
-2. Read **Required** inputs:
+2. **Risk Advisory gate (Phase 0.5):** If `phases.risk_advisory` exists (written by `aws-risk-advisory`), apply gate logic from `docs/design/2026-06-19-risk-advisory-spec.md` §3.2:
+   - `status == pending` → **STOP**
+   - `status == done` → read `risk-advisory/advisory.json` and `advisory.md`; missing files → **STOP**
+   - `mode == required` and `status in [failed, unavailable]` → **STOP**
+   - `mode == advisory` and `status in [skipped, unavailable, failed]` → record warning, continue without advisory
+3. Read **Required** inputs:
    - user requirement text
    - project source root or enough requirement context to derive QA scope
-3. Read **Optional** inputs (missing = warning, do **not** STOP):
+4. Read **Optional** inputs (missing = warning, do **not** STOP):
    - existing `qa/cases/**`
    - existing `tests/api/**`
    - existing `tests/e2e/**`
@@ -21,8 +26,8 @@ Do not rely on prior conversation context.
    - existing `qa/changes/**`
    - backend / frontend source files (when available)
    If optional QA directories are missing, record a warning and continue as a **new QA asset initialization** path. Do **not** stop solely because `qa/cases/`, `tests/`, or `qa/knowledge/` does not exist.
-4. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
-5. Use files as the sole source of truth.
+5. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
+6. Use files as the sole source of truth.
 
 **After completing work:**
 
@@ -77,17 +82,33 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
+0. **Risk Advisory gate** — read `phases.risk_advisory`; if `done`, read advisory files (internal; no dump to user)
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
-4. **Ask clarifying questions one at a time** — cover 8 categories, one question per message
-5. **Analyze risks internally** — do NOT dump full risk analysis to the user
-6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
+   - If `phases.risk_advisory.status == done`: after module confirm, show **3–5 bullet Risk Advisory 摘要** (confidence tags; path to `advisory.md`; no full dump)
+4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists
+5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
+6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
 7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section — one entry per case with a `case_id`, layer assignment, and `reason`)
+8. **Write `proposal.md`** — must include `## Risk Advisory Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`
 9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
-10. **Self-review case delta YAML** — validate schema, required fields, delta operation rules, semantic rules
-11. **Hand off** — report completion; the orchestrator or user will invoke `aws-case-reviewer`
+10. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
+11. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
+
+### case.yaml boundary (Risk Advisory)
+
+**MUST NOT** persist in `case.yaml`:
+
+- advisory IDs (`WL-*`, `HS-*`, `KPI-*` as trace fields)
+- `evidence_ids[]`, `adopted[]`, `override[]`, `gap[]`
+- `risk_advisory`, `advisory_input`, or Reconcile blocks
+
+**Only** user-approved case business fields (priority, type, assertions, automation, etc.).
+
+Risk Advisory disposition lives **only** in `proposal.md` (`## Risk Advisory Input`).
+
+**Readiness:** generated `case.yaml` must not contain Risk Advisory Input / evidence_ids / WL-* / HS-* metadata keys.
 
 ---
 
