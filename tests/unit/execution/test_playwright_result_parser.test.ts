@@ -24,7 +24,7 @@ describe('parsePlaywrightJson', () => {
     const result = parsePlaywrightJson(opts(jsonPath));
 
     expect(result.status).toBe('passed');
-    expect(result.cases[0].case_id).toBe('TC-ORDER-001');
+    expect(result.cases[0].case_id).toBe('TC_ORDER_001');
     expect(result.cases[0].duration_ms).toBe(1234);
     expect(result.source.framework).toBe('playwright');
   });

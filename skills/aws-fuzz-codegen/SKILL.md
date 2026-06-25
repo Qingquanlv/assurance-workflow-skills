@@ -50,12 +50,14 @@ from app.main import app  # per plan's schema acquisition strategy
 
 schema = schemathesis.from_asgi("/openapi.json", app)
 
+# case_id TC_MENU_FUZZ_001
 @schema.parametrize(endpoint="/api/v1/menu/create")
-def test_menu_create_fuzz(case):
+def test_tc_menu_fuzz_001__menu_create(case):
     response = case.call_asgi()
     case.validate_response(response)   # asserts: no 5xx, response conforms to declared schema
 ```
 
+- **The test function name MUST be prefixed with the normalized case_id** (lowercase case_id + `__` + description): `test_<case_id lowercase>__<description>`. e.g. case_id `TC_MENU_FUZZ_001` → `def test_tc_menu_fuzz_001__menu_create(case)`. This is the **only mandatory traceability marker** (not a comment/docstring); `aws run` recovers the case_id from the function name (case-insensitive).
 - Use `from_asgi` (in-process) when the plan specifies it; otherwise `from_uri` against the live base URL.
 - Pass auth via the plan's strategy (reuse fixtures / data-knowledge). Never hardcode real tokens.
 - Output exactly to `tests/fuzz/test_<module>_fuzz.py` so the CLI runner discovers it.

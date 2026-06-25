@@ -190,15 +190,15 @@ Check that case files are valid YAML and follow the delta format produced by `aw
 schema_version: "1.0"
 
 added:
-  - case_id: "TC-USER-AUTH-001"
+  - case_id: "TC_USER_AUTH_001"
     title: "..."
     # ... all required case fields
 modified:
-  - case_id: "TC-USER-AUTH-002"
+  - case_id: "TC_USER_AUTH_002"
     title: "..."
     # ... all required case fields
 removed:
-  - case_id: "TC-USER-AUTH-003"
+  - case_id: "TC_USER_AUTH_003"
     reason: "..."
 ```
 
@@ -209,12 +209,12 @@ Do not expect a top-level `case_id` in the change delta file — cases are alway
 **Required fields per case under `added` / `modified`:**
 
 ```yaml
-case_id: "TC-[A-Z]+(-[A-Z]+)*-[0-9]{3}"  # e.g. TC-USER-001, TC-USER-AUTH-002
+case_id: "TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}"  # underscore-only; e.g. TC_USER_001, TC_USER_AUTH_002 — hyphens are NOT allowed
 title: "..."
 status: draft|active|deprecated
 priority: P0|P1|P2|P3
 severity: blocker|critical|major|minor
-type: API|E2E|Unit|Visual|Mixed
+type: API|E2E|Fuzz|Performance
 module: "..."
 requirement_id: "..."
 feature_name: "..."
@@ -417,7 +417,7 @@ Finding example (Type 1):
   "severity": "medium",
   "category": "layering",
   "file": "qa/changes/<change-id>/cases/<module>/case.yaml",
-  "message": "TC-MENU-001 validation is verifiable via single API request; set type to API not E2E.",
+  "message": "TC_MENU_001 validation is verifiable via single API request; set type to API not E2E.",
   "suggestion": "Change type from E2E to API.",
   "auto_fix_allowed": true,
   "fix_scope": ["type"],

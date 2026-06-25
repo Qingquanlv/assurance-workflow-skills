@@ -48,12 +48,14 @@ from locust import HttpUser, task, between
 class MenuListUser(HttpUser):
     wait_time = between(1, 2)
 
+    # case_id TC_MENU_PERF_001
     @task
-    def menu_list(self):
+    def tc_menu_perf_001__menu_list(self):
         # auth per plan's strategy — never hardcode real tokens
         self.client.get("/api/v1/menu/list", name="menu-list-query")
 ```
 
+- **The `@task` method name MUST be prefixed with the normalized case_id** (lowercase case_id + `__` + description): `def <case_id lowercase>__<description>(self)`. Locust tasks do **not** take a `test_` prefix. e.g. case_id `TC_MENU_PERF_001` → `def tc_menu_perf_001__menu_list(self)`. This is the mandatory source-level traceability marker. (Keep `name=` matching the scenario `capability` for threshold mapping — do **not** move the case_id into `name=` if it would break that mapping.)
 - Endpoints, task weights, and the `name=` labels come from the plan and MUST match the scenario `capability` so the runner can map measured stats back to thresholds.
 - The locustfile declares **load behavior only**; absolute thresholds (`p95_ms`, `error_rate_max`) live in the case/plan and are enforced by the CLI runner against Locust output — do **not** re-encode thresholds inside the locustfile.
 - Output exactly to `tests/perf/locustfile_<module>.py`.

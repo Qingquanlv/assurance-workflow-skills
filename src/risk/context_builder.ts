@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ApiCaseResult, E2eCaseResult } from '../core/types';
+import { canonicalizeCaseId, caseIdTextMatcher } from '../core/case_id';
 import { sampleArchives, readLayerResult } from './archive_sampler';
 import { loadCasesFromQa } from './case_loader';
 import { getChangedFiles } from './git_diff';
@@ -14,7 +15,7 @@ import {
   modulePassRate,
   recentFailCaseIds,
 } from './pass_rate';
-import { resolveRequirementPath } from './safety';
+import { RiskSafetyError, resolveRequirementPath } from './safety';
 import { contextJsonPath } from './paths';
 import {
   BuildContextOptions,
@@ -46,6 +47,9 @@ export function buildRiskContext(options: BuildContextOptions): RiskContext {
   let requirement_summary: string | undefined;
   if (requirementPath) {
     const reqPath = resolveRequirementPath(projectRoot, requirementPath);
+    if (!fs.existsSync(reqPath) || !fs.statSync(reqPath).isFile()) {
+      throw new RiskSafetyError(`--requirement is not a file: ${reqPath}`);
+    }
     requirement_summary = fs.readFileSync(reqPath, 'utf-8').slice(0, 2000);
   }
 
@@ -58,18 +62,17 @@ export function buildRiskContext(options: BuildContextOptions): RiskContext {
   const affected = resolveAffectedCases(modules, allCases);
 
   for (const mod of modules) {
-    const modFiles = git.changed_files.filter((f) =>
-      mod.matched_rules.some((rule) => f.includes(rule.replace(/\*\*/g, '').replace(/\*/g, ''))),
-    );
-    const changedForModule = modFiles.length ? modFiles : git.changed_files;
-    if (!changedForModule.length) continue;
+    // Files that actually matched this module's rules (computed via minimatch in
+    // matchModules). No all-files fallback: a module only ever lists the files
+    // that mapped to it, never the entire changeset.
+    if (!mod.changed_files.length) continue;
     const evId = evidenceIdForDiff(mod.name, mod.confidence);
     evidence.push({
       id: evId,
       type: 'code_change',
       module: mod.name,
       confidence: mod.confidence,
-      changed_files: changedForModule,
+      changed_files: mod.changed_files,
       source: 'git diff',
     });
   }
@@ -106,6 +109,9 @@ export function buildRiskContext(options: BuildContextOptions): RiskContext {
     for (const mod of modules) {
       const caseIds = affected.affected_cases_by_module[mod.name] ?? [];
       if (!caseIds.length) continue;
+      // Legacy archives use hyphen ids while current cases use underscore ids;
+      // compare on the canonical key so recent failures are not silently dropped.
+      const caseKeys = new Set(caseIds.map(canonicalizeCaseId));
       const modRate = modulePassRate(caseIds, caseRates);
       const sourceBatch = batches[0];
       const source = sourceBatch
@@ -115,7 +121,7 @@ export function buildRiskContext(options: BuildContextOptions): RiskContext {
         module: mod.name,
         layer,
         moduleRate: modRate,
-        recentFails: recentFails.filter((id) => caseIds.includes(id)),
+        recentFails: recentFails.filter((id) => caseKeys.has(canonicalizeCaseId(id))),
         passRateFailThreshold,
         source,
       });
@@ -135,7 +141,10 @@ export function buildRiskContext(options: BuildContextOptions): RiskContext {
     newestMs != null && Date.now() - newestMs > stalenessDays * 24 * 60 * 60 * 1000;
 
   if (!archives.length) degraded_reasons.push('no_archives: qa/archive is empty or missing');
-  if (!git.changed_files.length && !git.no_git) {
+  // Record no_diff whenever there is no diff to work from — including non-git
+  // projects, where a diff is likewise unavailable (the no_git reason is also
+  // present, but isWeakData keys off no_diff).
+  if (!git.changed_files.length) {
     degraded_reasons.push('no_diff: no changed files vs diff base');
   }
   if (!allCases.length) degraded_reasons.push('no_cases: qa/cases is empty or missing');
@@ -210,6 +219,10 @@ function inferTestFiles(projectRoot: string, caseIds: string[]): string[] {
   if (!caseIds.length) return [];
   const testsRoot = path.join(projectRoot, 'tests');
   if (!fs.existsSync(testsRoot)) return [];
+  // Generated tests embed the id as a lowercase function prefix with `-`/`_`
+  // separators (test_tc_role_api_001__…), so a literal includes() on the
+  // canonical id (TC_ROLE_API_001) misses. Match case/separator-insensitively.
+  const matchers = caseIds.map(caseIdTextMatcher);
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -217,7 +230,7 @@ function inferTestFiles(projectRoot: string, caseIds: string[]): string[] {
       if (entry.isDirectory()) walk(full);
       else if (/\.(py|ts|spec\.ts|js)$/.test(entry.name)) {
         const text = fs.readFileSync(full, 'utf-8');
-        if (caseIds.some((id) => text.includes(id))) {
+        if (matchers.some((re) => re.test(text))) {
           found.push(path.relative(projectRoot, full));
         }
       }

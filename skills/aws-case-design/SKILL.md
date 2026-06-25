@@ -469,17 +469,17 @@ Example:
 For each case in this change, record the layer assignment and rationale.
 Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
-- TC-MENU-001: API
+- TC_MENU_001: API
   - reason: <why API is sufficient, e.g. validates status code / response body directly>
 
-- TC-MENU-E2E-001: E2E
+- TC_MENU_E2E_001: E2E
   - reason: <why E2E is required, e.g. validates browser interaction and live UI update>
 
-- TC-MENU-FUZZ-001: Fuzz
-  - reason: <endpoint accepts user-input schema, needs robustness; relates TC-MENU-001>
+- TC_MENU_FUZZ_001: Fuzz
+  - reason: <endpoint accepts user-input schema, needs robustness; relates TC_MENU_001>
 
-- TC-MENU-PERF-001: Performance
-  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC-MENU-002>
+- TC_MENU_PERF_001: Performance
+  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC_MENU_002>
 
 ## Data Needs
 
@@ -712,7 +712,7 @@ removed: []
 **Every case under `added` or `modified` MUST include all of these fields:**
 
 ```yaml
-case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-MENU-FUZZ-001, TC-MENU-PERF-001
+case_id: <stable-case-id>            # underscore-only, e.g. TC_USER_AUTH_001, TC_MENU_FUZZ_001, TC_MENU_PERF_001 (hyphens NOT allowed)
 title: <human-readable-title>
 status: draft | active | deprecated
 priority: P0 | P1 | P2 | P3
@@ -810,7 +810,7 @@ One case has exactly one `type`. Fuzz and Performance are **independent cases** 
 
 ```yaml
 modified:
-  - case_id: TC-USER-AUTH-002
+  - case_id: TC_USER_AUTH_002
     title: 有效登录用户可以成功登出
     status: draft
     priority: P0
@@ -863,8 +863,8 @@ modified:
       - 携带无效 Token 调用登出接口
 
     related_cases:
-      - TC-USER-AUTH-003
-      - TC-USER-AUTH-004
+      - TC_USER_AUTH_003
+      - TC_USER_AUTH_004
 
     automation:
       required: true
@@ -958,7 +958,7 @@ edge_cases:
   - 未携带 Token 调用登出接口
 
 related_cases:
-  - TC-USER-AUTH-003
+  - TC_USER_AUTH_003
 
 automation:
   required: true
@@ -1234,7 +1234,7 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 
 **Per-case fields (every added / modified case):**
 
-9. `case_id` — exists and matches `TC-[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{3}` format (e.g. `TC-USER-001`, `TC-API-V2-001`, `TC-M4-E2E-001`, `TC-3D-ASSET-001`).
+9. `case_id` — exists and matches `TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}` format (underscore-only; hyphens NOT allowed; e.g. `TC_USER_001`, `TC_API_V2_001`, `TC_M4_E2E_001`, `TC_3D_ASSET_001`).
 10. `case_id` — unique within this delta.
 11. `title` — exists and is not empty.
 12. `status` — one of draft, active, deprecated.
@@ -1338,7 +1338,7 @@ change_id: <change-id>
 links:
   - requirement_id: REQ-002
     test_condition_id: COND-USER-AUTH-001
-    case_id: TC-USER-AUTH-002
+    case_id: TC_USER_AUTH_002
     plan:
       api: qa/changes/<change-id>/plans/api-plan.md
       e2e: null

@@ -6,6 +6,7 @@ export interface ModuleImpact {
   name: string;
   confidence: ConfidenceLevel;
   matched_rules: string[];
+  changed_files: string[];
   reason?: string;
 }
 

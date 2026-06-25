@@ -13,13 +13,22 @@ function walkYamlFiles(dir: string): string[] {
       out.push(full);
     }
   }
-  return out;
+  return out.sort();
 }
 
 function inferModuleFromPath(filePath: string, casesRoot: string): string {
   const rel = path.relative(casesRoot, path.dirname(filePath));
   const first = rel.split(path.sep).filter(Boolean)[0];
   return first ?? 'unknown';
+}
+
+function collectCaseItems(root: Record<string, unknown>): unknown[] {
+  const items: unknown[] = [];
+  if (Array.isArray(root.cases)) items.push(...root.cases);
+  if (Array.isArray(root.added)) items.push(...root.added);
+  if (Array.isArray(root.modified)) items.push(...root.modified);
+  if (!items.length) items.push(root);
+  return items;
 }
 
 export function loadCasesFromQa(projectRoot: string): LoadedCase[] {
@@ -37,7 +46,7 @@ export function loadCasesFromQa(projectRoot: string): LoadedCase[] {
     if (!doc || typeof doc !== 'object') continue;
     const root = doc as Record<string, unknown>;
     const defaultModule = inferModuleFromPath(file, casesRoot);
-    const list = Array.isArray(root.cases) ? root.cases : [root];
+    const list = collectCaseItems(root);
     for (const item of list) {
       if (!item || typeof item !== 'object') continue;
       const c = item as Record<string, unknown>;

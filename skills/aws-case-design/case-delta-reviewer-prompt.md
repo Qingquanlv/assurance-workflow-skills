@@ -49,7 +49,7 @@ You will be given:
 
 ### 3. Required Fields (every added / modified case)
 
-- [ ] `case_id` — exists, non-empty, matches `TC-[A-Z]+-[A-Z]+-[0-9]{3}` format.
+- [ ] `case_id` — exists, non-empty, matches `TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}` format (underscore-only; hyphens NOT allowed).
 - [ ] `case_id` — unique within this delta.
 - [ ] `title` — exists, non-empty.
 - [ ] `status` — one of `draft`, `active`, `deprecated`.

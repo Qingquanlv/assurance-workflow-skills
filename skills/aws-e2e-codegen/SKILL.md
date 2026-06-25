@@ -302,6 +302,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 - [ ] 更新 `tests/e2e/conftest.py`（仅 plan 明确要求时）
 - [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen` 含 review_gate_file、codegen_readiness、data_setup、fixtures、warnings_carried、known_product_issues）
 - [ ] 创建 `codegen/` 目录（若不存在），写入 `e2e-codegen-summary.md`
+- [ ] 校验：每个测试函数名以归一化 case_id（小写）为前缀 + `__` 分隔，覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）
 - [ ] 输出 E2E Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
@@ -311,7 +312,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 必须满足：
 
 - 使用 Python Playwright（`playwright` + `pytest-playwright`）。
-- 每个测试函数必须包含 Case ID（写入 docstring 或注释）。
+- **测试函数名必须以归一化 case_id 为前缀**，并用**双下划线** `__` 与描述分隔：`test_<case_id 小写>__<description>`。归一化 = 把 case.yaml 的 case_id 转小写（不含连字符）。例如 case_id `TC_ROLE_E2E_001` → `def test_tc_role_e2e_001__admin_create_edit_flow(page):`。这是**唯一强制的可追溯标记**，不依赖注释/docstring；`aws run` 的结果解析器据此从函数名回填 case_id（匹配无视大小写）。一个 case 拆成多个函数时，各函数共用同一 case_id 前缀。
 - 每个断言必须来自 `case.yaml` 或 `e2e-codegen-plan.md`，不得凭空添加。
 - 默认不生成 POM。
 - 默认不生成 `/tests/e2e/pages/*`。

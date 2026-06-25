@@ -47,11 +47,15 @@ export function matchModules(changedFiles: string[], config: ModuleMapConfig): M
             name: mod,
             confidence: rule.confidence,
             matched_rules: [rule.pattern],
+            changed_files: [file],
             reason: rule.reason,
           });
         } else {
           if (!existing.matched_rules.includes(rule.pattern)) {
             existing.matched_rules.push(rule.pattern);
+          }
+          if (!existing.changed_files.includes(file)) {
+            existing.changed_files.push(file);
           }
           existing.confidence = mergeConfidence(existing.confidence, rule.confidence);
           if (rule.reason && !existing.reason) existing.reason = rule.reason;

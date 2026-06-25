@@ -1,4 +1,5 @@
 import { ApiCaseResult, E2eCaseResult } from '../core/types';
+import { canonicalizeCaseId } from '../core/case_id';
 import {
   ArchiveBatchSample,
   ConfidenceLevel,
@@ -24,16 +25,19 @@ export interface PassRateAggregate {
   pass_rate: number;
 }
 
+// Keyed by the canonical case-id so legacy hyphen archives aggregate together
+// with current underscore cases (and look up correctly in modulePassRate).
 export function aggregateCasePassRate(samples: CaseRow[][]): Map<string, PassRateAggregate> {
   const map = new Map<string, { passed: number; executed: number }>();
   for (const batch of samples) {
     for (const row of batch) {
       const norm = normalizeStatus(row.status);
       if (norm === 'skipped' || norm === 'ignored') continue;
-      const cur = map.get(row.case_id) ?? { passed: 0, executed: 0 };
+      const key = canonicalizeCaseId(row.case_id);
+      const cur = map.get(key) ?? { passed: 0, executed: 0 };
       cur.executed += 1;
       if (norm === 'passed') cur.passed += 1;
-      map.set(row.case_id, cur);
+      map.set(key, cur);
     }
   }
   const out = new Map<string, PassRateAggregate>();
@@ -54,7 +58,7 @@ export function modulePassRate(
   let passed = 0;
   let executed = 0;
   for (const id of caseIds) {
-    const r = caseRates.get(id);
+    const r = caseRates.get(canonicalizeCaseId(id));
     if (!r) continue;
     passed += r.passed_runs;
     executed += r.executed_runs;
@@ -78,8 +82,9 @@ export function recentFailCaseIds(
   for (const batch of sorted) {
     for (const row of readCases(batch, layer)) {
       if (normalizeStatus(row.status) !== 'failed') continue;
-      if (seen.has(row.case_id)) continue;
-      seen.add(row.case_id);
+      const key = canonicalizeCaseId(row.case_id);
+      if (seen.has(key)) continue;
+      seen.add(key);
       ordered.push(row.case_id);
     }
   }
