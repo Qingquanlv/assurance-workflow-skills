@@ -133,6 +133,7 @@ use skill aws/aws-case-design
 | Skill | Description |
 |-------|-------------|
 | `aws-workflow` | Full orchestration skill, loaded directly with `use skill aws-workflow` |
+| `aws-risk-advisory` | Phase 0.5 risk advisory — run before `aws-case-design` |
 | `aws-case-design` | Analyze requirement and generate QA case delta |
 | `aws-case-reviewer` | Review case artifacts, write `case-review.json` |
 | `aws-case-fixer` | Apply safe auto-fixes from `case-review.json` |

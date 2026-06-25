@@ -227,6 +227,7 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 - [ ] 检查 Mandatory Review JSON Gate（完整 gate + coverage gap 规则）
 - [ ] 校验测试数据 capability（复用已有 fixture 或仅在授权时新建）
 - [ ] 生成或追加 `tests/api/test_<module>_api.py`
+- [ ] 校验：每个测试函数名以归一化 case_id（小写）为前缀 + `__` 分隔，覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）
 - [ ] 生成 `tests/fixtures/<module>_fixtures.py`（仅当 plan + data-knowledge 授权）
 - [ ] 生成 `tests/api/helpers/<module>_api.py`（helper mapping 非空时）
 - [ ] 更新 `tests/api/conftest.py`（仅 plan 明确要求时）
@@ -241,7 +242,7 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 必须满足：
 
 - 使用 pytest。
-- 每个测试函数必须包含 Case ID（作为注释或 docstring）。
+- **测试函数名必须以归一化 case_id 为前缀**，并用**双下划线** `__` 与描述分隔：`test_<case_id 小写>__<description>`。归一化 = 把 case.yaml 的 case_id 转小写（case_id 本身已是下划线分隔、不含连字符）。例如 case_id `TC_ROLE_API_001` → `def test_tc_role_api_001__role_list_happy_path(...)`。这是**唯一强制的可追溯标记**，不依赖注释/docstring；`aws run` 的结果解析器据此从函数名回填 case_id（匹配无视大小写）。一个 case 拆成多个函数时，各函数共用同一 case_id 前缀。
 - 每个断言必须来自 `case.yaml` 或 `api-codegen-plan.md`，不得自行扩展。
 - 不得硬编码生产账号、密码、Token。
 - 有效 Token 必须来自 fixture 或 `.aws/data-knowledge.yaml` 中的 auth capability。
@@ -249,6 +250,14 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 - 无效 Token Case 可使用本地固定无效字符串（如 `invalid-token`）。
 - 不得生成 E2E 代码。
 - 不得生成 POM（Page Object Model）。
+
+**函数命名骨架（强制）：**
+
+```python
+# tests/api/test_role_api.py — case_id TC_ROLE_API_001
+def test_tc_role_api_001__role_list_happy_path(api_client, auth_headers):
+    ...
+```
 
 ### tests/fixtures/<module>_fixtures.py
 

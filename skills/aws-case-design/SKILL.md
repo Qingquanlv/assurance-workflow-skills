@@ -10,10 +10,15 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
-2. Read **Required** inputs:
+2. **Risk Advisory gate (Phase 0.5):** If `phases.risk_advisory` exists (written by `aws-risk-advisory`), apply gate logic from `docs/design/2026-06-19-risk-advisory-spec.md` §3.2:
+   - `status == pending` → **STOP**
+   - `status == done` → read `risk-advisory/advisory.json` and `advisory.md`; missing files → **STOP**
+   - `mode == required` and `status in [failed, unavailable]` → **STOP**
+   - `mode == advisory` and `status in [skipped, unavailable, failed]` → record warning, continue without advisory
+3. Read **Required** inputs:
    - user requirement text
    - project source root or enough requirement context to derive QA scope
-3. Read **Optional** inputs (missing = warning, do **not** STOP):
+4. Read **Optional** inputs (missing = warning, do **not** STOP):
    - existing `qa/cases/**`
    - existing `tests/api/**`
    - existing `tests/e2e/**`
@@ -21,8 +26,8 @@ Do not rely on prior conversation context.
    - existing `qa/changes/**`
    - backend / frontend source files (when available)
    If optional QA directories are missing, record a warning and continue as a **new QA asset initialization** path. Do **not** stop solely because `qa/cases/`, `tests/`, or `qa/knowledge/` does not exist.
-4. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
-5. Use files as the sole source of truth.
+5. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
+6. Use files as the sole source of truth.
 
 **After completing work:**
 
@@ -77,17 +82,33 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
+0. **Risk Advisory gate** — read `phases.risk_advisory`; if `done`, read advisory files (internal; no dump to user)
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
-4. **Ask clarifying questions one at a time** — cover 8 categories, one question per message
-5. **Analyze risks internally** — do NOT dump full risk analysis to the user
-6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
+   - If `phases.risk_advisory.status == done`: after module confirm, show **3–5 bullet Risk Advisory 摘要** (confidence tags; path to `advisory.md`; no full dump)
+4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists
+5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
+6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
 7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section — one entry per case with a `case_id`, layer assignment, and `reason`)
+8. **Write `proposal.md`** — must include `## Risk Advisory Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`
 9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
-10. **Self-review case delta YAML** — validate schema, required fields, delta operation rules, semantic rules
-11. **Hand off** — report completion; the orchestrator or user will invoke `aws-case-reviewer`
+10. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
+11. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
+
+### case.yaml boundary (Risk Advisory)
+
+**MUST NOT** persist in `case.yaml`:
+
+- advisory IDs (`WL-*`, `HS-*`, `KPI-*` as trace fields)
+- `evidence_ids[]`, `adopted[]`, `override[]`, `gap[]`
+- `risk_advisory`, `advisory_input`, or Reconcile blocks
+
+**Only** user-approved case business fields (priority, type, assertions, automation, etc.).
+
+Risk Advisory disposition lives **only** in `proposal.md` (`## Risk Advisory Input`).
+
+**Readiness:** generated `case.yaml` must not contain Risk Advisory Input / evidence_ids / WL-* / HS-* metadata keys.
 
 ---
 
@@ -448,17 +469,17 @@ Example:
 For each case in this change, record the layer assignment and rationale.
 Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
-- TC-MENU-001: API
+- TC_MENU_001: API
   - reason: <why API is sufficient, e.g. validates status code / response body directly>
 
-- TC-MENU-E2E-001: E2E
+- TC_MENU_E2E_001: E2E
   - reason: <why E2E is required, e.g. validates browser interaction and live UI update>
 
-- TC-MENU-FUZZ-001: Fuzz
-  - reason: <endpoint accepts user-input schema, needs robustness; relates TC-MENU-001>
+- TC_MENU_FUZZ_001: Fuzz
+  - reason: <endpoint accepts user-input schema, needs robustness; relates TC_MENU_001>
 
-- TC-MENU-PERF-001: Performance
-  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC-MENU-002>
+- TC_MENU_PERF_001: Performance
+  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC_MENU_002>
 
 ## Data Needs
 
@@ -691,7 +712,7 @@ removed: []
 **Every case under `added` or `modified` MUST include all of these fields:**
 
 ```yaml
-case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-MENU-FUZZ-001, TC-MENU-PERF-001
+case_id: <stable-case-id>            # underscore-only, e.g. TC_USER_AUTH_001, TC_MENU_FUZZ_001, TC_MENU_PERF_001 (hyphens NOT allowed)
 title: <human-readable-title>
 status: draft | active | deprecated
 priority: P0 | P1 | P2 | P3
@@ -789,7 +810,7 @@ One case has exactly one `type`. Fuzz and Performance are **independent cases** 
 
 ```yaml
 modified:
-  - case_id: TC-USER-AUTH-002
+  - case_id: TC_USER_AUTH_002
     title: 有效登录用户可以成功登出
     status: draft
     priority: P0
@@ -842,8 +863,8 @@ modified:
       - 携带无效 Token 调用登出接口
 
     related_cases:
-      - TC-USER-AUTH-003
-      - TC-USER-AUTH-004
+      - TC_USER_AUTH_003
+      - TC_USER_AUTH_004
 
     automation:
       required: true
@@ -937,7 +958,7 @@ edge_cases:
   - 未携带 Token 调用登出接口
 
 related_cases:
-  - TC-USER-AUTH-003
+  - TC_USER_AUTH_003
 
 automation:
   required: true
@@ -1213,7 +1234,7 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 
 **Per-case fields (every added / modified case):**
 
-9. `case_id` — exists and matches `TC-[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{3}` format (e.g. `TC-USER-001`, `TC-API-V2-001`, `TC-M4-E2E-001`, `TC-3D-ASSET-001`).
+9. `case_id` — exists and matches `TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}` format (underscore-only; hyphens NOT allowed; e.g. `TC_USER_001`, `TC_API_V2_001`, `TC_M4_E2E_001`, `TC_3D_ASSET_001`).
 10. `case_id` — unique within this delta.
 11. `title` — exists and is not empty.
 12. `status` — one of draft, active, deprecated.
@@ -1317,7 +1338,7 @@ change_id: <change-id>
 links:
   - requirement_id: REQ-002
     test_condition_id: COND-USER-AUTH-001
-    case_id: TC-USER-AUTH-002
+    case_id: TC_USER_AUTH_002
     plan:
       api: qa/changes/<change-id>/plans/api-plan.md
       e2e: null

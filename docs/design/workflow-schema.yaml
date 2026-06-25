@@ -56,11 +56,19 @@ phases:
     produces: [workflow-state.yaml]
     gate: registry-gate
 
+  - id: risk-advisory
+    skill: aws-risk-advisory
+    requires: [skill-registry-check]
+    produces: [risk-advisory/context.json]
+    when: "params.run_mode in ['full', 'case-only']"
+    # Phase 0.5: CLI aws risk context + skill; see docs/design/2026-06-19-risk-advisory-spec.md
+
   - id: case-design
     skill: aws-case-design
-    requires: [skill-registry-check]
-    produces: [cases/]                # at least one cases/**/case.yaml
-    when: "params.run_mode in ['full', 'case-only', 'plan-only', 'codegen-only', 'review-case', 'review-plan']"
+    requires: [risk-advisory]
+    produces: [cases/]
+    when: "params.run_mode in ['full', 'case-only']"
+    # Phase 1 prose gate: read phases.risk_advisory when present (see risk-advisory spec §3.2)
 
   - id: case-review
     skill: aws-case-reviewer

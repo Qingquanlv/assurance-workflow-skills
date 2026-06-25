@@ -5,6 +5,7 @@
  * skills without symlinks or manual config.
  *
  * Skills included:
+ *   - aws-risk-advisory Phase 0.5 risk advisory before case design
  *   - aws-case-design   QA requirements clarification and case delta generation
  *   - aws-api-plan      API test planning
  *   - aws-api-codegen   API test code generation (pytest)

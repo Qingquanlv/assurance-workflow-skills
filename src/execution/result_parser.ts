@@ -4,16 +4,34 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { canonicalizeCaseId } from '../core/case_id';
 import { parseXml } from '../utils/xml_io';
 import { ApiCaseResult, ApiResult, E2eCaseResult, E2eResult, ExecutionStatus } from '../core/types';
 
 // ─── Case-ID extraction helpers ──────────────────────────────────────────────
 
-const CASE_ID_RE = /\b(TC-[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)(?=[^A-Z0-9-]|$)/;
+// Canonical case IDs use the underscore form TC_<MODULE>[_<LAYER>]_<NNN>
+// (e.g. TC_ROLE_API_001). Inside a test/locust function name the id is the
+// prefix, delimited from the human description by a DOUBLE separator
+// (test_tc_role_api_001__role_list_happy_path). The id terminates at its numeric
+// suffix; this avoids swallowing description words from older single-underscore
+// names such as test_tc_role_api_001_role_list.
+//
+// Degraded matching (per design): matching is case-insensitive and the legacy
+// hyphen form (TC-ROLE-API-001) is still accepted. The extracted id is
+// canonicalized to the underscore form so it matches case_id values in case.yaml.
+// A lookbehind (not \b) is required because `_` is a word char, so \b would
+// not fire between `test_` and `tc_...`.
+const CASE_ID_RE = /(?<![A-Z0-9])(TC[-_][A-Z0-9]+(?:[-_][A-Z0-9]+)*[-_][0-9]{3})(?=$|[^A-Z0-9])/i;
 
 function extractCaseId(text: string): string {
   const m = CASE_ID_RE.exec(text);
-  return m ? m[1] : '';
+  return m ? normalizeExtractedCaseId(m[1]) : '';
+}
+
+// Shared so name-derived and property-derived ids never diverge in casing.
+function normalizeExtractedCaseId(raw: string): string {
+  return canonicalizeCaseId(raw);
 }
 
 /**
@@ -31,7 +49,7 @@ function extractCaseIdFromProperties(t: Record<string, unknown>): string {
     const p = prop as Record<string, unknown>;
     const attrs = (p['$'] ?? p) as Record<string, string>;
     if (attrs.name === 'case_id' && attrs.value) {
-      return attrs.value;
+      return normalizeExtractedCaseId(attrs.value);
     }
   }
   return '';
