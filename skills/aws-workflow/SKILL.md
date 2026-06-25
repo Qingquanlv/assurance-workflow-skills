@@ -2127,6 +2127,7 @@ Read `review/api-plan-review.json` and verify:
 - no `needs_review` item has `blocking == true`
 - `.aws/data-knowledge.yaml` exists on disk
 - required plan files exist (`api-plan.md`, `api-test-data-plan.md`, `api-codegen-plan.md`, `m3-review-summary.md`)
+- generated fixtures follow **factory-first** rule in `aws-api-codegen` (no HTTP create in setup except create-focused cases; use `make_*` from `tests/factories/test_<module>_<library>.py` modules when present; cleanup preserves invariants and does not raw-delete M2M / closure / soft-delete entities)
 
 ### E2E Codegen (Phase 6B)
 

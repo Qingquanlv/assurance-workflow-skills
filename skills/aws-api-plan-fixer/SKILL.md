@@ -168,9 +168,12 @@ Allowed operations:
 - Add known preconditions from case YAML
 - Add known execution command
 - Add TODO markers only for already documented non-blocking warnings (see below)
-- Add missing cleanup note if cleanup method is already known
+- Add missing cleanup note if cleanup method is already known and preserves invariants; do not turn raw-delete cleanup for M2M, closure, or soft-delete entities into an accepted plan
 - Clarify fixture reuse if present in `.aws/data-knowledge.yaml`
 - Add codegen constraints such as "append only, do not overwrite existing tests"
+- Add missing **Factory / Boundary Strategy** section to `api-test-data-plan.md` (entities already listed; use three-ring skeleton + per-entity table from api-test-data-plan contract)
+- Replace hardcoded `BASE_URL` / credential string in plan text with reference to `tests.config.settings` (plan documentation text only, not generated code)
+- Add plan note: fixtures must not use HTTP create for non-create cases (documentation only; does not authorize keeping HTTP fixtures)
 
 **TODO marker rule:** Do not convert blockers into TODO-only warnings. Unknown endpoint path, unknown method, unknown auth mechanism, missing required fixture, unknown expected response schema, or unsafe cleanup must remain blockers or human-review items. Adding a TODO marker to a genuine blocker does not resolve it and must not change the finding's severity or status.
 
@@ -189,6 +192,7 @@ Do not invent:
 - Business state transition
 - Product behavior
 - Endpoint coverage-gap documentation (`known-product-issues.md`)
+- **`tests/factories/` implementations** — fixer may only document in plan that codegen should add `make_*` in the appropriate `test_<module>_<library>.py` module; must not write factory code
 
 Do not create or modify:
 
@@ -315,7 +319,7 @@ May update:
 - Cleanup notes
 - TODO markers only for unknown factories / states already documented by the reviewer as non-blocking warnings
 
-Do not invent factories or cleanup endpoints.
+Do not invent factories or cleanup endpoints. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
 
 ### `api-codegen-plan.md`
 
