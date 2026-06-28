@@ -537,3 +537,27 @@ export function computeStatus(opts: EngineOptions): StatusReport {
 export function checkGate(opts: EngineOptions & { phaseId: string }): GateReport {
   return new Engine(opts).checkGate(opts.phaseId);
 }
+
+// ─── Dispatch resolution ─────────────────────────────────────────────────────
+
+export interface PhaseDispatchEntry {
+  phase: string;
+  /** 'agent' = dispatch to a task subagent; 'cli' = orchestrator runs aws run directly */
+  kind: 'cli' | 'agent';
+  skill: string | null;
+  agent: string | null;
+}
+
+/**
+ * Map the ready-phase ids from a StatusReport into concrete dispatch entries
+ * that the orchestrator can pass directly to `task` subagent calls.
+ * Pure function of schema — no LLM, no filesystem.
+ */
+export function resolveNextDispatch(next: string[], schema: Schema): PhaseDispatchEntry[] {
+  return next.map(phase => {
+    const def = schema.phasesById.get(phase);
+    if (!def) throw new Error(`resolveNextDispatch: unknown phase '${phase}'`);
+    const kind: 'cli' | 'agent' = def.skill === null ? 'cli' : 'agent';
+    return { phase, kind, skill: def.skill, agent: def.agent ?? null };
+  });
+}

@@ -4,8 +4,9 @@ import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
+  Schema,
 } from '../orchestration/schema';
-import { computeStatus, PhaseStatusKind } from '../orchestration/engine';
+import { computeStatus, resolveNextDispatch, PhaseStatusKind } from '../orchestration/engine';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {
@@ -30,9 +31,10 @@ export function registerStatusCommand(program: Command): void {
       const projectRoot = process.cwd();
 
       let report;
+      let schema: Schema;
       try {
         const schemaFile = findSchemaFile(projectRoot, options.schemaFile);
-        const schema = loadSchemaFromFile(schemaFile);
+        schema = loadSchemaFromFile(schemaFile);
         const validation = validateSchema(schema);
         if (!validation.ok) {
           logError('Schema validation failed:');
@@ -49,7 +51,10 @@ export function registerStatusCommand(program: Command): void {
 
       if (options.next) {
         if (options.json) {
-          console.log(JSON.stringify({ next: report.next }, null, 2));
+          console.log(JSON.stringify({
+            next: resolveNextDispatch(report.next, schema),
+            terminal: report.terminal ?? null,
+          }, null, 2));
         } else {
           console.log(report.next.length ? report.next.join('\n') : '(none)');
         }

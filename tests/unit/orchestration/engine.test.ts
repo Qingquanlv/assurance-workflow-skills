@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { parseSchema, loadSchemaFromFile, Schema } from '../../../src/orchestration/schema';
-import { Engine, computeStatus, checkGate } from '../../../src/orchestration/engine';
+import { Engine, computeStatus, checkGate, resolveNextDispatch, PhaseDispatchEntry } from '../../../src/orchestration/engine';
 
 const REAL_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
 
@@ -318,5 +318,61 @@ describe('real workflow-schema.yaml smoke', () => {
     // every phase has a valid status kind
     const kinds = new Set(['pruned', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
     expect(r.phases.every(p => kinds.has(p.status))).toBe(true);
+  });
+});
+
+const DISPATCH_MINI = `
+schema_version: "1"
+name: dispatch-test
+params:
+  run_mode: { type: enum, values: [full], default: full }
+  test_types: { type: list, default: [api] }
+  max_healing_attempts: { type: int, default: 0 }
+phases:
+  - id: design
+    skill: aws-case-design
+    agent: aws-author
+    requires: []
+    produces: [design.json]
+  - id: run
+    skill: null
+    requires: [design]
+    produces: [run.json]
+loops: {}
+gates: {}
+`;
+
+describe('resolveNextDispatch', () => {
+  let dispatchSchema: Schema;
+  beforeAll(() => { dispatchSchema = parseSchema(DISPATCH_MINI); });
+
+  it('maps an agent phase to kind:agent with skill and agent', () => {
+    const result = resolveNextDispatch(['design'], dispatchSchema);
+    expect(result).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'design', kind: 'agent', skill: 'aws-case-design', agent: 'aws-author' },
+    ]);
+  });
+
+  it('maps a CLI phase (skill: null) to kind:cli with null skill and agent', () => {
+    const result = resolveNextDispatch(['run'], dispatchSchema);
+    expect(result).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'run', kind: 'cli', skill: null, agent: null },
+    ]);
+  });
+
+  it('returns an empty array for an empty next list', () => {
+    expect(resolveNextDispatch([], dispatchSchema)).toEqual([]);
+  });
+
+  it('throws for an unknown phase id', () => {
+    expect(() => resolveNextDispatch(['ghost'], dispatchSchema))
+      .toThrow("resolveNextDispatch: unknown phase 'ghost'");
+  });
+
+  it('handles multiple phases in one call', () => {
+    const result = resolveNextDispatch(['design', 'run'], dispatchSchema);
+    expect(result).toHaveLength(2);
+    expect(result[0].kind).toBe('agent');
+    expect(result[1].kind).toBe('cli');
   });
 });
