@@ -67,6 +67,7 @@ OpenChamber only observes events/graph.
 src/orchestration/subagents/
   roles.ts
   phase_mapping.ts
+  static_contracts.ts
   forbidden_actions.ts
   task_brief.ts
   task_result.ts
@@ -85,6 +86,12 @@ src/orchestration/runtime/
   opencode_command_runtime.ts
 
 src/commands/conductor.ts
+
+schemas/
+  task-brief.schema.json
+  task-result.schema.json
+  conductor-event.schema.json
+  execution-graph.schema.json
 ```
 
 ### Truth sources
@@ -369,7 +376,7 @@ The validator must not trust `present: true` without checking the filesystem.
 
 ### Hard deny paths
 
-All paths are normalized to repo-relative POSIX paths. The path policy rejects empty paths, absolute paths, and paths containing `..`.
+All paths are normalized to repo-relative POSIX paths. The path policy rejects empty paths, absolute paths, and paths containing `..` path traversal.
 
 These hard deny paths always win over allowlists:
 
