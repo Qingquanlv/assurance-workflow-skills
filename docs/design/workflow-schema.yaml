@@ -22,7 +22,7 @@
 #   gate adjudication. The LLM never decides "can I advance" — it asks the CLI.
 # =============================================================================
 
-schema_version: "0.1-draft"
+schema_version: "1"
 name: aws-full
 
 # -----------------------------------------------------------------------------
@@ -146,8 +146,8 @@ phases:
 
   # ---- Execution + inspect --------------------------------------------------
   - id: execution
-    skill: aws-run
-    # requires the codegen phase(s) that are active in this run
+    skill: null
+    # CLI phase: conductor calls `aws run --change <id>` directly (no subagent)
     requires: [api-codegen, e2e-codegen]   # engine drops pruned deps
     requires_mode: any_active              # at least one active dep must be done
     produces: [execution/execution-manifest.yaml]
@@ -183,7 +183,8 @@ phases:
     loop: healing
 
   - id: healing-rerun
-    skill: aws-run
+    skill: null
+    # CLI phase: conductor calls `aws run --change <id>` directly (no subagent)
     requires: [api-codegen-fix, e2e-codegen-fix]
     requires_mode: any_active
     produces: [execution/execution-manifest.yaml]   # must carry a NEW batch_id

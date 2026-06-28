@@ -71,6 +71,8 @@ subagent MUST NOT be asked to load a skill
 
 This restriction remains in effect until OpenCode explicitly supports reliable subagent skill inheritance.
 
+**Conductor dispatch (opt-in):** The document-driven path described above is now also available as a deterministic CLI: `aws conductor run --change <id>`. Conductor compiles each phase into a `task-brief.json`, spawns bounded OpenCode worker agents (`opencode run --agent aws-*`), validates `task-result.json`, and appends to `events.ndjson`. The same bans still apply — a subagent must **not** load an AWS skill, must **not** write `workflow-state.yaml`, must **not** run `aws gate check`, and must **not** decide final PASS/FAIL — and they are now enforced at runtime by `.opencode/agents/*.md` permission floors plus the conductor validator (path policy, required outputs, git-diff rollback). **Inline orchestration in the primary agent remains the default**; conductor is incremental and opt-in (configure via `.aws/config.yaml` → `subagents.runtime`).
+
 ---
 
 ## Invocation
@@ -2424,6 +2426,20 @@ Any decision not in this list is made by the workflow itself. Do not surface it 
 ## Document-driven Parallel Work Does Not Bypass the Gate
 
 This workflow uses inline orchestration — it does not launch skill-loading subagents. The only permitted form of parallel work is **document-driven**: a subagent receives a plan document as input and executes it directly, without loading skills.
+
+### Conductor path (`aws conductor`)
+
+When context limits or headless automation require per-phase fresh contexts, use **`aws conductor`** instead of ad-hoc task delegation:
+
+```bash
+aws conductor brief --change <id> --phase <phase>   # compile + materialize one brief
+aws conductor run --change <id>                     # deterministic loop (default runtime: local)
+aws conductor graph --change <id>                   # rebuild execution-graph.json
+```
+
+Conductor reads phase skills / mapping config, writes `task-brief.json` + prompt under `qa/changes/<id>/orchestration/`, and (when `subagents.runtime: opencode-command`) spawns `opencode run` children that execute **only** the brief. After each dispatch, conductor validates outputs and may roll back out-of-bounds filesystem changes.
+
+**Policy unchanged:** subagents still must not load AWS skills, must not mutate `workflow-state.yaml`, must not run gate checks, and must not decide PASS/FAIL. Conductor adds runtime enforcement via agent permission files (`.opencode/agents/aws-*.md`) and the validator stack (required outputs → git-diff → self-report). Inline execution in the primary agent is still the default workflow; conductor is opt-in via `.aws/config.yaml`.
 
 If optional document-driven parallel work fails or is unavailable, the workflow may continue inline only when the same required artifacts are produced:
 

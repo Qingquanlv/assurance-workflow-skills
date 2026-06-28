@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { InitAnswers } from '../core/types';
 import { generateProject, repairProject, registerOpenCode } from '../core/generator';
+import { copyAgentAssets } from '../core/agents_assets';
 import { logOk, logWarn, logError, logInfo, logBlank } from '../utils/logger';
 
 export function registerInitCommand(program: Command): void {
@@ -134,6 +135,10 @@ async function runInit(root: string): Promise<void> {
     logOk('updated: opencode.json (plugin entry added)');
   }
 
+  const agentRes = copyAgentAssets(root, packageRoot);
+  for (const f of agentRes.created) logOk(`created: ${f}`);
+  for (const f of agentRes.skipped) logWarn(`skipped (exists): ${f}`);
+
   logBlank();
   console.log(chalk.green.bold('AWS initialized successfully.'));
   console.log('Run ' + chalk.cyan('aws doctor') + ' to verify your environment.');
@@ -164,6 +169,11 @@ async function runRepair(root: string): Promise<void> {
     for (const f of result.skipped) {
       logInfo(`exists: ${f}`);
     }
+
+    const packageRoot = path.resolve(__dirname, '../../');
+    const agentRes = copyAgentAssets(root, packageRoot);
+    for (const f of agentRes.created) logOk(`created: ${f}`);
+    for (const f of agentRes.skipped) logWarn(`skipped (exists): ${f}`);
 
     logBlank();
     console.log(chalk.green.bold('Repair complete.'));

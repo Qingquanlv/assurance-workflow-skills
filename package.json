@@ -14,7 +14,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "link:skills": "bash scripts/link-skills.sh"
   },
   "dependencies": {
     "@types/xml2js": "^0.4.14",
