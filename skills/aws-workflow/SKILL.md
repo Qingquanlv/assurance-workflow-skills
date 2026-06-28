@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, and—when in scope—fuzz-plan/-reviewer/-codegen and performance-plan/-reviewer/-codegen, then aws-run, aws-inspect, aws-fix-proposal, aws-api-codegen-fixer, aws-e2e-codegen-fixer, aws-report-generator) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
+description: "Run the full AWS QA workflow — dispatches each phase to a bounded task subagent that loads the phase skill; orchestrator (primary agent) owns aws status / aws gate check / workflow-state.yaml. Phase sequencing is deterministic: driven by aws status --next --json."
 ---
 
 # AWS Workflow
@@ -11,67 +11,60 @@ This is the **orchestrator entry skill** for running the full AWS QA workflow in
 
 It is not a case design, review, or codegen skill. It coordinates the entire workflow by:
 
-- Loading other AWS skills phase by phase
-- Loading each phase skill inline in the primary agent (no subagent skill loading)
-- Verifying phase output files before advancing
-- Reading review JSON to make gate decisions
-- Enforcing retry policy for fix/review loops
-- Stopping on `reject`, missing files, `human_review_required`, or exceeded retries
-- Producing a structured final summary
+- Calling `aws status --change <id> --next --json` each iteration to get the deterministic dispatch list
+- Dispatching each ready phase to a bounded `task` subagent (the agent named by the schema) that loads the phase skill and writes only that phase's produces
+- After each dispatch: running `aws gate check` for gated phases and updating `workflow-state.yaml` (orchestrator-owned — subagents never touch it)
+- Running CLI phases (`execution`, `healing-rerun`) directly via `aws run`
+- Stopping on terminal conditions (gate `stop`/`reject`, `aws status` terminal flag, or max-iteration guard)
+- Producing a structured final summary via `aws report`
 
 Do not perform detailed case design, review, fix, or codegen work directly inside this skill — load the appropriate phase skill and execute it inline.
 
 ---
 
-## Execution Mode
+## Execution Mode — Scheme E
 
-This workflow uses **inline skill orchestration**.
+This workflow uses **subagent-dispatch orchestration**. The primary agent is the orchestrator; it never does phase work itself. Each phase is dispatched to a bounded `task` subagent.
 
-Do not rely on OpenCode subagents or tasks to inherit loaded skills or conversation context. OpenCode task agents do not reliably resolve project skills when invoked as subagents. This causes "Skills not found" failures in any phase delegated to a background task.
+### Determinism boundary (invariant)
 
-The orchestrator must:
+| Owned by orchestrator (primary agent) | Owned by phase subagent |
+|---|---|
+| `aws status --next --json` (what runs next) | Load the named phase skill |
+| `aws gate check` (may it advance) | Produce only that phase's `produces` files |
+| Write `workflow-state.yaml` | Nothing else |
+| `aws run` for CLI phases | — |
 
-1. Load each phase skill directly in the **primary agent**.
-2. Execute the phase inline (in the same agent context as the orchestrator).
-3. Persist all phase outputs to `qa/changes/<change-id>/` before advancing.
-4. Before entering the next phase, **re-read the required files from disk**.
-5. Treat `qa/changes/<change-id>/workflow-state.yaml` and phase output files as the **only source of truth** between phases.
-6. Never assume another skill shares in-memory context from a previous phase.
+The subagent never runs `aws gate`, `aws status`, or any other gate-decision command, and never modifies `workflow-state.yaml`. These constraints are enforced by `.opencode/agents/*.md` permission floors (bash deny + explicit `workflow-state.yaml: deny`) and verified by the orchestrator's state-hash check (see Phase 0).
 
-### Required Pattern
-
-```text
-primary agent
-  → load aws-workflow
-  → load aws-case-design        ← in primary agent
-  → execute phase inline
-  → write files to disk
-  → update workflow-state.yaml
-  → load aws-case-reviewer      ← in primary agent
-  → read files from disk
-  → execute phase inline
-  → ...
-```
-
-### Forbidden Pattern
+### Orchestration loop
 
 ```text
-aws-workflow
-  → task / subagent
-      → load skill              ← FORBIDDEN
+loop (max 50 iterations):
+  dispatch_list = aws status --change <id> --next --json  → .next[]
+  if terminal: break
+  H0 = sha256(workflow-state.yaml)         ← state corruption check
+  for each entry in dispatch_list:
+    if entry.kind == "cli":
+      bash: aws run --change <id>          ← execution / healing-rerun
+    else:
+      task(subagent = entry.agent,
+           prompt  = "Call skill(name='<entry.skill>'). Produce only the
+                      outputs for phase <entry.phase> as described in the
+                      skill. Do NOT run aws gate/status. Do NOT modify
+                      workflow-state.yaml.")
+  assert sha256(workflow-state.yaml) == H0  ← HALT if subagent touched state
+  for each gated phase that just completed:
+    aws gate check --phase <phase> --change <id> --json
+  update workflow-state.yaml               ← orchestrator-only write
+after terminal: aws report --change <id>; prompt user for archive
 ```
 
-If parallel execution is genuinely needed, only **document-driven subagents** are permitted:
+Independent branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls within the same iteration. All others run sequentially.
 
-```text
-subagent receives plan.md as input
-subagent executes the plan directly
-subagent MUST NOT be asked to load a skill
-```
+### Subagent retry on failure
 
-This restriction remains in effect until OpenCode explicitly supports reliable subagent skill inheritance.
-
-**Conductor dispatch (opt-in):** The document-driven path described above is now also available as a deterministic CLI: `aws conductor run --change <id>`. Conductor compiles each phase into a `task-brief.json`, spawns bounded OpenCode worker agents (`opencode run --agent aws-*`), validates `task-result.json`, and appends to `events.ndjson`. The same bans still apply — a subagent must **not** load an AWS skill, must **not** write `workflow-state.yaml`, must **not** run `aws gate check`, and must **not** decide final PASS/FAIL — and they are now enforced at runtime by `.opencode/agents/*.md` permission floors plus the conductor validator (path policy, required outputs, git-diff rollback). **Inline orchestration in the primary agent remains the default**; conductor is incremental and opt-in (configure via `.aws/config.yaml` → `subagents.runtime`).
+If a subagent returns without producing the expected `produces` files, `aws status` keeps the phase `ready`. The orchestrator retries the same phase at most **2 times**. On repeated failure, halt and report which phase failed and what files are missing.
 
 ---
 
@@ -243,38 +236,7 @@ healing_skills:
   # If execution later FAIL and eligible failures exist: STOP after Phase 8 — cannot heal.
 ```
 
-After verifying required skills, **write `workflow-state.yaml`** with the initial `subagents` block:
-
-```yaml
-subagents:
-  used: false
-  purpose: []
-  loaded_skills: false
-  affected_gates: false
-```
-
-If explore agents were invoked **strictly before Phase 1.1** for source-only reading (the only permitted case — see **Conflict with analyze-mode / search-mode pre-exploration**):
-
-- Set `subagents.used = true`
-- Add `source_exploration_only` to `subagents.purpose`
-- Confirm `subagents.loaded_skills = false` (they must not have loaded AWS skills)
-- Confirm `subagents.affected_gates = false` (they must not have written or substituted gate artifacts)
-
-**If search-mode or analyze-mode agents were launched at or after Phase 1.1** — this is a forbidden-pattern violation: STOP, set `subagents.affected_gates = true`.
-- Record in `agent_warnings`:
-
-```yaml
-- id: AWS-SUBAGENT-EXPLORATION-ONLY
-  severity: info
-  title: Subagents used for source exploration only
-  detail: >
-    Explore agents or document-driven subagents were invoked for source/structure
-    exploration. No AWS skill was loaded by any subagent. No gate artifact was
-    produced by a subagent. All AWS phases executed inline in the primary agent.
-  status: acknowledged
-```
-
-If a subagent is found to have **loaded an AWS skill** or **produced a gate artifact**, set `subagents.loaded_skills = true` or `subagents.affected_gates = true` and **STOP** — this is a forbidden pattern violation.
+After verifying required skills, **write the initial `workflow-state.yaml`** and set `phases.skill_registry_check.status = pass`.
 
 ---
 
@@ -378,46 +340,35 @@ If any **healing_skills** fail to load:
 
 ---
 
-## Inline Skill Routing
+## Phase Dispatch Table
 
-All phases load skills and execute **in the primary agent**. No subagents or tasks are used.
+The orchestrator does NOT hardcode a phase sequence. It calls `aws status --change <id> --next --json` each iteration and dispatches exactly what the schema engine returns. The table below shows the static mapping baked into `workflow-schema.yaml`; it is shown here for reference only.
 
-| Phase | Skill to Load |
-|---|---|
-| Phase 0: Test Infra Bootstrap | `aws-test-infra-bootstrap` (one-shot; skip when all 3 scaffold files are present and contract-conformant) |
-| Phase 1.1: Registry Check | (verify all required skills above) |
-| Phase 1.2: Risk Advisory | `aws-risk-advisory` (skill runs CLI + synthesis + validation internally) |
-| Phase 2.1: Case Design | `aws-case-design` |
-| Phase 2.2: Case Review | `aws-case-reviewer` |
-| Phase 2.3: Case Fix | `aws-case-fixer` |
-| Phase 2.4: Fact Baseline | *(inline — no separate skill; primary agent reads seed/DB)* |
-| Phase 2.5: Layer Scan | *(inline — determine which test types are in scope)* |
-| Phase 3A: API Plan | `aws-api-plan` |
-| Phase 3B: E2E Plan | `aws-e2e-plan` |
-| Phase 3C: Fuzz Plan *(only if Fuzz cases exist)* | `aws-fuzz-plan` |
-| Phase 3D: Performance Plan *(only if Performance cases exist)* | `aws-performance-plan` |
-| Phase 4A: API Plan Review | `aws-api-plan-reviewer` |
-| Phase 4B: E2E Plan Review | `aws-e2e-plan-reviewer` |
-| Phase 4C: Fuzz Plan Review *(only if Fuzz cases exist)* | `aws-fuzz-plan-reviewer` |
-| Phase 4D: Performance Plan Review *(only if Performance cases exist)* | `aws-performance-plan-reviewer` |
-| Phase 5A: API Plan Fix | `aws-api-plan-fixer` |
-| Phase 5B: E2E Plan Fix | `aws-e2e-plan-fixer` |
-| Phase 6A: API Codegen | `aws-api-codegen` |
-| Phase 6B: E2E Codegen | `aws-e2e-codegen` |
-| Phase 6C: Fuzz Codegen *(only if Fuzz cases exist)* | `aws-fuzz-codegen` |
-| Phase 6D: Performance Codegen *(only if Performance cases exist)* | `aws-performance-codegen` |
-| Phase 7: Execution | `aws-run` |
-| Phase 8: Inspect / Failure Analysis | `aws-inspect` |
-| Phase 9: Fix Proposal *(healing, optional)* | `aws-fix-proposal` |
-| Phase 10A: API Codegen Fix *(healing, optional)* | `aws-api-codegen-fixer` |
-| Phase 10B: E2E Codegen Fix *(healing, optional)* | `aws-e2e-codegen-fixer` |
-| Phase 11: Re-run *(healing)* | `aws-run` |
-| Phase 12: Re-inspect *(healing)* | `aws-inspect` |
-| Phase 13: Report Generation *(terminal, non-gating)* | `aws-report-generator` |
-| Phase 14: Archive Eligibility Recommendation | *(inline — no skill loaded; recommends whether `aws-archive` may be run separately)* |
-| Post-workflow (optional): Dashboard | `aws-dashboard` (only when `run_dashboard = true`) |
+| Schema phase id | kind | skill | agent |
+|---|---|---|---|
+| skill-registry-check | orchestrator-internal | — | — |
+| risk-advisory | agent | aws-risk-advisory | aws-author |
+| case-design | agent | aws-case-design | aws-author |
+| case-review | agent | aws-case-reviewer | aws-reviewer |
+| case-fix | agent | aws-case-fixer | aws-author |
+| api-plan | agent | aws-api-plan | aws-author |
+| api-plan-review | agent | aws-api-plan-reviewer | aws-reviewer |
+| api-plan-fix | agent | aws-api-plan-fixer | aws-author |
+| api-codegen | agent | aws-api-codegen | aws-test-author |
+| e2e-plan | agent | aws-e2e-plan | aws-author |
+| e2e-plan-review | agent | aws-e2e-plan-reviewer | aws-reviewer |
+| e2e-plan-fix | agent | aws-e2e-plan-fixer | aws-author |
+| e2e-codegen | agent | aws-e2e-codegen | aws-test-author |
+| execution | cli | — | — |
+| inspect | agent | aws-inspect | aws-reviewer |
+| fix-proposal | agent | aws-fix-proposal | aws-author |
+| api-codegen-fix | agent | aws-api-codegen-fixer | aws-test-author |
+| e2e-codegen-fix | agent | aws-e2e-codegen-fixer | aws-test-author |
+| healing-rerun | cli | — | — |
+| healing-reinspect | agent | aws-inspect | aws-reviewer |
+| archive | agent | aws-archive | aws-reviewer |
 
-After each phase, **update `workflow-state.yaml`** before loading the next skill.
+After each dispatch batch, the orchestrator updates `workflow-state.yaml` before calling `aws status` again.
 
 ---
 
@@ -434,25 +385,22 @@ A phase is complete only when **all** of the following are true:
    4. Set `phases.<phase_name>.skill_loaded_at` to the ISO 8601 timestamp of the Read.
    If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
    This gate exists because the primary agent can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
-1. The phase skill executed **inline in the primary agent** — not in a subagent, not in a background task.
+1. The phase skill was loaded and executed by the dispatched subagent for that phase (or, for CLI phases, `aws run` completed successfully).
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
 4. `workflow-state.yaml` was updated for that phase (status set to the correct terminal value).
 5. The next-phase gate was explicitly evaluated before advancing.
-6. **Shadow CLI status check ran after the phase update**:
-   - Run `aws status --change <change-id> --json` after every phase that writes or updates workflow artifacts.
-   - If the completed phase has a schema gate, also run `aws gate check --change <change-id> --phase <phase-id> --json`.
-   - These CLI commands do **not** run automatically; the primary agent must invoke them explicitly.
-   - In shadow mode, CLI output is **advisory only**. Do not replace the prose workflow gates or stop/advance rules with CLI output yet.
-   - If CLI output disagrees with this skill's prose decision, append an `AWS-ORCHESTRATION-SHADOW-DISAGREEMENT` entry to `workflow-state.yaml.agent_warnings[]` and report it in the final response.
-   - If the CLI command itself fails because the CLI is unavailable, schema validation fails, or the schema file is missing, append `AWS-ORCHESTRATION-SHADOW-UNAVAILABLE` to `agent_warnings[]`. Do not stop the workflow for shadow-only CLI failure unless the same condition is already a prose gate failure.
+6. **CLI status and gate check are authoritative** (not advisory):
+   - After writing each phase's outputs to disk and updating `workflow-state.yaml`, run `aws status --change <change-id> --next --json` to determine whether the phase is `done` and which phase(s) run next.
+   - For gated phases, also run `aws gate check --change <change-id> --phase <phase-id> --json` and record the verdict in `workflow-state.yaml` before advancing.
+   - The CLI output is the ground truth — never override it with prose reasoning.
+   - If the CLI is unavailable (binary missing, schema validation fails), halt and report the error before proceeding.
 
 Do **not** report a phase as done based on:
 
 - skill loaded
-- subagent started
-- subagent completed
-- background task completed
+- subagent started but not yet returned
+- background task still running
 - chat summary from an agent
 - agent claim without file verification
 - partial output (some files present but not all required outputs)
@@ -534,17 +482,7 @@ schema_version: "1.0"
 change_id: <change-id>
 module: <module>
 
-execution_mode: inline
-subagent_skill_inheritance: disabled
-
-subagents:
-  used: false          # true if any subagent (explore / document-driven / forbidden) was invoked during this workflow run
-  purpose:             # list — valid values: source_exploration_only | document_driven_parallel | forbidden_codegen_attempt
-    []
-  loaded_skills: false          # MUST remain false — subagents MUST NOT successfully load AWS skills
-  attempted_skill_loading: false # true if any subagent attempted to load an AWS skill (success OR failure)
-  attempted_phase_execution: false # true if any subagent attempted to execute an AWS phase (success OR failure)
-  affected_gates: false         # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
+execution_mode: subagent-dispatch
 
 phases:
   # ─── Skill Load Gate (common fields — see "Skill Load Gate" section above) ───
@@ -842,19 +780,7 @@ gates:
 known_product_issues: []
 
 agent_warnings:
-  - id: OPENCODE-SKILL-RESOLUTION-001
-    severity: medium
-    title: OpenCode subagent skill inheritance is disabled
-    impact:
-      - no skill-based background subagent execution
-      - workflow phases run inline
-    workaround:
-      - use file-based phase contracts
-      - use document-driven subagents only if parallelism is needed
-    status: acknowledged
-  # Shadow-mode CLI orchestration warnings (written only when applicable).
-  # The CLI is advisory until the workflow explicitly migrates from prose gates
-  # to authoritative CLI gates.
+  # Authoritative CLI warnings (written when applicable).
   - id: AWS-ORCHESTRATION-SHADOW-DISAGREEMENT
     severity: medium | high
     phase: <phase-id>
