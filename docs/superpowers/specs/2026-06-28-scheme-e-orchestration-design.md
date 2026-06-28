@@ -43,14 +43,16 @@ The orchestrator is the primary agent running `aws-workflow`. Its loop:
 loop (max 50 iterations):
   report = aws status --change <id> --next --json     # deterministic engine
   if report.terminal: break                            # completed | stopped
+  H0 = sha256(workflow-state.yaml)                     # detective snapshot (Layer 2)
   for entry in report.next:                            # sequential; parallel on independent branches
      if entry.kind == "cli":   bash: aws run --change <id>
-     else:                     task(subagent=entry.agent,
+     else:                     task(subagent=entry.agent,  # MUST be the bounded agent, never @general
                                     prompt="load skill <entry.skill>; produce ONLY this phase's artifacts;
                                             do NOT run aws gate/status; do NOT write workflow-state.yaml")
   # after subagent(s) return, the ORCHESTRATOR (never the subagent):
+  if sha256(workflow-state.yaml) != H0: HALT "state corruption: subagent modified workflow-state.yaml"
   aws gate check --phase <phase> --change <id>         # for gated phases
-  update workflow-state.yaml                           # orchestrator-owned
+  update workflow-state.yaml                           # orchestrator-owned (only legit writer)
 after terminal: aws report; prompt for archive
 ```
 
@@ -78,6 +80,48 @@ workspace snapshot + rollback, path policy). With Conductor deleted, safety
 shifts to **OpenCode-native `.opencode/agents/*.md` permission floors** (edit/bash
 allowlists per agent — write isolation moved *ahead of time*) plus the existing
 fail-closed gates. E.g. `aws-reviewer` cannot edit `tests/`.
+
+The `task` prompt ("load skill X; produce ONLY this phase's artifacts; do NOT run
+aws gate/status; do NOT write workflow-state.yaml") is a **soft** constraint the
+LLM may not honor. The "a phase is `done` only when its real `produces` exist"
+rule is an after-the-fact guard, but a subagent that edits `workflow-state.yaml`
+or runs a gate could still corrupt state. So the constraint is enforced in two
+hard layers, not by prompt text:
+
+**Layer 1 — Preventive (OpenCode-enforced, not LLM discretion).** Subagents run
+*as* the schema-resolved bounded agent, whose `.opencode/agents/*.md` permission
+config is the hard boundary. The existing floors already block both failure modes:
+
+- *Editing `workflow-state.yaml`*: it lives at `qa/changes/<id>/workflow-state.yaml`,
+  which matches no `qa/changes/**/<subdir>/**` allow rule and falls through to
+  `"**": deny`. To make intent explicit and survive future allow-list broadening,
+  add an explicit `"qa/changes/**/workflow-state.yaml": deny` to all three agents.
+- *Running `aws gate` / `aws status`*: `aws-test-author` and `aws-reviewer` are
+  `bash: { "*": deny }` (no bash at all); `aws-author` allows only `aws risk *`
+  with `"*": deny`, so `aws gate` / `aws status` are denied.
+- The orchestrator **MUST** dispatch each phase to the bounded agent named by the
+  schema (`aws-author` / `aws-test-author` / `aws-reviewer`) and **MUST NOT** use
+  `@general` or any unbounded agent — otherwise no permission floor applies.
+
+(OpenCode's `task` has no reliable per-call tool allowlist; the agent definition
+is the correct enforcement layer, which is why phase→agent mapping lives in the
+schema.)
+
+**Layer 2 — Detective (orchestrator, belt-and-suspenders).** Before dispatching a
+phase (or a parallel batch), the orchestrator captures a `sha256` of
+`workflow-state.yaml`. After the subagent(s) return — and *before* the orchestrator
+runs `aws gate check` / writes state — it recomputes the hash; if it changed, the
+subagent touched state → **HALT** with "state corruption: subagent modified
+workflow-state.yaml". A content hash (not mtime) is used to be robust against
+same-second writes and clock skew. The orchestrator's own legitimate state write
+happens only after this check, so the comparison window is clean.
+
+Agent prose note: the current `.opencode/agents/*.md` bodies reference the
+Conductor `task-brief.json` / `task-result.json` model and `orchestration/*` paths.
+With Conductor gone there is no `orchestration/` directory; the agent prose and the
+now-irrelevant `orchestration/**` allow/deny lines are updated to the E model
+(load the phase skill named in the dispatch, write only this phase's `produces`),
+while the core deny floors above are kept.
 
 ## CLI Contract Changes (Scheme B)
 
@@ -158,6 +202,14 @@ The skill (~3280 lines) is built around the inline/ban premise. Scheme E inverts
 - `skill-registry-check` changes meaning from "can a subagent inherit skills" to
   "are phase skills loadable + is the schema dispatch table complete".
 
+**`.opencode/agents/*.md` changes** (all three agents): add explicit
+`"qa/changes/**/workflow-state.yaml": deny` to the `edit` block; update the prose
+body from the Conductor task-brief/task-result model to the E model ("load the
+phase skill named in the dispatch; write only this phase's `produces`; never run
+aws gate/status; never write workflow-state.yaml"); drop the now-dead
+`orchestration/**` allow/deny lines (no `orchestration/` dir in E). Keep
+`bash` floors as-is (they already deny `aws gate`/`aws status`).
+
 ## Deletion List & Dependency Tendrils
 
 **Delete (command + runtime + dispatch machinery + matching tests + conductor schemas):**
@@ -207,7 +259,10 @@ and stay. Delete `tests/unit/orchestration/subagents/schema_gen.test.ts`.
 - Next `aws status` keeps the phase `ready` → orchestrator retries the same phase
   **at most 2 times**; on repeated failure, halt and report (no infinite re-dispatch).
 - Out-of-bounds writes are blocked **up front** by `.opencode/agents/*.md` edit
-  allowlists (replacing Conductor's snapshot/rollback after the fact).
+  allowlists (replacing Conductor's snapshot/rollback after the fact). State
+  corruption specifically is caught by the two-layer enforcement in the Safety
+  model section (preventive permission floors + detective `workflow-state.yaml`
+  hash check), which HALTs the run.
 
 **Healing loop:** Fully reuses the existing engine (`loops.healing`,
 `healing-entry-gate`, `healing-loop-gate`, `max_healing_attempts`). The
@@ -231,6 +286,8 @@ parallel batch, failures retry independently per the rule above.
 - status `--next --json` output-structure assertion.
 - Existing `engine.test.ts` / `schema.test.ts` / `dsl.test.ts` cases stay
   (deterministic core unchanged).
+- `agents_assets` test: assert each generated `.opencode/agents/*.md` denies
+  editing `workflow-state.yaml` and that bash floors block `aws gate`/`aws status`.
 
 **Migration & regression:**
 - `npm run build` (now plain `tsc`) compiles with no dangling imports.
@@ -246,7 +303,13 @@ parallel batch, failures retry independently per the rule above.
 - *LLM ignores the dispatch list (skips phases)* → strong constraining language in
   the skill + mandatory `aws status` re-query each iteration; a phase is `done`
   only when real `produces` exist, so phases cannot be skipped.
+- *Subagent ignores the soft prompt (edits state / runs a gate)* → two hard layers
+  in the Safety model: preventive permission floors (explicit
+  `workflow-state.yaml: deny` + bash deny of `aws gate`/`aws status`; dispatch only
+  to bounded agents, never `@general`) and a detective `workflow-state.yaml` hash
+  check that HALTs on any subagent-caused change.
 - *Agent permission floors too loose* → write isolation moved ahead of time
-  (safety model above); smoke-verify the reviewer agent truly cannot edit `tests/`.
+  (safety model above); smoke-verify the reviewer agent truly cannot edit `tests/`
+  and that a subagent attempting `aws gate check` is denied.
 - *Symlink precondition lost (new machine, link:skills not run)* → Phase 0
   precondition check fails loudly with the `npm run link:skills` remediation.
