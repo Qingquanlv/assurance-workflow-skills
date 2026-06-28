@@ -265,3 +265,64 @@ gates: {}
     expect(() => assertValidSchema(s)).toThrow(SchemaError);
   });
 });
+
+describe('validateSchema — agent field', () => {
+  const AGENT_YAML_BASE = (phaseExtra: string) => `
+schema_version: "1"
+name: t
+params:
+  max_healing_attempts: { type: int, default: 0 }
+phases:
+${phaseExtra}
+loops: {}
+gates: {}
+`;
+
+  it('passes: CLI phase (skill: null) with no agent', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: exec\n    skill: null\n    requires: []\n    produces: [out.json]`,
+    );
+    expect(validateSchema(parseSchema(y)).ok).toBe(true);
+  });
+
+  it('errors: agent phase with skill but no agent field', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: design\n    skill: aws-case-design\n    requires: []\n    produces: [out.json]`,
+    );
+    const r = validateSchema(parseSchema(y));
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => /design/.test(e) && /no agent/.test(e))).toBe(true);
+  });
+
+  it('errors: CLI phase (skill: null) with an agent field', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: exec\n    skill: null\n    agent: aws-author\n    requires: []\n    produces: [out.json]`,
+    );
+    const r = validateSchema(parseSchema(y));
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => /exec/.test(e) && /must not have/.test(e))).toBe(true);
+  });
+
+  it('errors: agent outside allowlist', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: design\n    skill: aws-case-design\n    agent: rogue-agent\n    requires: []\n    produces: [out.json]`,
+    );
+    const r = validateSchema(parseSchema(y));
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => /design/.test(e) && /rogue-agent/.test(e))).toBe(true);
+  });
+
+  it('passes: agent phase with valid agent', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: design\n    skill: aws-case-design\n    agent: aws-author\n    requires: []\n    produces: [out.json]`,
+    );
+    expect(validateSchema(parseSchema(y)).ok).toBe(true);
+  });
+
+  it('passes: skill-registry-check (orchestrator-internal) exempt from agent rule', () => {
+    const y = AGENT_YAML_BASE(
+      `  - id: skill-registry-check\n    skill: null\n    requires: []\n    produces: [workflow-state.yaml]`,
+    );
+    expect(validateSchema(parseSchema(y)).ok).toBe(true);
+  });
+});

@@ -45,6 +45,7 @@ export interface PhaseDef {
   loop?: string;
   repair_of?: string;
   max_attempts_param?: string;
+  agent?: string;
 }
 
 export interface LoopDef {
@@ -178,6 +179,7 @@ function normalizePhase(raw: Record<string, unknown>): PhaseDef {
     repair_of: typeof raw.repair_of === 'string' ? raw.repair_of : undefined,
     max_attempts_param:
       typeof raw.max_attempts_param === 'string' ? raw.max_attempts_param : undefined,
+    agent: typeof raw.agent === 'string' ? raw.agent : undefined,
   };
 }
 
@@ -354,6 +356,26 @@ export function validateSchema(schema: Schema): ValidationResult {
     }
     if (p.loop && !schema.loops[p.loop]) {
       errors.push(`Phase '${p.id}' references unknown loop '${p.loop}'`);
+    }
+  }
+
+  // Agent field rules.
+  const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer']);
+  const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
+  for (const p of schema.phases) {
+    if (ORCHESTRATOR_INTERNAL.has(p.id)) continue;
+    if (p.skill === null) {
+      if (p.agent) {
+        errors.push(`CLI phase '${p.id}' (skill: null) must not have an agent field`);
+      }
+    } else {
+      if (!p.agent) {
+        errors.push(`Agent phase '${p.id}' has a skill but no agent field`);
+      } else if (!ALLOWED_AGENTS.has(p.agent)) {
+        errors.push(
+          `Phase '${p.id}' agent '${p.agent}' is not in the allowed set: ${[...ALLOWED_AGENTS].join(', ')}`
+        );
+      }
     }
   }
 

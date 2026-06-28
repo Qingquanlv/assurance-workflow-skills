@@ -58,6 +58,7 @@ phases:
 
   - id: risk-advisory
     skill: aws-risk-advisory
+    agent: aws-author
     requires: [skill-registry-check]
     produces: [risk-advisory/context.json]
     when: "params.run_mode in ['full', 'case-only']"
@@ -65,6 +66,7 @@ phases:
 
   - id: case-design
     skill: aws-case-design
+    agent: aws-author
     requires: [risk-advisory]
     produces: [cases/]
     when: "params.run_mode in ['full', 'case-only']"
@@ -72,6 +74,7 @@ phases:
 
   - id: case-review
     skill: aws-case-reviewer
+    agent: aws-reviewer
     requires: [case-design]
     produces: [review/case-review.json]
     gate: case-review-gate
@@ -80,6 +83,7 @@ phases:
   # It runs only when case-review-gate yields needs_fix; bounded by attempts.
   - id: case-fix
     skill: aws-case-fixer
+    agent: aws-author
     requires: [case-review]
     produces: [review/case-review.json]   # fixer triggers a fresh review
     when: "gate('case-review-gate').verdict == 'needs_fix'"
@@ -89,12 +93,14 @@ phases:
   # ---- API branch -----------------------------------------------------------
   - id: api-plan
     skill: aws-api-plan
+    agent: aws-author
     requires: [case-review]           # gated: case-review must be `done`(=pass)
     produces: [plans/api-plan.md, plans/api-test-data-plan.md, plans/api-codegen-plan.md]
     when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'plan-only', 'codegen-only', 'review-plan']"
 
   - id: api-plan-review
     skill: aws-api-plan-reviewer
+    agent: aws-reviewer
     requires: [api-plan]
     produces: [review/api-plan-review.json]
     gate: api-plan-review-gate
@@ -102,6 +108,7 @@ phases:
 
   - id: api-plan-fix
     skill: aws-api-plan-fixer
+    agent: aws-author
     requires: [api-plan-review]
     produces: [review/api-plan-review.json]
     when: "'api' in params.test_types and gate('api-plan-review-gate').verdict == 'needs_fix'"
@@ -110,6 +117,7 @@ phases:
 
   - id: api-codegen
     skill: aws-api-codegen
+    agent: aws-test-author
     requires: [api-plan-review]       # gated: review must be `done`(=pass+ready)
     produces: [codegen/api-codegen-summary.md]
     gate: api-codegen-precondition-gate
@@ -118,12 +126,14 @@ phases:
   # ---- E2E branch -----------------------------------------------------------
   - id: e2e-plan
     skill: aws-e2e-plan
+    agent: aws-author
     requires: [case-review]
     produces: [plans/e2e-plan.md, plans/e2e-codegen-plan.md]
     when: "'e2e' in params.test_types and params.run_mode in ['full', 'e2e-only', 'plan-only', 'codegen-only', 'review-plan']"
 
   - id: e2e-plan-review
     skill: aws-e2e-plan-reviewer
+    agent: aws-reviewer
     requires: [e2e-plan]
     produces: [review/plan-review.json]
     gate: e2e-plan-review-gate
@@ -131,6 +141,7 @@ phases:
 
   - id: e2e-plan-fix
     skill: aws-e2e-plan-fixer
+    agent: aws-author
     requires: [e2e-plan-review]
     produces: [review/plan-review.json]
     when: "'e2e' in params.test_types and gate('e2e-plan-review-gate').verdict == 'needs_fix'"
@@ -139,6 +150,7 @@ phases:
 
   - id: e2e-codegen
     skill: aws-e2e-codegen
+    agent: aws-test-author
     requires: [e2e-plan-review]
     produces: [codegen/e2e-codegen-summary.md]
     gate: e2e-codegen-precondition-gate
@@ -155,6 +167,7 @@ phases:
 
   - id: inspect
     skill: aws-inspect
+    agent: aws-reviewer
     requires: [execution]
     produces: [inspect/failure-analysis.json, inspect/inspect-safety-check.json]
     gate: inspect-safety-gate
@@ -163,6 +176,7 @@ phases:
   # Entire loop pruned unless healing is needed AND available.
   - id: fix-proposal
     skill: aws-fix-proposal
+    agent: aws-author
     requires: [inspect]
     produces: [healing/fix-proposal.json]
     when: "gate('healing-entry-gate').verdict == 'enter'"
@@ -170,6 +184,7 @@ phases:
 
   - id: api-codegen-fix
     skill: aws-api-codegen-fixer
+    agent: aws-test-author
     requires: [fix-proposal]
     produces: [healing/api-apply-summary.json]
     when: "any(fix_proposal.proposals, target == 'api' and eligible == true)"
@@ -177,6 +192,7 @@ phases:
 
   - id: e2e-codegen-fix
     skill: aws-e2e-codegen-fixer
+    agent: aws-test-author
     requires: [fix-proposal]
     produces: [healing/e2e-apply-summary.json]
     when: "any(fix_proposal.proposals, target == 'e2e' and eligible == true)"
@@ -193,6 +209,7 @@ phases:
 
   - id: healing-reinspect
     skill: aws-inspect
+    agent: aws-reviewer
     requires: [healing-rerun]
     produces: [inspect/failure-analysis.json, inspect/inspect-safety-check.json]
     gate: inspect-safety-gate
@@ -202,6 +219,7 @@ phases:
   # ---- Archive --------------------------------------------------------------
   - id: archive
     skill: aws-archive
+    agent: aws-reviewer
     requires: [inspect]               # plus healing terminal state (see gate)
     produces: ["qa/archive/<change-id>/"]
     gate: archive-gate
