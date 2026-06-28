@@ -28,7 +28,8 @@ Do not rely on prior conversation context.
 1. Write generated test files per `api-codegen-plan.md` Target Files and **Generated File Policy**:
    - `tests/api/test_<module>_api.py` — required when mapped in plan
    - `tests/api/helpers/<module>_api.py` — only if helper mapping is non-empty
-   - `tests/fixtures/<module>_fixtures.py` — only when plan + data-knowledge authorize new fixture wrappers
+   - `tests/factories/test_<module>_<library>.py` — required before any fixture wrapper that creates or cleans up domain data
+   - `tests/fixtures/<module>_fixtures.py` — only pytest wrapper around `make_*`; never business data creation directly
    - `tests/api/conftest.py` — only if plan explicitly requires it (see conftest rules)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/api-codegen-summary.md` (create `codegen/` directory if missing)
@@ -65,11 +66,11 @@ phases:
 
 Name: API Test Code Generation
 
-Description: "QA superpower: use ONLY after API plan review. Generates pytest test code, fixtures, and helpers from api-plan.md, api-test-data-plan.md, and api-codegen-plan.md. **Does NOT run pytest or write execution results** — test execution is Phase 8 aws-run. Does NOT generate new cases or redesign test scope."
+Description: "QA superpower: use ONLY after API plan review. Generates pytest test code, domain factories, fixture wrappers, and helpers from api-plan.md, api-test-data-plan.md, and api-codegen-plan.md. **Does NOT run pytest or write execution results** — test execution is Phase 8 aws-run. Does NOT generate new cases or redesign test scope."
 
 Converts a reviewed API test plan into executable pytest test code.
 
-This skill is AWS M3 Stage 2. It MUST read Stage 1 plan files and generate `tests/api/`, `tests/fixtures/`, `tests/api/helpers/`. **Does NOT run pytest or produce execution results** — execution is Phase 8 `aws-run`.
+This skill is AWS M3 Stage 2. It MUST read Stage 1 plan files and generate `tests/api/`, `tests/factories/`, optional `tests/fixtures/` wrappers, and `tests/api/helpers/`. **Does NOT run pytest or produce execution results** — execution is Phase 8 `aws-run`.
 
 ## When to Use
 
@@ -154,7 +155,8 @@ May generate (paths relative to project root; per `api-codegen-plan.md` Target F
 
 - `tests/api/test_<module>_api.py` — test functions (required when mapped)
 - `tests/api/helpers/<module>_api.py` — **only if** helper mapping in plan is non-empty
-- `tests/fixtures/<module>_fixtures.py` — **only if** plan + `.aws/data-knowledge.yaml` authorize new fixture wrappers
+- `tests/factories/test_<module>_<library>.py` — **required** when new domain data setup/cleanup is needed
+- `tests/fixtures/<module>_fixtures.py` — **only** pytest injection wrappers around domain factories; no business data creation directly
 - `tests/api/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
 - `qa/changes/<change-id>/codegen/api-codegen-summary.md` — always
 
@@ -175,6 +177,7 @@ Unless the user explicitly asks to revise the plan.
 ## Generated File Policy
 
 - Only create or modify files listed in `api-codegen-plan.md` **Target Files**.
+- If a plan needs a new pytest fixture that creates or cleans up domain data, `api-codegen-plan.md` Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` file. If missing → **STOP** and report blocker; do not generate only `tests/fixtures/<module>_fixtures.py`.
 - If a target test file already exists, **append** new test functions only — do not overwrite unrelated tests.
 - Do not delete existing tests.
 - Preserve existing imports, fixtures, and project style.
@@ -203,7 +206,8 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 8. Check Mandatory Review JSON Gate (Context Contract step 4 + **ready_with_warnings — Coverage Gap Hard Rules**).
 9. Validate endpoint, assertion, fixture, auth, cleanup mapping completeness.
 10. Generate or append `tests/api/test_<module>_api.py` per `api-codegen-plan.md` **Target Files**.
-11. If plan + `.aws/data-knowledge.yaml` authorize new fixture wrapper, generate `tests/fixtures/<module>_fixtures.py`; if capability exists, reuse existing fixture, do not create new file.
+11. If domain data setup/cleanup is needed, generate or reuse `tests/factories/test_<module>_<library>.py` first; if the required factory target is missing from Target Files → **STOP** and report blocker.
+11b. If plan + `.aws/data-knowledge.yaml` authorize a new pytest fixture wrapper, generate `tests/fixtures/<module>_fixtures.py` only as a thin wrapper around `make_*`; if capability exists, reuse existing fixture, do not create new file.
 12. If helper mapping is non-empty, generate `tests/api/helpers/<module>_api.py`.
 12b. Update `tests/api/conftest.py` per **conftest.py Policy** only when plan explicitly requires it.
 13. **Do NOT run pytest** — execution is `aws-run` (Phase 8).
@@ -223,14 +227,16 @@ Complete in order:
 - [ ] Read `.aws/data-knowledge.yaml`
 - [ ] Check Codegen Preconditions
 - [ ] Check Mandatory Review JSON Gate (full gate + coverage gap rules)
-- [ ] Validate test data capabilities (reuse existing fixture or create only when authorized)
+- [ ] Validate test data capabilities (reuse existing factory/fixture or create only when authorized)
 - [ ] Generate or append `tests/api/test_<module>_api.py`
 - [ ] Verify each test function name uses normalized case_id (lowercase) prefix + `__` separator; covers all case_ids in Case → Test Function Mapping (case-insensitive)
 - [ ] Verify all config values reference `tests.config.settings`; no hardcoded URL / credentials / prefixes
 - [ ] Verify entities with M2M / closure / hash invariants use `make_*` from `tests/factories/` modules; no raw ORM `create()`
-- [ ] Verify all domain-entity fixtures use `make_*` from `tests/factories/test_<module>_<library>.py` when factory exists; no HTTP `POST .../create` in fixtures except create-focused cases
+- [ ] Verify every domain-data fixture has a corresponding `tests/factories/test_<module>_<library>.py` Target File; if missing, STOP instead of generating wrapper-only setup
+- [ ] Verify all `tests/fixtures/` files are wrapper-only and call `make_*`; no HTTP `POST .../create` or direct business data creation except create-focused cases in test bodies
 - [ ] Verify each happy-path test ends with `assert_matches_schema(body, "METHOD /path")`
-- [ ] Generate `tests/fixtures/<module>_fixtures.py` (only when plan + data-knowledge authorize)
+- [ ] Generate `tests/factories/test_<module>_<library>.py` before any domain-data fixture wrapper
+- [ ] Generate `tests/fixtures/<module>_fixtures.py` only as a wrapper around `make_*` (only when plan + data-knowledge authorize)
 - [ ] Generate `tests/api/helpers/<module>_api.py` (when helper mapping non-empty)
 - [ ] Update `tests/api/conftest.py` (only when plan explicitly requires)
 - [ ] Update `workflow-state.yaml` (`phases.api_codegen` with review_gate_file, codegen_readiness, warnings_carried, known_product_issues)
@@ -303,7 +309,32 @@ def test_tc_role_api_001__role_list_happy_path(api_client, auth_headers):
     ...
 ```
 
+### tests/factories/test_<module>_<library>.py
+
+Generate **whenever** the plan requires new domain data setup or invariant-preserving cleanup.
+
+This is the only place where business data creation logic belongs.
+
+Must satisfy:
+
+- Export `make_*` functions for setup and explicit cleanup helpers when cleanup is non-trivial.
+- Call app service/controller code internally to maintain invariants.
+- Return plain data snapshots, or ensure fixture wrappers convert ORM objects to snapshots before exposing them to tests.
+- May use `run_orm()` only for live-server mode; in-process async tests call `await make_*()` directly.
+- Must read prefixes and runtime config from `tests.config.settings`.
+- Must not call HTTP APIs for setup/cleanup except when explicitly documenting create/delete API behavior in a test body.
+- Must not be placed under `qa/changes/`; generated reusable test support code belongs under `tests/factories/`.
+
 ### tests/fixtures/<module>_fixtures.py
+
+Generate **only** as pytest injection wrappers around `tests/factories/test_<module>_<library>.py`.
+
+Hard boundary:
+
+- `tests/fixtures/` may contain `@pytest.fixture`, lifecycle/yield cleanup orchestration, and calls to `make_*`.
+- `tests/fixtures/` must not contain business data creation logic directly.
+- `tests/fixtures/` must not call HTTP `POST .../create` for setup when a `make_*` factory is required or available.
+- If a required domain factory target is missing, **STOP** and report blocker instead of generating wrapper-only setup.
 
 #### Test Data Strategy — DDD Three-Ring Boundary Rules
 

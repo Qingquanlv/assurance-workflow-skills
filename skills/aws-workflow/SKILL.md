@@ -154,12 +154,55 @@ For `api-only`, `e2e-only`, `plan-only`, `codegen-only`, `review-case`, and `rev
 
 ---
 
+## Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
+
+Runs **once per project**, before Phase 1.1. Scaffolds the shared pytest/Locust test infrastructure that all later phases silently assume is on disk:
+
+- `tests/config.py` — unified settings shared by API / E2E / Fuzz / Performance.
+- `tests/conftest.py` — root conftest including the session-autouse `_verify_sut_ready` fixture (API / E2E / Fuzz; Performance has its own readiness contract in `aws-performance-codegen`).
+- `tests/schema_validation.py` — `assert_matches_schema` + `_LOCAL_SCHEMAS` registry used by `aws-api-codegen` happy-path tests.
+
+```yaml
+phases:
+  test_infra_bootstrap:
+    status: pending | done | skipped | failed
+    files:
+      - tests/config.py
+      - tests/conftest.py
+      - tests/schema_validation.py
+    created: []   # subset newly written this run
+    kept: []      # subset that already existed and passed the contract
+```
+
+### Steps
+
+```
+Load aws-test-infra-bootstrap
+  The skill:
+    - checks each of the 3 files against its per-file contract on disk
+    - CREATEs any missing file (with defaults sourced from run.py / web/.env / app/core/init_app.py — asks the user when a default cannot be verified)
+    - KEEPs any contract-conformant file untouched
+    - STOPs and asks the user if a file exists but does NOT match the contract (never silently overwrites)
+    - writes phases.test_infra_bootstrap into workflow-state.yaml
+```
+
+### Gate
+
+- `status == done` and all 3 files present → Phase 1.1 may proceed.
+- `status == pending` → **STOP** (must run `aws-test-infra-bootstrap` or set `skipped` with explicit user override).
+- Any file BLOCKED by contract mismatch → **STOP**, surface the diff to the user.
+
+**Boundary:** Phase 0 only writes the 3 shared scaffold files under `tests/`. It must not generate fixtures, helpers, factories, or test code (those belong to the `aws-*-codegen` skills).
+
+---
+
 ## Phase 1.1 — Skill Registry Check
 
 Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**.
 
 ```yaml
 required_skills:
+  - aws-test-infra-bootstrap
   - aws-risk-advisory
   - aws-case-design
   - aws-case-reviewer
@@ -339,6 +382,7 @@ All phases load skills and execute **in the primary agent**. No subagents or tas
 
 | Phase | Skill to Load |
 |---|---|
+| Phase 0: Test Infra Bootstrap | `aws-test-infra-bootstrap` (one-shot; skip when all 3 scaffold files are present and contract-conformant) |
 | Phase 1.1: Registry Check | (verify all required skills above) |
 | Phase 1.2: Risk Advisory | `aws-risk-advisory` (skill runs CLI + synthesis + validation internally) |
 | Phase 2.1: Case Design | `aws-case-design` |
@@ -381,6 +425,13 @@ Loading a skill is **never** enough to mark a phase complete.
 
 A phase is complete only when **all** of the following are true:
 
+0. **Skill Load Gate (mandatory)** — before executing any phase work, the primary agent MUST:
+   1. Read the phase's SKILL.md file from disk (not from memory, not from a prior conversation turn).
+   2. Set `phases.<phase_name>.skill_loaded = true` in `workflow-state.yaml`.
+   3. Set `phases.<phase_name>.skill_md_path` to the absolute path of the SKILL.md that was read.
+   4. Set `phases.<phase_name>.skill_loaded_at` to the ISO 8601 timestamp of the Read.
+   If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
+   This gate exists because the primary agent can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
 1. The phase skill executed **inline in the primary agent** — not in a subagent, not in a background task.
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
@@ -408,6 +459,68 @@ Do **not** report a phase as done based on:
 
 ---
 
+## Skill Load Gate (Phase Entry Check)
+
+Before executing **any** phase work (reading inputs, generating outputs, writing files), the primary agent MUST:
+
+1. Identify the skill name for the phase from the table below.
+2. Read the SKILL.md file from disk using the `Read` tool — not from conversation memory, not from a prior turn's context.
+3. Update `workflow-state.yaml` `phases.<phase_name>` with:
+   - `skill_loaded: true`
+   - `skill_md_path: <absolute path to SKILL.md>`
+   - `skill_loaded_at: <ISO 8601 timestamp>`
+
+If the agent attempts to set `phases.<phase_name>.status` to a terminal value (`done` / `pass` / `fail` / `skipped`) while `skill_loaded != true`, the workflow MUST STOP and report:
+
+```
+SKILL_LOAD_GATE_VIOLATION: phase <phase_name> cannot be marked <status> because skill_loaded is not true.
+Read the SKILL.md at <skill_md_path> first, set skill_loaded=true, then re-execute the phase.
+```
+
+### Phase → Skill Path Map
+
+The skill base directory is `/Users/lvqingquan/skills/assurance-workflow-skills/skills/`.
+
+| Phase | skill_name | SKILL.md relative path |
+|---|---|---|
+| test_infra_bootstrap | aws-test-infra-bootstrap | `aws-test-infra-bootstrap/SKILL.md` |
+| risk_advisory | aws-risk-advisory | `aws-risk-advisory/SKILL.md` |
+| case_design | aws-case-design | `aws-case-design/SKILL.md` |
+| case_review | aws-case-reviewer | `aws-case-reviewer/SKILL.md` |
+| api_plan | aws-api-plan | `aws-api-plan/SKILL.md` |
+| e2e_plan | aws-e2e-plan | `aws-e2e-plan/SKILL.md` |
+| api_plan_review | aws-api-plan-reviewer | `aws-api-plan-reviewer/SKILL.md` |
+| e2e_plan_review | aws-e2e-plan-reviewer | `aws-e2e-plan-reviewer/SKILL.md` |
+| api_codegen | aws-api-codegen | `aws-api-codegen/SKILL.md` |
+| e2e_codegen | aws-e2e-codegen | `aws-e2e-codegen/SKILL.md` |
+| fuzz_plan | aws-fuzz-plan | `aws-fuzz-plan/SKILL.md` |
+| fuzz_plan_review | aws-fuzz-plan-reviewer | `aws-fuzz-plan-reviewer/SKILL.md` |
+| fuzz_codegen | aws-fuzz-codegen | `aws-fuzz-codegen/SKILL.md` |
+| performance_plan | aws-performance-plan | `aws-performance-plan/SKILL.md` |
+| performance_plan_review | aws-performance-plan-reviewer | `aws-performance-plan-reviewer/SKILL.md` |
+| performance_codegen | aws-performance-codegen | `aws-performance-codegen/SKILL.md` |
+| execution | aws-run | `aws-run/SKILL.md` |
+| inspect | aws-inspect | `aws-inspect/SKILL.md` |
+| healing (fix-proposal) | aws-fix-proposal | `aws-fix-proposal/SKILL.md` |
+| healing (api-fixer) | aws-api-codegen-fixer | `aws-api-codegen-fixer/SKILL.md` |
+| healing (e2e-fixer) | aws-e2e-codegen-fixer | `aws-e2e-codegen-fixer/SKILL.md` |
+| report | aws-report-generator | `aws-report-generator/SKILL.md` |
+| archive | aws-archive | `aws-archive/SKILL.md` |
+
+Phases that do not have a dedicated SKILL.md (e.g. `skill_registry_check`, `fact_baseline`, `layers`) are exempt — set `skill_loaded: n/a` for those.
+
+### Why This Gate Exists
+
+Without this gate, the primary agent can skip reading a phase's SKILL.md and execute from plan files alone. This has caused:
+
+- **Traceability gaps**: `aws-api-codegen/SKILL.md` mandates `test_<case_id_lowercase>__<description>` function naming so the `aws` CLI can extract case_id from JUnit XML. Without reading the SKILL.md, the agent generated `test_list_roles_returns_paginated_envelope` — no case_id token, all 12 tests unmapped in execution results.
+- **Missing mandatory artifacts**: `aws-api-codegen/SKILL.md` requires `codegen/api-codegen-summary.md` and `assert_matches_schema()` calls. Without reading the SKILL.md, neither was generated.
+- **ORM field-length bugs**: `aws-api-codegen/SKILL.md` documents `Role.name max_length=20` and warns that overflow surfaces as HTTP 500, not 422. Without reading the SKILL.md, the agent generated names exceeding 20 chars and only discovered the bug after `aws run` failed with 500s.
+
+The gate makes the "did I read the contract?" check **explicit and auditable** in `workflow-state.yaml`, rather than relying on the agent's self-discipline.
+
+---
+
 ## workflow-state.yaml
 
 Path: `qa/changes/<change-id>/workflow-state.yaml`
@@ -432,8 +545,17 @@ subagents:
   affected_gates: false         # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
 
 phases:
+  # ─── Skill Load Gate (common fields — see "Skill Load Gate" section above) ───
+  # Every phase below that has a dedicated SKILL.md MUST carry these three fields:
+  #   skill_loaded: false | true | n/a   # n/a for phases without a dedicated SKILL.md
+  #   skill_md_path: <absolute path>     # set when skill_loaded transitions to true
+  #   skill_loaded_at: <ISO 8601>        # set when skill_loaded transitions to true
+  # The workflow MUST NOT allow status to reach a terminal value while skill_loaded is false
+  # (for phases that have a SKILL.md). See Phase Completion Rule item 0.
+
   skill_registry_check:
     status: pass | fail | skipped
+    skill_loaded: n/a   # no dedicated SKILL.md — registry check is self-contained
     reason: <optional — e.g. standalone aws-case-design invocation>
     checked_skills:
       - aws-case-design
@@ -451,9 +573,22 @@ phases:
       - aws-inspect
       - aws-report-generator
       - aws-risk-advisory
+      - aws-test-infra-bootstrap
+
+  test_infra_bootstrap:
+    status: pending | done | skipped | failed
+    skill_loaded: false       # → true after Read(aws-test-infra-bootstrap/SKILL.md)
+    skill_md_path: null       # → absolute path when skill_loaded=true
+    skill_loaded_at: null     # → ISO 8601 timestamp when skill_loaded=true
+    files: []      # tests/config.py, tests/conftest.py, tests/schema_validation.py
+    created: []
+    kept: []
 
   risk_advisory:
     status: pending | done | skipped | unavailable | failed
+    skill_loaded: false       # → true after Read(aws-risk-advisory/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     mode: advisory | required
     weak_data_treat_as: done | unavailable
     outputs: []
@@ -464,6 +599,9 @@ phases:
 
   case_design:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-case-design/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs:
       - .qa.yaml
       - proposal.md
@@ -471,11 +609,15 @@ phases:
 
   case_review:
     status: pending | pass | needs_fix | needs_human_review | reject
+    skill_loaded: false       # → true after Read(aws-case-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/case-review.json
     fix_attempts: []   # appended by aws-case-fixer each run
 
   fact_baseline:
     status: pending | done | unavailable
+    skill_loaded: n/a   # no dedicated SKILL.md — fact baseline is data collection only
     # unavailable = seed file not found AND db_probe not configured; planning continues with warning
     source: null      # seed_file | db_probe | both | unavailable
     file: facts/fact-baseline.json
@@ -489,6 +631,9 @@ phases:
 
   api_plan:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-api-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs:
       - plans/api-plan.md
       - plans/api-test-data-plan.md
@@ -496,6 +641,9 @@ phases:
 
   e2e_plan:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-e2e-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs:
       - plans/e2e-plan.md
       - plans/e2e-test-data-plan.md
@@ -503,6 +651,9 @@ phases:
 
   api_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject | stale
+    skill_loaded: false       # → true after Read(aws-api-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     # stale = review JSON was written before a fact correction; it cannot gate codegen until re-reviewed
     # reason: fact_correction_after_review | fact_mismatch_before_review
     stale_reason: null
@@ -511,12 +662,18 @@ phases:
 
   e2e_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject | stale
+    skill_loaded: false       # → true after Read(aws-e2e-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     stale_reason: null
     gate_file: review/plan-review.json
     fix_attempts: []   # appended by aws-e2e-plan-fixer each run
 
   api_codegen:
     status: pending | done | failed | stopped | needs_patch
+    skill_loaded: false       # → true after Read(aws-api-codegen/SKILL.md) — CRITICAL: this phase has the most hard rules that get skipped
+    skill_md_path: null
+    skill_loaded_at: null
     # needs_patch = codegen completed but generated tests contain stale facts (e.g. wrong role name)
     # requires manual patch + re-collect before Phase 7 can proceed
     stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
@@ -535,6 +692,9 @@ phases:
 
   e2e_codegen:
     status: pending | done | failed | stopped | needs_patch
+    skill_loaded: false       # → true after Read(aws-e2e-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
     needs_patch_reason: null
     review_gate_file: review/plan-review.json
@@ -558,32 +718,56 @@ phases:
   # Fuzz layer phases — present only when layers.fuzz == true
   fuzz_plan:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md]
   fuzz_plan_review:
     status: pending | pass | needs_fix | reject | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/fuzz-plan-review.json
   fuzz_codegen:
     status: pending | done | failed | stopped | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     generated_tests: { files: [] }   # tests/fuzz/**
 
   # Performance layer phases — present only when layers.performance == true
   performance_plan:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-performance-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs: [plans/performance-plan.md, plans/performance-codegen-plan.md]
   performance_plan_review:
     status: pending | pass | needs_fix | reject | skipped
+    skill_loaded: false       # → true after Read(aws-performance-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/performance-plan-review.json
   performance_codegen:
     status: pending | done | failed | stopped | skipped
+    skill_loaded: false       # → true after Read(aws-performance-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     generated_tests: { files: [] }   # tests/perf/**
 
   execution:
     status: pending | PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
+    skill_loaded: false       # → true after Read(aws-run/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     batch_id: <YYYYMMDD-HHmmss>
     manifest: execution/execution-manifest.yaml
 
   inspect:
     status: pending | done | failed | partial   # partial = fallback mode without classification
+    skill_loaded: false       # → true after Read(aws-inspect/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     inspect_mode: primary | partial              # primary = CLI classified; partial = fallback summary only
     classification_performed: true | false
     outputs:
@@ -596,6 +780,13 @@ phases:
 
   healing:
     status: pending | not_needed | proposal_created | applied | resolved | exhausted | skipped | failed
+    skill_loaded: false       # → true after Read(aws-fix-proposal/SKILL.md) (Phase 9 entry)
+    skill_md_path: null
+    skill_loaded_at: null
+    # Phases 10A/10B each have their own SKILL.md (aws-api-codegen-fixer / aws-e2e-codegen-fixer);
+    # the orchestrator MUST Read each before invoking the corresponding fixer, but only one
+    # skill_loaded field is kept here for the healing phase as a whole. If granular tracking
+    # is needed, append to healing.attempts[].skill_loaded instead.
     # Status transitions:
     #   pending          → initial value
     #   not_needed       → no eligible failures after inspect, or eligible_count == 0 from fix-proposal
@@ -626,10 +817,16 @@ phases:
 
   report:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-report-generator/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     quality_score: <int 0-100 | null>   # from report/quality-report.json (CLI-computed)
 
   archive:
     status: pending | eligible | not_eligible | skipped
+    skill_loaded: false       # → true after Read(aws-archive/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     can_archive: true | false
     recommendation: <run aws-archive separately | do_not_archive | not_applicable>
     blockers: []
@@ -1281,8 +1478,14 @@ notes:
 **Phase sequence (inline primary agent only):**
 
 ```
+Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
+  → Load aws-test-infra-bootstrap
+  → CREATE / KEEP / BLOCK each of tests/config.py, tests/conftest.py, tests/schema_validation.py per per-file contract
+  → Update workflow-state.yaml: phases.test_infra_bootstrap (status, files, created, kept)
+  → STOP if any file is BLOCKED (contract mismatch requires user decision)
+
 Phase 1.1 — Skill Registry Check
-  → Verify aws-risk-advisory, aws-case-design, aws-case-reviewer, aws-case-fixer load
+  → Verify aws-test-infra-bootstrap, aws-risk-advisory, aws-case-design, aws-case-reviewer, aws-case-fixer load
   → Write workflow-state.yaml (execution_mode: inline)
   → STOP if any required case skill missing
 
@@ -1792,7 +1995,8 @@ Only files listed in `api-codegen-plan.md` Target Files (helpers / fixtures / co
 qa/changes/<change-id>/codegen/api-codegen-summary.md   ← always
 tests/api/test_<module>_api.py                          ← when mapped in Target Files
 tests/api/helpers/<module>_api.py                       ← only if plan helper mapping non-empty
-tests/fixtures/<module>_fixtures.py                     ← only if plan + data-knowledge authorize
+tests/factories/test_<module>_<library>.py              ← required before domain-data fixture wrappers
+tests/fixtures/<module>_fixtures.py                     ← wrapper-only; calls make_* from tests/factories
 tests/api/conftest.py                                   ← only if plan explicitly requires
 ```
 
@@ -2694,6 +2898,136 @@ Stop the workflow immediately when any of the following is true:
   - `phases.healing.status == failed` (fixer wrote error file or safety gate triggered)
 
 When stopped, **report** the exact stop reason, which file or gate triggered it, and what a human must do to resume. In orchestrated mode, do **not** ask for chat confirmation to bypass a gate.
+
+---
+
+## Context Budget Check & Session Handoff
+
+Inline orchestration shares one context window across all 14 phases. As phases accumulate, context fills up. When it does, the agent MUST stop cleanly and hand off to a new session — NOT power through with truncated SKILL.md reads and incomplete code generation.
+
+### Self-Monitoring Rule (every turn, not just phase boundaries)
+
+The `monitor-status-injector` hook emits `[Context Status: X% used (...)]` in every `<system-reminder>` block. The agent MUST treat this as a **hard signal**, not informational:
+
+- **At every assistant turn**, before deciding the next action, read the most recent `Context Status: X%` value.
+- If `X% >= 75%` → **STOP all further phase work this turn**, regardless of:
+  - `[SYSTEM REMINDER - TODO CONTINUATION]` messages (the continuation hook does not know context state; it will catch up after handoff)
+  - pending todos
+  - in-progress phase work
+  - user pressure to continue
+- The only allowed actions at `X% >= 75%` are: write `handoff.md`, cancel pending todos via `todowrite`, end the response.
+
+This rule overrides the todo continuation hook. The two hooks (`monitor-status-injector` and `todo-continuation-enforcer`) do not coordinate — the agent IS the coordinator. When they conflict, **context monitor wins**.
+
+### Why the Continuation Hook Conflicts with Context Pressure
+
+When pending todos exist, `todo-continuation-enforcer` injects `[SYSTEM REMINDER - TODO CONTINUATION]` after every response, regardless of context state. Without this rule, the agent will:
+
+1. See `Context Status: 85% used` — interpret as advisory
+2. See `[SYSTEM REMINDER - TODO CONTINUATION]` — interpret as mandatory
+3. Continue executing → context goes to 95% → 105% (overflow) → `anthropic-context-window-limit-recovery` triggers truncation / summarize
+4. Summarized context loses SKILL.md hard rules → next phase generates incomplete code
+
+The fix is purely behavioral: agent must prioritize `Context Status` over `TODO CONTINUATION` when they conflict. **The Skill Load Gate enforces "read the contract"; this Self-Monitoring Rule enforces "respect the budget".**
+
+### When to Trigger (Phase Entry — still applies)
+
+Before entering **any** phase (after the Skill Load Gate check, before reading the phase's SKILL.md), the agent MUST also assess context budget:
+
+- If remaining context < 25% → **MUST handoff** (no phase work this turn).
+- If remaining context < 40% AND the upcoming phase is a codegen phase (6A / 6B) → **MUST handoff** (codegen phases are context-heavy: SKILL.md + all plans + case.yaml + data-knowledge + generating multiple files).
+- If remaining context < 40% AND the upcoming phase has a SKILL.md > 400 lines → **SHOULD handoff** (large SKILL.md + inputs will consume most of the remaining budget).
+
+The agent cannot know its exact token count, but it MUST use the `<system-reminder>` context-window monitor messages as the signal. When the monitor reports ≥ 75% used, treat the upcoming phase as triggering the handoff rules above.
+
+### Handoff Procedure
+
+When context budget is insufficient:
+
+1. **Do NOT start the phase.** Do not read the SKILL.md. Do not generate any files.
+2. **Write a handoff document** to `qa/changes/<change-id>/handoff.md`:
+
+```markdown
+# Session Handoff — <change-id>
+
+**Date:** <ISO 8601>
+**Reason:** Context budget exhausted (<percentage>% used).
+**Next phase to execute:** <phase_name> (e.g. api_codegen)
+
+## Completed phases (status from workflow-state.yaml)
+
+| Phase | Status | skill_loaded |
+|---|---|---|
+| ... | ... | ... |
+
+## Remaining phases
+
+1. <next_phase> — NOT STARTED (this is where the next session picks up)
+2. <phase_after>
+3. ...
+
+## Resume instructions
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml` (sole source of truth).
+2. Read `qa/changes/<change-id>/handoff.md` (this file).
+3. Find the first phase with `status: pending` in workflow-state.yaml.
+4. Execute the Skill Load Gate for that phase (Read its SKILL.md).
+5. Continue the workflow inline.
+```
+
+3. **Update `workflow-state.yaml`** with a handoff marker:
+
+```yaml
+handoff:
+  active: true
+  reason: "context_budget_exhausted"
+  next_phase: <phase_name>
+  handoff_file: qa/changes/<change-id>/handoff.md
+  written_at: <ISO 8601>
+```
+
+4. **Cancel all pending todos.** Do NOT leave `in_progress` or `pending` todos — the todo continuation hook will force the agent to resume in the same exhausted context. Use `todowrite` to mark ALL remaining items as `cancelled` with a note:
+
+```
+cancelled — context budget exhausted; see handoff.md for resume instructions
+```
+
+5. **End the response** with:
+
+```
+Context budget exhausted (<percentage>% used). Workflow paused at phase <next_phase>.
+
+Handoff document: qa/changes/<change-id>/handoff.md
+All pending todos cancelled (todo continuation hook suppressed).
+
+To resume in a new session:
+1. Start a new conversation
+2. Say: "Continue aws-workflow for change <change-id> from <next_phase>"
+3. The new session will read workflow-state.yaml + handoff.md and continue
+```
+
+### Why This Exists
+
+Without this mechanism, the agent faces two bad options when context fills up:
+
+- **Power through**: read truncated SKILL.md → miss hard rules → generate incomplete code (missing case_id prefixes, missing `assert_matches_schema`, missing `codegen-summary.md`) → discover defects only after `aws run` produces `unmapped_tests` or test failures.
+- **Stop abruptly**: leave pending todos → todo continuation hook forces resume in the same exhausted context → same truncation problem.
+
+The handoff procedure gives the agent a **third option**: stop cleanly, write a resume document, cancel todos so the hook doesn't fire, and let the next session pick up with a fresh context.
+
+### Resume Protocol (New Session)
+
+When a new session starts with "Continue aws-workflow for change `<change-id>`":
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. If `handoff.active == true`:
+   - Read `qa/changes/<change-id>/handoff.md` for context.
+   - Set `handoff.active = false` in workflow-state.yaml (handoff consumed).
+   - Find the first phase with `status: pending` — this is the resume point.
+   - Execute the Skill Load Gate for that phase.
+   - Continue the workflow inline.
+3. If `handoff.active != true`:
+   - No handoff in progress; start from the beginning or ask the user.
 
 ---
 

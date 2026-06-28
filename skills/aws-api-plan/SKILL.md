@@ -112,7 +112,8 @@ Must NOT generate:
 
 - `.aws/data-knowledge.yaml` (write proposal only, not project-level knowledge base)
 - `/tests/api/*.py`
-- `/tests/fixtures/*.py`
+- `/tests/factories/test_<module>_<library>.py`
+- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 
@@ -272,8 +273,11 @@ This file describes how to generate test code; it must NOT contain test code.
 Must include:
 
 - **Target Files** — table: File \| Purpose
+  - If any fixture/setup creates or cleans up domain data, Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` domain factory before any `tests/fixtures/*.py` wrapper.
+  - `tests/fixtures/*.py` may appear only as pytest injection wrappers around `make_*`; it must not be the only target for domain data creation.
 - **Test Function Mapping** — table: Case ID \| Test Function \| Target File
-- **Fixture Mapping** — table: Fixture \| Source \| Ring \| Method (`make_*` / HTTP-create-case-only / mock) \| Required By
+- **Factory Mapping** — table: Entity \| Factory Module (`tests/factories/test_<module>_<library>.py`) \| Function (`make_*`) \| Ring \| Required By
+- **Fixture Mapping** — table: Fixture \| Source Factory \| Wrapper Only (yes/no) \| Required By
 - **Helper Mapping** — shared helper description
 - **Import Strategy** — import modules per file
 - **Assertion Mapping** — table: Case ID \| Assertions
@@ -450,7 +454,8 @@ User verbal approval cannot substitute api-plan-review.json.
 Must NOT continue generating:
 
 - `/tests/api/*.py`
-- `/tests/fixtures/*.py`
+- `/tests/factories/test_<module>_<library>.py`
+- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 

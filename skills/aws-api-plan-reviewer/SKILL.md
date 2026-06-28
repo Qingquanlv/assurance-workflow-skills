@@ -185,6 +185,8 @@ Flag unknown factories, unknown states, and missing cleanup.
 
 - **Factory-first default:** for every entity listed in **Required Data**, plan must specify Ring + method in **Factory / Boundary Strategy** → else `severity: medium` (`auto_fix_allowed: true`).
 - If `tests/factories/` contains a `test_<module>_<library>.py` factory module defining `make_<entity>()` for an entity under test, plan/fixtures **must** use it for setup/teardown → else `severity: high`.
+- If `api-codegen-plan.md` Target Files includes `tests/fixtures/<module>_fixtures.py` for a fixture that creates or cleans up domain data but does **not** include the corresponding `tests/factories/test_<module>_<library>.py` target → `severity: high`, `codegen_readiness = not_ready`.
+- `tests/fixtures/` must be wrapper-only: `@pytest.fixture`, yield/lifecycle orchestration, and calls to `make_*`. Any direct business data creation in `tests/fixtures/` plan text → `severity: high`.
 - **HTTP setup ban:** fixture or setup step uses `POST /.../create` (or helper wrapping create) for cases **not** primarily testing create → `severity: high` (`auto_fix_allowed: false`). Exception: create-focused case IDs explicitly mapped in **Data Setup Mapping** with reason.
 - Anti-pattern: `tmp_<entity>` fixture = POST create + GET list resolve id → flag when `make_<entity>` exists or should exist per degradation ladder step 1.
 - Cleanup must maintain the same invariants as setup; raw-delete cleanup for M2M, closure, or soft-delete entities → `severity: high` (`auto_fix_allowed: false` unless plan only needs wording clarification).
