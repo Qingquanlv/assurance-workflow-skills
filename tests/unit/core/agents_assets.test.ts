@@ -23,4 +23,17 @@ describe('copyAgentAssets', () => {
     expect(r.skipped).toContain('.opencode/agents/aws-author.md');
     expect(fs.readFileSync(path.join(root, '.opencode/agents/aws-author.md'), 'utf-8')).toBe('CUSTOM');
   });
+
+  it('generated agent files explicitly deny editing workflow-state.yaml', () => {
+    copyAgentAssets(root, packageRoot);
+    for (const name of ['aws-author', 'aws-test-author', 'aws-reviewer']) {
+      const content = fs.readFileSync(
+        path.join(root, '.opencode', 'agents', `${name}.md`),
+        'utf-8',
+      );
+      expect(content).toMatch(
+        /workflow-state\.yaml["']?:\s*deny/,
+      );
+    }
+  });
 });
