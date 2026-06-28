@@ -581,13 +581,14 @@ Supported command template variables:
 {{change_id}}
 ```
 
-The implementation should avoid shell injection. Prefer parsing command template into command plus args and using:
+The implementation must avoid shell injection. By default, parse the command
+template into command plus args and use:
 
 ```ts
 child_process.spawn(command, args, { shell: false })
 ```
 
-If V1 uses a shell-based fallback, then `command_template` is trusted local config. It must only interpolate normalized paths and known identifiers from the approved variable list above.
+If the implementation cannot safely split the command template in V1, any shell-based fallback must be documented as trusted local config only and covered by tests. It must only interpolate normalized paths and known identifiers from the approved variable list above.
 
 Recommended template for documentation:
 
@@ -923,17 +924,33 @@ tests/integration/commands/conductor.test.ts
 - `artifact_paths` exist on key events
 - invalid event file makes graph command fail clearly
 
+### Schema tests
+
+- generated `TaskBrief` validates against `schemas/task-brief.schema.json`
+- generated `TaskResult` validates against `schemas/task-result.schema.json`
+- generated `ConductorEvent` validates against `schemas/conductor-event.schema.json`
+- generated `ExecutionGraph` validates against `schemas/execution-graph.schema.json`
+
 ### Runtime tests
 
 - local runtime returns `PENDING_EXTERNAL`
 - opencode-command requires `command_template`
 - opencode-command expands only approved variables
-- opencode-command uses `spawn(command, args, { shell: false })` or documents trusted-template fallback
+- opencode-command uses `spawn(command, args, { shell: false })` by default
+- any shell-based fallback is documented as trusted local config only and covered by tests
 - stdout and stderr logs are conductor-owned paths
 - git snapshot unavailable fails closed
 - missing result after exit 0 fails
 - non-zero exit fails
 - timeout fails
+
+### Init and repair tests
+
+- OpenCode integration path copies missing agent templates
+- existing `.opencode/agents/*.md` files are not overwritten
+- existing agent files are reported as skipped or warning
+- `aws init --repair` fills missing agent templates when OpenCode integration is detected or requested
+- non-OpenCode integration path does not copy agent templates
 
 ### CLI smoke tests
 
@@ -945,6 +962,9 @@ tests/integration/commands/conductor.test.ts
 - `validate-result` output includes `validation_mode=reported_only` and `diff_audit=not_available`
 - `aws conductor graph --change TEST` exits 0 when events are valid
 - opencode-command failure paths exit 1
+- CLI commands return deterministic exit codes:
+  - valid brief, local dispatch, valid result, and valid graph return `0`
+  - invalid phase, invalid result, runtime failure, and invalid events return `1`
 
 ## Implementation order
 
