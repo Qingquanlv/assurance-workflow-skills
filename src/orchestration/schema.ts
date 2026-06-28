@@ -271,6 +271,9 @@ export function findSchemaFile(projectRoot: string, override?: string): string {
 
 // ─── Static validation ───────────────────────────────────────────────────────
 
+export const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer']);
+export const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
+
 /** Every predicate string in the schema, tagged with its source location. */
 function allPredicates(schema: Schema): { loc: string; expr: string }[] {
   const out: { loc: string; expr: string }[] = [];
@@ -360,8 +363,6 @@ export function validateSchema(schema: Schema): ValidationResult {
   }
 
   // Agent field rules.
-  const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer']);
-  const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
   for (const p of schema.phases) {
     if (ORCHESTRATOR_INTERNAL.has(p.id)) continue;
     if (p.skill === null) {
