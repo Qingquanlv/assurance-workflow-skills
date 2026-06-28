@@ -28,7 +28,8 @@ Do not rely on prior conversation context.
 1. Write generated test files per `api-codegen-plan.md` Target Files and **Generated File Policy**:
    - `tests/api/test_<module>_api.py` — required when mapped in plan
    - `tests/api/helpers/<module>_api.py` — only if helper mapping is non-empty
-   - `tests/fixtures/<module>_fixtures.py` — only when plan + data-knowledge authorize new fixture wrappers
+   - `tests/factories/test_<module>_<library>.py` — required before any fixture wrapper that creates or cleans up domain data
+   - `tests/fixtures/<module>_fixtures.py` — only pytest wrapper around `make_*`; never business data creation directly
    - `tests/api/conftest.py` — only if plan explicitly requires it (see conftest rules)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/api-codegen-summary.md` (create `codegen/` directory if missing)
@@ -63,61 +64,59 @@ phases:
 
 # API Codegen for QA
 
-名称：API 测试代码生成
+Name: API Test Code Generation
 
-描述："QA 超能力：仅在 API plan 已 Review 后使用。根据 api-plan.md、api-test-data-plan.md 和 api-codegen-plan.md 生成 pytest 测试代码、fixtures、helpers。**不执行 pytest，不生成执行结果** — 测试执行由 aws-run（Phase 8）负责。此 Skill 不生成新的 Case，不重新设计测试范围。"
+Description: "QA superpower: use ONLY after API plan review. Generates pytest test code, domain factories, fixture wrappers, and helpers from api-plan.md, api-test-data-plan.md, and api-codegen-plan.md. **Does NOT run pytest or write execution results** — test execution is Phase 8 aws-run. Does NOT generate new cases or redesign test scope."
 
-将已 Review 的 API 测试计划转化为可执行 pytest 测试代码。
+Converts a reviewed API test plan into executable pytest test code.
 
-此 Skill 是 AWS M3 的 Stage 2。它必须读取 Stage 1 生成的 plan 文件，并基于这些文件生成 `tests/api/`、`tests/fixtures/`、`tests/api/helpers/`。**不执行 pytest，不产生 execution 结果** — 执行由 Phase 8 `aws-run` 负责。
+This skill is AWS M3 Stage 2. It MUST read Stage 1 plan files and generate `tests/api/`, `tests/factories/`, optional `tests/fixtures/` wrappers, and `tests/api/helpers/`. **Does NOT run pytest or produce execution results** — execution is Phase 8 `aws-run`.
 
 ## When to Use
 
-当用户明确要求：
+Use when the user explicitly asks to:
 
-- 根据 plan 生成测试代码
-- 继续 API codegen
-- 实现 api-codegen-plan.md
-- 根据 M3 plan 生成 `/tests/api`
+- Generate test code from plan
+- Continue API codegen
+- Implement api-codegen-plan.md
+- Generate `/tests/api` from M3 plan
 
-使用此 Skill。
-
-**不适用于：执行测试（使用 aws-run）、查看执行结果（使用 aws-inspect）。**
+**Not for:** running tests (use aws-run) or viewing execution results (use aws-inspect).
 
 ## Do Not Use When
 
-以下情况不得使用此 Skill：
+Do NOT use this skill when:
 
-- api-plan.md 尚未生成
-- api-test-data-plan.md 尚未生成
-- api-codegen-plan.md 尚未生成
-- m3-review-summary.md 尚未生成
-- 用户还没有确认继续 codegen
-- 用户要求重新设计测试范围
-- 用户要求生成 E2E 测试代码
+- api-plan.md has not been generated
+- api-test-data-plan.md has not been generated
+- api-codegen-plan.md has not been generated
+- m3-review-summary.md has not been generated
+- User has not confirmed to continue codegen
+- User asks to redesign test scope
+- User asks to generate E2E test code
 
 ## Inputs
 
-必须读取：
+Must read:
 
 - `qa/changes/<change-id>/plans/api-plan.md`
 - `qa/changes/<change-id>/plans/api-test-data-plan.md`
 - `qa/changes/<change-id>/plans/api-codegen-plan.md`
 - `qa/changes/<change-id>/plans/m3-review-summary.md`
 - `qa/changes/<change-id>/cases/**/case.yaml`
-- `.aws/data-knowledge.yaml`  ← **必须存在。缺失是 BLOCKER。**
+- `.aws/data-knowledge.yaml` ← **must exist. Missing is BLOCKER.**
 - `qa/changes/<change-id>/review/api-plan-review.json`
 
 Optional (required when `codegen_readiness == "ready_with_warnings"` due to endpoint coverage gap):
 
 - `qa/changes/<change-id>/known-product-issues.md` — must exist before codegen if workaround / coverage gap is in scope
 
-> **data-knowledge 分层规则：**
-> - `aws-api-plan` 阶段：`.aws/data-knowledge.yaml` 缺失不阻断，生成 `data-knowledge.proposal.yaml`。
-> - `aws-api-codegen` 阶段：`.aws/data-knowledge.yaml` **必须存在**。`data-knowledge.proposal.yaml` 仅供参考，不可替代。
-> - 如果 `.aws/data-knowledge.yaml` 不存在，**STOP**——告知用户需先创建或 promote `data-knowledge.proposal.yaml`。
+> **data-knowledge tier rules:**
+> - `aws-api-plan` stage: missing `.aws/data-knowledge.yaml` does not block; generates `data-knowledge.proposal.yaml`.
+> - `aws-api-codegen` stage: `.aws/data-knowledge.yaml` **must exist**. `data-knowledge.proposal.yaml` is reference only and cannot substitute.
+> - If `.aws/data-knowledge.yaml` does not exist, **STOP** — tell user to create or promote `data-knowledge.proposal.yaml` first.
 
-如果缺少任何 plan 文件，必须停止，并提示先运行 `aws-api-plan`。
+If any plan file is missing, stop and prompt to run `aws-api-plan` first.
 
 ## Mandatory Review JSON Gate
 
@@ -133,7 +132,7 @@ Same checks as Context Contract step 4. In summary:
 
 If any condition fails, **STOP** — do not generate code.
 
-用户在对话中说 "approved" / "looks good" 不能替代此 JSON gate。如果用户口头批准，必须由 `aws-api-plan-reviewer` 写出 `api-plan-review.json` 后才能继续。
+User saying "approved" / "looks good" in chat cannot substitute this JSON gate. If user verbally approves, `aws-api-plan-reviewer` must write `api-plan-review.json` before continuing.
 
 ### ready_with_warnings — Coverage Gap Hard Rules
 
@@ -152,19 +151,20 @@ For other non-blocking warnings (not coverage gaps):
 
 ## Outputs
 
-可以生成（路径以项目根为基准；以 `api-codegen-plan.md` Target Files 为准）：
+May generate (paths relative to project root; per `api-codegen-plan.md` Target Files):
 
 - `tests/api/test_<module>_api.py` — test functions (required when mapped)
 - `tests/api/helpers/<module>_api.py` — **only if** helper mapping in plan is non-empty
-- `tests/fixtures/<module>_fixtures.py` — **only if** plan + `.aws/data-knowledge.yaml` authorize new fixture wrappers
+- `tests/factories/test_<module>_<library>.py` — **required** when new domain data setup/cleanup is needed
+- `tests/fixtures/<module>_fixtures.py` — **only** pytest injection wrappers around domain factories; no business data creation directly
 - `tests/api/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
 - `qa/changes/<change-id>/codegen/api-codegen-summary.md` — always
 
 **known-product-issues.md:** Codegen may **append** implementation notes only when the file already exists and `aws-api-plan-reviewer` has acknowledged the issue. Codegen **MUST NOT** create the file for endpoint coverage gaps.
 
-**不执行 pytest，不生成 execution 结果文件** — 测试执行完全由 `aws-run`（Phase 8）负责。此 skill 完成后，直接运行 `aws-run` 执行测试。
+**Does NOT run pytest or write execution result files** — execution is fully handled by `aws-run` (Phase 8). After this skill completes, run `aws-run` to execute tests.
 
-不得生成或修改：
+Must NOT generate or modify:
 
 - `proposal.md`
 - `case.yaml`
@@ -172,11 +172,12 @@ For other non-blocking warnings (not coverage gaps):
 - `api-test-data-plan.md`
 - `api-codegen-plan.md`
 
-除非用户明确要求修订 plan。
+Unless the user explicitly asks to revise the plan.
 
 ## Generated File Policy
 
 - Only create or modify files listed in `api-codegen-plan.md` **Target Files**.
+- If a plan needs a new pytest fixture that creates or cleans up domain data, `api-codegen-plan.md` Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` file. If missing → **STOP** and report blocker; do not generate only `tests/fixtures/<module>_fixtures.py`.
 - If a target test file already exists, **append** new test functions only — do not overwrite unrelated tests.
 - Do not delete existing tests.
 - Preserve existing imports, fixtures, and project style.
@@ -195,63 +196,112 @@ Update `tests/api/conftest.py` **only if** `api-codegen-plan.md` explicitly requ
 
 ## Workflow
 
-1. 读取 `api-plan.md`。
-2. 读取 `api-test-data-plan.md`。
-3. 读取 `api-codegen-plan.md`。
-4. 读取 `m3-review-summary.md`。
-5. 读取 `case.yaml`。
-6. 读取 `.aws/data-knowledge.yaml`。
-7. 检查 Codegen Preconditions：所有 plan 文件存在且无缺失。
-8. 检查 Mandatory Review JSON Gate（Context Contract step 4 + **ready_with_warnings — Coverage Gap Hard Rules**）。
-9. 校验 endpoint、assertion、fixture、auth、cleanup 映射完整性。
-10. 根据 `api-codegen-plan.md` **Target Files** 生成或追加 `tests/api/test_<module>_api.py`。
-11. 若 plan + `.aws/data-knowledge.yaml` 授权新 fixture wrapper，生成 `tests/fixtures/<module>_fixtures.py`；若 capability 已存在，复用现有 fixture，不新建文件。
-12. 若 helper mapping 非空，生成 `tests/api/helpers/<module>_api.py`。
-12b. 仅当 plan 明确要求时，按 **conftest.py Policy** 更新 `tests/api/conftest.py`。
-13. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
-14. 创建 `qa/changes/<change-id>/codegen/`（若不存在），写入 `codegen/api-codegen-summary.md`。
-15. 输出 Codegen Summary 摘要（文件列表 + 下一步提示）。
+1. Read `api-plan.md`.
+2. Read `api-test-data-plan.md`.
+3. Read `api-codegen-plan.md`.
+4. Read `m3-review-summary.md`.
+5. Read `case.yaml`.
+6. Read `.aws/data-knowledge.yaml`.
+7. Check Codegen Preconditions: all plan files exist with no gaps.
+8. Check Mandatory Review JSON Gate (Context Contract step 4 + **ready_with_warnings — Coverage Gap Hard Rules**).
+9. Validate endpoint, assertion, fixture, auth, cleanup mapping completeness.
+10. Generate or append `tests/api/test_<module>_api.py` per `api-codegen-plan.md` **Target Files**.
+11. If domain data setup/cleanup is needed, generate or reuse `tests/factories/test_<module>_<library>.py` first; if the required factory target is missing from Target Files → **STOP** and report blocker.
+11b. If plan + `.aws/data-knowledge.yaml` authorize a new pytest fixture wrapper, generate `tests/fixtures/<module>_fixtures.py` only as a thin wrapper around `make_*`; if capability exists, reuse existing fixture, do not create new file.
+12. If helper mapping is non-empty, generate `tests/api/helpers/<module>_api.py`.
+12b. Update `tests/api/conftest.py` per **conftest.py Policy** only when plan explicitly requires it.
+13. **Do NOT run pytest** — execution is `aws-run` (Phase 8).
+14. Create `qa/changes/<change-id>/codegen/` (if missing), write `codegen/api-codegen-summary.md`.
+15. Output Codegen Summary (file list + next-step hint).
 
 ## Checklist
 
-必须按顺序完成：
+Complete in order:
 
-- [ ] 确认用户要求继续 codegen
-- [ ] 读取 `api-plan.md`
-- [ ] 读取 `api-test-data-plan.md`
-- [ ] 读取 `api-codegen-plan.md`
-- [ ] 读取 `m3-review-summary.md`
-- [ ] 读取 `case.yaml`
-- [ ] 读取 `.aws/data-knowledge.yaml`
-- [ ] 检查 Codegen Preconditions
-- [ ] 检查 Mandatory Review JSON Gate（完整 gate + coverage gap 规则）
-- [ ] 校验测试数据 capability（复用已有 fixture 或仅在授权时新建）
-- [ ] 生成或追加 `tests/api/test_<module>_api.py`
-- [ ] 校验：每个测试函数名以归一化 case_id（小写）为前缀 + `__` 分隔，覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）
-- [ ] 生成 `tests/fixtures/<module>_fixtures.py`（仅当 plan + data-knowledge 授权）
-- [ ] 生成 `tests/api/helpers/<module>_api.py`（helper mapping 非空时）
-- [ ] 更新 `tests/api/conftest.py`（仅 plan 明确要求时）
-- [ ] 更新 `workflow-state.yaml`（`phases.api_codegen` 含 review_gate_file、codegen_readiness、warnings_carried、known_product_issues）
-- [ ] 创建 `codegen/` 目录（若不存在），写入 `api-codegen-summary.md`
-- [ ] 输出 Codegen Summary（文件列表 + 下一步）
+- [ ] Confirm user asked to continue codegen
+- [ ] Read `api-plan.md`
+- [ ] Read `api-test-data-plan.md`
+- [ ] Read `api-codegen-plan.md`
+- [ ] Read `m3-review-summary.md`
+- [ ] Read `case.yaml`
+- [ ] Read `.aws/data-knowledge.yaml`
+- [ ] Check Codegen Preconditions
+- [ ] Check Mandatory Review JSON Gate (full gate + coverage gap rules)
+- [ ] Validate test data capabilities (reuse existing factory/fixture or create only when authorized)
+- [ ] Generate or append `tests/api/test_<module>_api.py`
+- [ ] Verify each test function name uses normalized case_id (lowercase) prefix + `__` separator; covers all case_ids in Case → Test Function Mapping (case-insensitive)
+- [ ] Verify all config values reference `tests.config.settings`; no hardcoded URL / credentials / prefixes
+- [ ] Verify entities with M2M / closure / hash invariants use `make_*` from `tests/factories/` modules; no raw ORM `create()`
+- [ ] Verify every domain-data fixture has a corresponding `tests/factories/test_<module>_<library>.py` Target File; if missing, STOP instead of generating wrapper-only setup
+- [ ] Verify all `tests/fixtures/` files are wrapper-only and call `make_*`; no HTTP `POST .../create` or direct business data creation except create-focused cases in test bodies
+- [ ] Verify each happy-path test ends with `assert_matches_schema(body, "METHOD /path")`
+- [ ] Generate `tests/factories/test_<module>_<library>.py` before any domain-data fixture wrapper
+- [ ] Generate `tests/fixtures/<module>_fixtures.py` only as a wrapper around `make_*` (only when plan + data-knowledge authorize)
+- [ ] Generate `tests/api/helpers/<module>_api.py` (when helper mapping non-empty)
+- [ ] Update `tests/api/conftest.py` (only when plan explicitly requires)
+- [ ] Update `workflow-state.yaml` (`phases.api_codegen` with review_gate_file, codegen_readiness, warnings_carried, known_product_issues)
+- [ ] Create `codegen/` directory (if missing), write `api-codegen-summary.md`
+- [ ] If any endpoint is not registered in `_LOCAL_SCHEMAS`, write **Schema Registration Required** section in `api-codegen-summary.md`
+- [ ] Output Codegen Summary (file list + next step)
 
 ## Output Contract
 
 ### tests/api/test_<module>_api.py
 
-必须满足：
+Must satisfy:
 
-- 使用 pytest。
-- **测试函数名必须以归一化 case_id 为前缀**，并用**双下划线** `__` 与描述分隔：`test_<case_id 小写>__<description>`。归一化 = 把 case.yaml 的 case_id 转小写（case_id 本身已是下划线分隔、不含连字符）。例如 case_id `TC_ROLE_API_001` → `def test_tc_role_api_001__role_list_happy_path(...)`。这是**唯一强制的可追溯标记**，不依赖注释/docstring；`aws run` 的结果解析器据此从函数名回填 case_id（匹配无视大小写）。一个 case 拆成多个函数时，各函数共用同一 case_id 前缀。
-- 每个断言必须来自 `case.yaml` 或 `api-codegen-plan.md`，不得自行扩展。
-- 不得硬编码生产账号、密码、Token。
-- 有效 Token 必须来自 fixture 或 `.aws/data-knowledge.yaml` 中的 auth capability。
-- 无 Token Case 必须显式不传 Authorization header。
-- 无效 Token Case 可使用本地固定无效字符串（如 `invalid-token`）。
-- 不得生成 E2E 代码。
-- 不得生成 POM（Page Object Model）。
+- Use pytest.
+- **Test function name MUST use normalized case_id as prefix**, separated from description by **double underscore** `__`: `test_<case_id lowercase>__<description>`. Normalization = lowercase case.yaml case_id (case_id already uses underscores, no hyphens). Example: case_id `TC_ROLE_API_001` → `def test_tc_role_api_001__role_list_happy_path(...)`. This is the **only mandatory traceability marker**, not comments/docstrings; `aws run` result parser backfills case_id from function name (case-insensitive match). When one case splits into multiple functions, all share the same case_id prefix.
+- Every assertion must come from `case.yaml` or `api-codegen-plan.md`; do not extend on your own.
+- Do not hardcode production accounts, passwords, or tokens.
+- Valid token must come from fixture or auth capability in `.aws/data-knowledge.yaml`.
+- No-token cases must explicitly omit Authorization header.
+- Invalid-token cases may use a local fixed invalid string (e.g. `invalid-token`).
+- Do not generate E2E code.
+- Do not generate POM (Page Object Model).
 
-**函数命名骨架（强制）：**
+**`tests/config.py` write / update gate (mandatory Q&A before touching this file):**
+
+If any generated code would require creating or modifying `tests/config.py` (e.g. adding a new field, changing a default value, adding a new prefix):
+
+1. **STOP** before writing.
+2. **Ask the user** to confirm each runtime fact that would become a default value. Required questions:
+
+   | Field | Question to ask |
+   |-------|-----------------|
+   | `base_url` | "What is the backend base URL? (e.g. `http://127.0.0.1:9999`) — please confirm from `run.py` or your start command." |
+   | `frontend_url` | "What is the frontend dev server URL? (e.g. `http://127.0.0.1:3100`) — please confirm from `package.json` scripts or `vite.config.ts`." |
+   | `admin_username` | "What is the admin username for QA? — please confirm from seed config or README." |
+   | `admin_password` | "What is the admin password for QA? — please confirm from seed config or README." |
+   | new `*_prefix` | "What prefix should be used for `<entity>` test data? Must be a string production data will never use." |
+
+3. Do **not** write `tests/config.py` until the user confirms all relevant values.
+4. After confirmation, record the fact source in a comment:
+
+   ```python
+   base_url: str = os.environ.get("BASE_URL", "http://127.0.0.1:9999")  # confirmed: run.py --port 9999
+   ```
+
+5. If `tests/config.py` already exists and the required field is present, **do not modify it** — reuse the existing value.
+
+**SUT readiness (code-enforced):** connectivity and admin login are validated by session autouse fixture `_verify_sut_ready` in `tests/conftest.py` at pytest startup. Do not duplicate curl/login probes in generated tests or skill steps.
+
+**Unified Configuration (mandatory):**
+
+- All URLs, admin credentials, test data prefixes, etc. **must** be read from `tests.config.settings`; **must not** use `os.environ.get(...)` or inline literals.
+- Module-level constants like `BASE_URL` / `FRONTEND_URL`: **must** be `from tests.config import settings; BASE_URL = settings.base_url`, or use `settings.base_url` directly.
+- Test data prefixes (role / user / dept, etc.): **must** use `settings.role_prefix` / `settings.user_prefix` / `settings.dept_prefix`.
+
+```python
+# Required import skeleton
+from tests.config import settings
+from tests.factories.test_role_admin import make_role
+from tests.factories.test_user_admin import make_user
+from tests.factories.test_dept_admin import make_dept
+from tests.schema_validation import assert_matches_schema
+```
+
+**Required test function naming skeleton:**
 
 ```python
 # tests/api/test_role_api.py — case_id TC_ROLE_API_001
@@ -259,19 +309,112 @@ def test_tc_role_api_001__role_list_happy_path(api_client, auth_headers):
     ...
 ```
 
+### tests/factories/test_<module>_<library>.py
+
+Generate **whenever** the plan requires new domain data setup or invariant-preserving cleanup.
+
+This is the only place where business data creation logic belongs.
+
+Must satisfy:
+
+- Export `make_*` functions for setup and explicit cleanup helpers when cleanup is non-trivial.
+- Call app service/controller code internally to maintain invariants.
+- Return plain data snapshots, or ensure fixture wrappers convert ORM objects to snapshots before exposing them to tests.
+- May use `run_orm()` only for live-server mode; in-process async tests call `await make_*()` directly.
+- Must read prefixes and runtime config from `tests.config.settings`.
+- Must not call HTTP APIs for setup/cleanup except when explicitly documenting create/delete API behavior in a test body.
+- Must not be placed under `qa/changes/`; generated reusable test support code belongs under `tests/factories/`.
+
 ### tests/fixtures/<module>_fixtures.py
 
-#### Test Data Strategy
+Generate **only** as pytest injection wrappers around `tests/factories/test_<module>_<library>.py`.
+
+Hard boundary:
+
+- `tests/fixtures/` may contain `@pytest.fixture`, lifecycle/yield cleanup orchestration, and calls to `make_*`.
+- `tests/fixtures/` must not contain business data creation logic directly.
+- `tests/fixtures/` must not call HTTP `POST .../create` for setup when a `make_*` factory is required or available.
+- If a required domain factory target is missing, **STOP** and report blocker instead of generating wrapper-only setup.
+
+#### Test Data Strategy — DDD Three-Ring Boundary Rules
 
 **pytest `fixture` vs factory pattern — do not confuse them:**
 
-- **pytest `fixture`** is the *injection mechanism* (the `@pytest.fixture` decorator). This is mandatory pytest convention. The `tests/fixtures/` directory name refers to this mechanism — do NOT rename or remove it.
-- **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory (dynamic data creation) rather than a static dict (hard-coded values).
+- **pytest `fixture`** is the *injection mechanism* (`@pytest.fixture` decorator). Mandatory pytest convention. The `tests/fixtures/` directory name refers to this mechanism — do NOT rename or remove it.
+- **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory (dynamic creation) rather than a static dict (hard-coded values).
 
-Rules:
-- When authorized to generate a new fixture, implement it as a factory: return a factory function or use `factory_boy` / `polyfactory` patterns rather than returning a plain static dict.
-- Each test must receive an independent data instance — avoid shared mutable state between tests.
-- Do not hard-code account IDs, tokens, or business-entity IDs in fixture bodies; derive them from `.aws/data-knowledge.yaml` capabilities.
+**Three-ring seeding rules (hard rules; aligned with api-test-data-plan.md):**
+
+**Factory module naming convention:** factory capabilities live under `tests/factories/`. Each module is named `test_<module>_<library>.py` (for example, `tests/factories/test_menu_admin.py`), and exported factory function names are always `make_*` (for example, `make_menu()`).
+
+**Factory usage contract (hard rules):**
+
+1. Setup uses factory; test body uses HTTP.
+2. Factory modules call service/controller code; do not copy controller code into tests.
+3. Factories must not leak ORM objects to test functions; return plain data snapshots or convert ORM objects to snapshots inside fixtures.
+4. `run_orm()` is only for live-server mode; in-process async tests must call `await make_*()` directly.
+5. Create API cases must exercise HTTP create; do not replace create behavior assertions with the same create factory path.
+6. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
+7. Factory modules live under `tests/factories/test_<module>_<library>.py`; exported function names are always `make_*`.
+
+| Ring | Seeding method | Why mandatory |
+|------|----------------|---------------|
+| **Within domain** | `make_*` exported by `tests/factories/test_<module>_<library>.py` modules; implementation calls service/controller code internally | Maintains invariants; default for ALL entities under test |
+| **Cross domain** | Seed valid entity in other domain first, pass id as parameter | Ensures cross-aggregate references are valid |
+| **External domain** | mock / contract stub | Avoids real external system dependencies |
+
+**HTTP setup ban (fixtures / conftest):**
+
+- **Do NOT** seed data in fixtures via `POST /.../create` + list lookup unless the mapped case **primarily tests the create endpoint** (called out in `api-codegen-plan.md` **Data Setup Mapping**).
+- **Do** use `await make_<entity>(...)` / `run_orm(make_<entity>)` for `tmp_<entity>` fixtures when `make_<entity>` exists in the relevant `tests/factories/test_<module>_<library>.py` module.
+- Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities. Use factory/service cleanup or documented invariant-preserving cleanup; HTTP DELETE is only required when the case tests delete behavior.
+
+**Per-entity mandatory decisions:**
+
+- `Role` (menus/apis M2M): **must** `asyncio.run(make_role(...))` or `await make_role(...)` in async fixture; **must not** raw `Role.create()`; **must not** HTTP-create in fixtures.
+- `User` (roles M2M + password hash): **must** `await make_user(...)`; **must not** raw `User.create()`; **must not** HTTP-create in fixtures.
+- `Dept` (DeptClosure closure table): **must** `await make_dept(...)`; **must not** raw `Dept.create()`; **must not** HTTP-create in fixtures.
+- `Menu`: **must** `await make_menu(...)` / `run_orm(make_menu)` when `make_menu` exists in a `tests/factories/test_menu_<library>.py` module; **must not** HTTP-create in fixtures except create-focused cases; respect `settings.menu_prefix` and name `max_length=20`.
+- `AuditLog` (no derived constraints): `make_audit_log()` or `AuditLog.create(...)` direct insert allowed.
+
+**Recommended fixture skeleton (factory-first):**
+
+```python
+import asyncio
+import pytest
+from tests.config import settings
+from tests.factories.runtime import run_orm
+from tests.factories.test_menu_admin import make_menu  # exact module name comes from data-knowledge / scan
+
+@pytest.fixture
+def tmp_menu():
+    """Independent menu per test; factory encapsulates create + id resolve."""
+    menu = run_orm(lambda: make_menu())  # or asyncio.run(make_menu()) per project convention
+    try:
+        yield {"id": menu.id, "name": menu.name, "path": menu.path, ...}
+    finally:
+        run_orm(lambda: cleanup_menu(menu.id))  # invariant-preserving cleanup helper
+```
+
+**Forbidden patterns:**
+
+```python
+# Forbidden: HTTP create in fixture for non-create cases
+@pytest.fixture
+def tmp_menu(api_client, auth_headers):
+    api_client.post("/api/v1/menu/create", json={...}, headers=auth_headers)  # use make_menu()
+
+# Forbidden: raw insert for entities with M2M / closure
+from app.models import Role
+Role.create(name="test-role")  # does not maintain menus/apis M2M
+
+# Forbidden: raw delete for entities with M2M / closure / soft-delete invariants
+Role.filter(id=role_id).delete()  # use invariant-preserving cleanup
+
+# Forbidden: hardcoded config
+BASE_URL = "http://127.0.0.1:9999"  # use settings.base_url
+ROLE_PREFIX = "tmp_role_"           # use settings.role_prefix
+```
 
 #### ORM field length (dept / menu / role names)
 
@@ -282,69 +425,102 @@ When `.aws/data-knowledge.yaml` or `facts/fact-baseline.json` documents `CharFie
 - **Menu.name** (`max_length=20`): follow conftest comments (`qa-cat-` + hex ≤ 19 chars).
 - Document **known product issues** (e.g. duplicate key → HTTP 500) in `known-product-issues.md` + `facts/fact-baseline.json` anomalies — separate from test-data length bugs.
 
-```python
-# Preferred: factory-as-fixture (each test gets independent data)
-# NOTE: Adapt `entity_factory`, `/api/entities`, and field names
-#       to the actual module per data-knowledge.yaml and the plan.
-@pytest.fixture
-def entity_factory(api_client):
-    created = []
-    def _create(**overrides):
-        payload = {"name": "Test Entity", **overrides}
-        r = api_client.post("/api/entities", json=payload)
-        r.raise_for_status()
-        created.append(r.json()["id"])
-        return r.json()
-    yield _create
-    for entity_id in created:
-        api_client.delete(f"/api/entities/{entity_id}")
-
-# Avoid: static fixture returning a fixed dict
-@pytest.fixture
-def entity_data():
-    return {"name": "固定实体名"}  # shared, not parameterizable
-```
-
 Generate **only when** `api-codegen-plan.md` and `.aws/data-knowledge.yaml` explicitly authorize new fixture wrappers or factories.
 
 If required capability already exists in the project or data-knowledge file, **reuse it** — do not generate a new fixture file.
 
-必须满足：
+Must satisfy:
 
-- fixture 来源必须映射到 `.aws/data-knowledge.yaml` 中已定义的 capability。
-- 不得自由发明业务状态或新建 business data factory，除非 data-knowledge 明确定义该 capability。
-- 不得硬编码真实账号、密码、Token。
-- 必须保留 cleanup 入口或说明 cleanup 由现有 fixture 负责。
+- Fixture source must map to a capability defined in `.aws/data-knowledge.yaml`.
+- Do not invent business states or new business data factories unless data-knowledge defines the capability.
+- Do not hardcode real accounts, passwords, or tokens.
+- All config values must be read from `tests.config.settings`.
+- Must retain cleanup entry or document that cleanup is handled by existing fixture.
 
 ### tests/api/helpers/<module>_api.py
 
 Generate **only when** helper mapping in `api-codegen-plan.md` is non-empty. Do not create empty helper files.
 
-必须满足：
+Must satisfy:
 
-- helper 只封装重复 API 调用或客户端初始化。
-- helper 不得改变断言语义。
-- helper 不得隐藏业务失败。
+- Helpers wrap repeated API calls or client initialization only.
+- Helpers must not change assertion semantics.
+- Helpers must not hide business failures.
 
 ### Codegen Output Summary
 
-codegen 完成后必须写入（create `qa/changes/<change-id>/codegen/` if it does not exist）：
+After codegen, write (create `qa/changes/<change-id>/codegen/` if it does not exist):
 
 ```text
 qa/changes/<change-id>/codegen/api-codegen-summary.md
 ```
 
-必须包含：
+Must include:
 
-- **Generated Files** — 实际生成或修改的文件列表（仅列出真实写入的文件；optional 文件若未生成则标注 N/A）
-- **Case → Test Function Mapping** — 表格：Case ID \| Test Function \| File
-- **Fixtures Generated** — fixture 名称和来源（或 "Reused existing — no new file"）
-- **Helpers Generated** — helper 文件及用途（如无则 None）
-- **Warnings Carried from Review** — 来自 `api-plan-review.json` 的警告（如 `codegen_readiness == "ready_with_warnings"`）
-- **Known Product Issues** — 指向 `qa/changes/<change-id>/known-product-issues.md`（如存在；note if append-only)
+- **Generated Files** — list of actually generated or modified files (optional files not generated marked N/A)
+- **Case → Test Function Mapping** — table: Case ID \| Test Function \| File
+- **Fixtures Generated** — fixture names and sources (or "Reused existing — no new file")
+- **Helpers Generated** — helper files and purpose (None if none)
+- **Schema Assertion Coverage** — table: Test Function \| Endpoint Key \| Registered in \_LOCAL\_SCHEMAS (✓/✗)
+- **Schema Registration Required** — unregistered endpoint list (None if all registered)
+- **Warnings Carried from Review** — warnings from `api-plan-review.json` (e.g. `codegen_readiness == "ready_with_warnings"`)
+- **Known Product Issues** — pointer to `qa/changes/<change-id>/known-product-issues.md` (if present; note if append-only)
 - **Next Step** — `aws run --change <change-id>`
 
-同时在聊天中输出摘要，但磁盘文件是 aws-run、aws-inspect 的唯一可信来源，不依赖聊天上下文。
+Also output summary in chat, but disk file is the sole trusted source for aws-run and aws-inspect — do not rely on chat context.
+
+## Schema Assertion Rules (P1 — response body OpenAPI validation)
+
+Each happy-path test function **must** append schema validation after business assertions:
+
+```python
+from tests.schema_validation import assert_matches_schema
+
+def test_tc_role_api_001__role_list_happy_path(api_client, auth_headers):
+    resp = api_client.get("/api/v1/role/list", headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 200
+    # ... business assertions ...
+
+    # P1: response body schema validation (last line)
+    assert_matches_schema(body, "GET /api/v1/role/list")
+```
+
+**`assert_matches_schema` call rules:**
+
+- **Must** be called at the end of each happy-path test function, immediately after business assertions.
+- Parameter format: `"METHOD /api/path"`, matching keys in `tests/schema_validation._LOCAL_SCHEMAS`.
+- If target endpoint is not yet registered in `_LOCAL_SCHEMAS`: list it in **Schema Registration Required** section of `api-codegen-summary.md` for human or follow-up PR.
+- Not applicable to error / negative cases (4xx / 5xx) — those only assert `status_code` and `code`/`msg`; no schema validation.
+
+**Schema registration guidance (append to codegen-summary.md):**
+
+```markdown
+## Schema Registration Required
+
+Happy-path tests below call `assert_matches_schema` but schema is not yet
+registered in `tests/schema_validation._LOCAL_SCHEMAS`.
+Add entries in `tests/schema_validation.py` → `_LOCAL_SCHEMAS`:
+
+| Endpoint | Suggested Schema Key | Notes |
+|---|---|---|
+| GET /api/v1/xxx/list | `"GET /api/v1/xxx/list"` | see _SUCCESS_EXTRA_WRAPPER |
+```
+
+**`assert_schema` fixture (optional):**
+
+`tests/conftest.py` registers `assert_schema` fixture for injection:
+
+```python
+def test_tc_xxx__happy_path(api_client, auth_headers, assert_schema):
+    ...
+    assert_schema(body, "GET /api/v1/xxx/list")
+```
+
+Both call styles are equivalent; prefer direct `import` (clearer), no extra fixture param required.
+
+---
 
 ## Hard Rules
 
@@ -356,11 +532,16 @@ qa/changes/<change-id>/codegen/api-codegen-summary.md
 - Do not generate E2E tests.
 - Do not generate POM.
 - Do not hardcode real credentials, tokens, secrets, or environment-specific URLs.
+- Do not hardcode configuration values; always use `tests.config.settings`.
 - Do not invent fixtures, factories, auth helpers, or cleanup helpers.
 - Do not bypass `api-codegen-plan.md`.
 - Do not execute pytest. Test execution belongs to aws-run (Phase 8).
 - Do not write any execution result files (api-result.json, summary.md, etc.).
 - Do not create `known-product-issues.md` as the first acknowledgment of an endpoint coverage gap — that belongs to human + `aws-api-plan-reviewer` before pass.
+- Do not insert raw `Role.create()` / `User.create()` / `Dept.create()` for entities with M2M / closure / hash invariants — use `make_*` from `tests/factories/test_<module>_<library>.py` instead.
+- Do not use HTTP `POST .../create` in fixtures or conftest for setup/teardown when `make_*` exists — except cases whose primary assertion is the create endpoint.
+- Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
+- If `make_<entity>()` is missing but required by plan, **STOP** and report Blocker (add factory first, or get reviewer-approved degradation documented in plan).
 
 ### Test Failure Integrity
 
@@ -380,6 +561,8 @@ Self-check before finishing codegen:
 1. Would this test fail if the product behavior is wrong?
 2. Does every assertion trace back to the case or plan?
 3. Are setup failures reported instead of hidden?
+4. Do all fixtures use `make_*` (not HTTP create) for entities under test?
+5. Does cleanup preserve M2M / closure / soft-delete invariants instead of raw-deleting?
 
 ## Workaround Policy
 
@@ -448,43 +631,51 @@ If the product bug should block release, do not workaround silently. Stop and re
 
 ## Stop Conditions
 
-必须停止并询问用户：
+Must stop and ask the user when:
 
-- 缺少 `api-plan.md`
-- 缺少 `api-test-data-plan.md`
-- 缺少 `api-codegen-plan.md`
-- 缺少 `m3-review-summary.md`
-- 缺少 `.aws/data-knowledge.yaml`
-- `api-plan-review.json` 缺失、非法 JSON、`decision != pass`、或 `codegen_readiness == not_ready`
-- Codegen Preconditions 未满足
-- Data capability 缺失
-- Endpoint path 仍处于 needs_review 或 coverage gap 未在 `known-product-issues.md` 中记录
-- Workaround required but `known-product-issues.md` 缺失（codegen 不得首次创建）
-- `blockers` 非空或存在 `blocking == true` 的 `needs_review` 项
+- Missing `api-plan.md`
+- Missing `api-test-data-plan.md`
+- Missing `api-codegen-plan.md`
+- Missing `m3-review-summary.md`
+- Missing `.aws/data-knowledge.yaml`
+- `api-plan-review.json` missing, invalid JSON, `decision != pass`, or `codegen_readiness == not_ready`
+- Codegen Preconditions not met
+- Data capability missing
+- Endpoint path still in needs_review or coverage gap not recorded in `known-product-issues.md`
+- Workaround required but `known-product-issues.md` missing (codegen must not create it first)
+- `blockers` non-empty or any `needs_review` item has `blocking == true`
 
 ## Anti-patterns
 
-禁止：
+Forbidden:
 
-- "Plan 文件不完整，但我先生成代码"
-- "我帮你补一个 fixture 名"
-- "先生成一个差不多能跑的测试"
-- "Workaround 写了，但没引用已有 known-product-issues.md"
-- "codegen 首次创建 known-product-issues.md 来承认 coverage gap"
-- "生成空 helper / fixture 文件"
-- "未经 plan 授权就改 conftest.py"
-- "顺手修改 case.yaml"
-- "顺手补充断言"
-- "把 API 测试扩展成 E2E"
+- "Plan is incomplete, but I'll generate code anyway"
+- "I'll add a fixture name for you"
+- "Generate a roughly runnable test first"
+- "Wrote workaround but didn't reference existing known-product-issues.md"
+- "Codegen creates known-product-issues.md first to acknowledge coverage gap"
+- "Generate empty helper / fixture files"
+- "Change conftest.py without plan authorization"
+- "Modify case.yaml while at it"
+- "Add extra assertions while at it"
+- "Extend API tests into E2E"
+- `BASE_URL = "http://127.0.0.1:9999"` — use `settings.base_url`
+- `ROLE_PREFIX = "tmp_role_"` — use `settings.role_prefix`
+- `Role.create(name="test")` — use `await make_role(...)` for M2M entities
+- `User.create(username=..., password="plain")` — use `await make_user(...)`
+- `Dept.create(name=...)` — use `await make_dept(...)` for closure table
+- `tmp_menu` fixture calling `POST /menu/create` — use `make_menu()` when factory exists
+- HTTP fixture seeding for update/get/delete cases — factory-first violation
+- happy-path test missing `assert_matches_schema(body, "METHOD /path")` at end
 
 ## Next Workflow
 
-完成后，下一步是：
+After completion, next step is:
 
-**Phase 8 — 运行 `aws-run`** 执行测试：
+**Phase 8 — run `aws-run`** to execute tests:
 
 ```bash
 aws run --change <change-id>
 ```
 
-如果测试失败，由 `aws-inspect` 分析原因，不得在此 skill 内自动修改断言或合并修复。
+If tests fail, use `aws-inspect` to analyze; do not auto-modify assertions or merge fixes within this skill.

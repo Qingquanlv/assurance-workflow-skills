@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
    - `.aws/config.yaml`
    - `.aws/data-knowledge.yaml` (if missing, proceed and generate proposal — see Data Knowledge Layer Rules)
    - Backend source files (for endpoint / schema confirmation)
-   > **data-knowledge 分层规则：**
-   > - `aws-api-plan` 阶段：`.aws/data-knowledge.yaml` 缺失不阻断 planning；生成 `data-knowledge.proposal.yaml`；Plan Readiness 可为 `ready_with_warnings`；**Codegen Readiness 必须为 `not_ready`**（无论 case 是否有 data 需求）。
-   > - `aws-api-codegen` 阶段：`.aws/data-knowledge.yaml` **必须存在**。`data-knowledge.proposal.yaml` 仅供参考，不可替代。
+   > **data-knowledge tier rules:**
+   > - `aws-api-plan` stage: missing `.aws/data-knowledge.yaml` does not block planning; generate `data-knowledge.proposal.yaml`; Plan Readiness may be `ready_with_warnings`; **Codegen Readiness MUST be `not_ready`** (regardless of case data needs).
+   > - `aws-api-codegen` stage: `.aws/data-knowledge.yaml` **must exist**. `data-knowledge.proposal.yaml` is reference only and cannot substitute.
 5. Use files as the sole source of truth.
 
 **After completing work:**
@@ -32,264 +32,350 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/api-test-data-plan.md`
    - `qa/changes/<change-id>/plans/api-codegen-plan.md`
    - `qa/changes/<change-id>/plans/m3-review-summary.md`
-   - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`（仅当 `.aws/data-knowledge.yaml` 缺失时）
+   - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (only when `.aws/data-knowledge.yaml` is missing)
 2. Update `workflow-state.yaml`:
    - Set `phases.api_plan.status = done`
-   - List **all actually generated** output files under `phases.api_plan.outputs`（含 `data-knowledge.proposal.yaml`，若已生成）
+   - List **all actually generated** output files under `phases.api_plan.outputs` (include `data-knowledge.proposal.yaml` if generated)
    - **Do NOT** set `phases.api_plan_review.status` — that gate belongs to `aws-api-plan-reviewer`
 
 ---
 
 # API Planning for QA
 
-名称：API 测试计划生成
+Name: API Test Plan Generation
 
-描述："QA 超能力：在生成 API 测试代码之前必须使用。根据 case.yaml、proposal.md 和数据知识库生成可 Review 的 api-plan.md、api-test-data-plan.md、api-codegen-plan.md 和 m3-review-summary.md。此 Skill 不生成测试代码，不执行 pytest。"
+Description: "QA superpower: MUST use before generating API test code. Produces reviewable api-plan.md, api-test-data-plan.md, api-codegen-plan.md, and m3-review-summary.md from case.yaml, proposal.md, and the data knowledge layer. This skill does NOT generate test code or run pytest."
 
-将 QA Case Delta 转化为可审查的 API 测试实现计划。
+Converts a QA Case Delta into a reviewable API test implementation plan.
 
-此 Skill 是 AWS M3 的 Stage 1。它读取 `qa/changes/<change-id>/cases/**/case.yaml`，筛选 API 自动化 Case，生成 API 测试计划、测试数据计划和代码生成计划。完成后进入 `aws-api-plan-reviewer`；只有 `api-plan-review.json` 满足 gate 条件后，orchestrator 才可进入 `aws-api-codegen`。
+This skill is AWS M3 Stage 1. It reads `qa/changes/<change-id>/cases/**/case.yaml`, filters API automation cases, and generates API test plan, test data plan, and codegen plan. After completion, proceed to `aws-api-plan-reviewer`; the orchestrator may enter `aws-api-codegen` only when `api-plan-review.json` satisfies the gate.
 
 ## When to Use
 
-当用户要求：
+Use when the user asks to:
 
-- 生成 M3 API plan
-- 根据 case 生成 api-plan
-- 生成 api-test-data-plan
-- 生成 api-codegen-plan
-- 为 API 自动化测试做计划
-
-使用此 Skill。
+- Generate M3 API plan
+- Generate api-plan from cases
+- Generate api-test-data-plan
+- Generate api-codegen-plan
+- Plan API automation tests
 
 ## Do Not Use When
 
-以下情况不得使用此 Skill：
+Do NOT use this skill when:
 
-- 用户已经要求根据 plan 生成测试代码
-- 用户要求执行 pytest
-- 用户要求生成 `/tests/api/*.py`
-- 用户要求生成 execution result
-- 需求还没有生成 case.yaml
-- `case-review.json` 中 `decision != "pass"`（结构化 gate 未放行）
+- The user already asked to generate test code from the plan
+- The user asks to run pytest
+- The user asks to generate `/tests/api/*.py`
+- The user asks to generate execution results
+- case.yaml has not been generated yet
+- `case-review.json` has `decision != "pass"` (structured gate not cleared)
 
 ## Inputs
 
-**Required**（缺失则 STOP）：
+**Required** (STOP if missing):
 
 - `qa/changes/<change-id>/.qa.yaml`
 - `qa/changes/<change-id>/proposal.md`
 - `qa/changes/<change-id>/cases/**/case.yaml`
 
-**Optional**（缺失则 warning，不 STOP）：
+**Optional** (warning if missing, do not STOP):
 
 - `.aws/config.yaml`
 - `.aws/data-knowledge.yaml`
-- Backend source files（用于确认 endpoint / schema）
+- Backend source files (for endpoint / schema confirmation)
 
-如果 `.aws/config.yaml` 不存在，记录 warning，但不要阻断。
+If `.aws/config.yaml` is missing, record a warning but do not block.
 
-如果 `.aws/data-knowledge.yaml` 不存在，**不阻断 plan 阶段**。不得直接写入项目级知识库。必须生成 proposal：
+If `.aws/data-knowledge.yaml` is missing, **do not block the plan stage**. Do not write directly to the project-level knowledge base. You MUST generate:
 
 `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`
 
-并在 `m3-review-summary.md` 中记录 warning，分别给出 **Plan Readiness** 与 **Codegen Readiness**（见判定规则）。
+Record a warning in `m3-review-summary.md` and provide **Plan Readiness** and **Codegen Readiness** separately (see decision rules).
 
-> **Plan vs Codegen gate（data-knowledge）：**
-> - **aws-api-plan**：`.aws/data-knowledge.yaml` 缺失不阻断 planning；生成 `plans/data-knowledge.proposal.yaml`；Plan Readiness 可为 `ready_with_warnings`；**Codegen Readiness 必须为 `not_ready`**。
-> - **aws-api-codegen**：`.aws/data-knowledge.yaml` 缺失是 **BLOCKER**；`data-knowledge.proposal.yaml` 仅供参考，不可替代正式知识库。
-> - **Reason**：`aws-api-codegen` 无论 selected case 是否有最小 data 需求，启动前均要求正式 `.aws/data-knowledge.yaml` 存在。
+> **Plan vs Codegen gate (data-knowledge):**
+> - **aws-api-plan**: missing `.aws/data-knowledge.yaml` does not block planning; generate `plans/data-knowledge.proposal.yaml`; Plan Readiness may be `ready_with_warnings`; **Codegen Readiness MUST be `not_ready`**.
+> - **aws-api-codegen**: missing `.aws/data-knowledge.yaml` is a **BLOCKER**; `data-knowledge.proposal.yaml` is reference only and cannot substitute the formal knowledge base.
+> - **Reason**: `aws-api-codegen` requires formal `.aws/data-knowledge.yaml` before start regardless of whether selected cases have minimal data needs.
 
 ## Outputs
 
-只能生成：
+May generate ONLY:
 
 - `qa/changes/<change-id>/plans/api-plan.md`
 - `qa/changes/<change-id>/plans/api-test-data-plan.md`
 - `qa/changes/<change-id>/plans/api-codegen-plan.md`
 - `qa/changes/<change-id>/plans/m3-review-summary.md`
-- `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`（仅当 `.aws/data-knowledge.yaml` 不存在时）
+- `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (only when `.aws/data-knowledge.yaml` does not exist)
 
-不得生成：
+Must NOT generate:
 
-- `.aws/data-knowledge.yaml`（只写 proposal，不写项目级知识库）
+- `.aws/data-knowledge.yaml` (write proposal only, not project-level knowledge base)
 - `/tests/api/*.py`
-- `/tests/fixtures/*.py`
+- `/tests/factories/test_<module>_<library>.py`
+- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 
 ## Workflow
 
-1. 读取 `.aws/config.yaml`，如果不存在则记录 warning。
-2. 读取 `qa/changes/<change-id>/.qa.yaml`。
-3. 读取 `qa/changes/<change-id>/proposal.md`。
-4. 定位 `qa/changes/<change-id>/cases/**/case.yaml`。
-5. 解析 `schema_version`、`added`、`modified`、`removed`。
-6. **只从 `added` 和 `modified` 中**筛选 `type = API` 且 `automation.required = true` 的 Case。如果没有符合条件的 Case，停止并报告。
-   - **不得**为 `removed` 下的 case 生成 API plan。
-   - `removed` 条目（仅含 `case_id` / `reason`）只用于上下文与 archive merge 校验，不参与 plan 筛选。
-7. 读取 `.aws/data-knowledge.yaml`。如果不存在，生成 `plans/data-knowledge.proposal.yaml`（不得写入 `.aws/data-knowledge.yaml`），并在 `m3-review-summary.md` 中记录 warning。
-8. 生成 `plans/api-plan.md`（如果 `plans/` 目录不存在则创建）。
-9. 生成 `plans/api-test-data-plan.md`。
-10. 生成 `plans/api-codegen-plan.md`。
-11. 生成 `plans/m3-review-summary.md`。
-12. 停止，不生成测试代码。
-13. 提醒下一步为 `aws-api-plan-reviewer`；orchestrator 进入 `aws-api-codegen` 须同时满足：
+1. Read `.aws/config.yaml`; if missing, record warning.
+2. Read `qa/changes/<change-id>/.qa.yaml`.
+3. Read `qa/changes/<change-id>/proposal.md`.
+4. Locate `qa/changes/<change-id>/cases/**/case.yaml`.
+5. Parse `schema_version`, `added`, `modified`, `removed`.
+6. Filter cases with `type = API` and `automation.required = true` **from `added` and `modified` only**. If none match, stop and report.
+   - **Must NOT** generate API plans for cases under `removed`.
+   - `removed` entries (case_id / reason only) are for context and archive merge validation, not plan selection.
+7. Read `.aws/data-knowledge.yaml`. If missing, generate `plans/data-knowledge.proposal.yaml` (must NOT write `.aws/data-knowledge.yaml`) and record warning in `m3-review-summary.md`.
+8. Generate `plans/api-plan.md` (create `plans/` if missing).
+9. Generate `plans/api-test-data-plan.md`.
+10. Generate `plans/api-codegen-plan.md`.
+11. Generate `plans/m3-review-summary.md`.
+12. Stop; do not generate test code.
+13. Remind next step is `aws-api-plan-reviewer`; orchestrator may enter `aws-api-codegen` only when ALL are true:
     - `api-plan-review.json` `decision == "pass"`
     - `codegen_readiness in ["ready", "ready_with_warnings"]`
-    - `.aws/data-knowledge.yaml` 存在
-    用户口头确认不能替代 gate。
+    - `.aws/data-knowledge.yaml` exists
+    User verbal approval cannot substitute the gate.
 
 ## Checklist
 
-必须按顺序完成：
+Complete in order:
 
-- [ ] 找到 change-id
-- [ ] 读取 `.qa.yaml`
-- [ ] 读取 `proposal.md`
-- [ ] 读取 `cases/**/case.yaml`
-- [ ] 确认 `schema_version: "1.0"`
-- [ ] 只从 `added` / `modified` 筛选 API 自动化 Case（`type: API` + `automation.required: true`）；跳过 `removed`
-- [ ] 读取 `.aws/data-knowledge.yaml`（不存在则写 `plans/data-knowledge.proposal.yaml`，不得直接写 `.aws/data-knowledge.yaml`）
-- [ ] 生成 `api-plan.md`
-- [ ] 生成 `api-test-data-plan.md`
-- [ ] 生成 `api-codegen-plan.md`
-- [ ] 生成 `m3-review-summary.md`
-- [ ] 确认未生成测试代码
-- [ ] 更新 `workflow-state.yaml`（`phases.api_plan.status = done`）
-- [ ] 输出下一步提示（指向 `aws-api-plan-reviewer`，而非直接 `aws-api-codegen`）
+- [ ] Find change-id
+- [ ] Read `.qa.yaml`
+- [ ] Read `proposal.md`
+- [ ] Read `cases/**/case.yaml`
+- [ ] Confirm `schema_version: "1.0"`
+- [ ] Filter API automation cases from `added` / `modified` only (`type: API` + `automation.required: true`); skip `removed`
+- [ ] Read `.aws/data-knowledge.yaml` (if missing, write `plans/data-knowledge.proposal.yaml`; must NOT write `.aws/data-knowledge.yaml` directly)
+- [ ] Generate `api-plan.md`
+- [ ] Generate `api-test-data-plan.md`
+- [ ] Generate `api-codegen-plan.md`
+- [ ] Generate `m3-review-summary.md`
+- [ ] Confirm no test code was generated
+- [ ] Update `workflow-state.yaml` (`phases.api_plan.status = done`)
+- [ ] Output next-step hint (point to `aws-api-plan-reviewer`, not directly to `aws-api-codegen`)
 
 ## Output Contract
 
 ### api-plan.md
 
-路径：`qa/changes/<change-id>/plans/api-plan.md`
+Path: `qa/changes/<change-id>/plans/api-plan.md`
 
-必须包含：
+Must include:
 
-- **Source** — case 来源文件路径
-- **Scope** — Case ID 和标题列表（仅来自 `added` + `modified`；不含 `removed`）
-- **API Targets** — 表格：Case ID \| Scenario \| Method \| Path \| Expected
-- **Auth Strategy** — 每个 Case 的认证需求
-- **Request Strategy** — headers、body、params（method / path / headers 只写入 plan，**不得**写回 `case.yaml`）
-- **Assertion Strategy** — 每个 Case 的断言列表
-- **Mock Strategy** — 需要 mock 的依赖（或 None）
-- **Cleanup Strategy** — 测试后状态清理
-- **Output File Candidates** — 建议测试文件路径
-- **Needs Review** — 无法自行确认、需要人工确认的项
-- **Blockers** — 阻塞 codegen 的项（或 None）
+- **Source** — case source file path(s)
+- **Scope** — Case ID and title list (from `added` + `modified` only; exclude `removed`)
+- **API Targets** — table: Case ID \| Scenario \| Method \| Path \| Expected
+- **Auth Strategy** — auth requirements per case
+- **Request Strategy** — headers, body, params (method / path / headers go in plan only; **must NOT** write back to `case.yaml`)
+- **Assertion Strategy** — assertion list per case
+- **Mock Strategy** — dependencies to mock (or None)
+- **Cleanup Strategy** — post-test state cleanup
+- **Output File Candidates** — suggested test file paths
+- **Needs Review** — items requiring human confirmation
+- **Blockers** — items blocking codegen (or None)
 
-**API Targets TBD 规则**（Method 或 Path 无法确认时）：
+**API Targets TBD rules** (when Method or Path cannot be confirmed):
 
-- 表格中 Method / Path 列使用 `TBD`，并在同一行或 **Needs Review** 中说明原因。
-- 不得静默猜测 endpoint 或 HTTP method。
-- 若仅缺非关键细节（如可选 query param），写入 **Needs Review**；Plan Readiness 可为 `ready_with_warnings`。
-- 若 Method 或 Path 完全未知且无法从 backend source 推断，写入 **Blockers**；Plan Readiness 与 Codegen Readiness 均必须为 `not_ready`。
-- 若 Method 已知但 Path 不确定（或反之），至少写入 **Needs Review**；若阻塞 codegen 映射，同时写入 **Blockers**。
+- Use `TBD` in Method / Path columns and explain in the same row or under **Needs Review**.
+- Never silently guess endpoint or HTTP method.
+- If only non-critical details are missing (e.g. optional query param), put under **Needs Review**; Plan Readiness may be `ready_with_warnings`.
+- If Method or Path is completely unknown and cannot be inferred from backend source, put under **Blockers**; Plan Readiness and Codegen Readiness MUST be `not_ready`.
+- If Method is known but Path is uncertain (or vice versa), at minimum put under **Needs Review**; if it blocks codegen mapping, also put under **Blockers**.
 
 ### api-test-data-plan.md
 
-路径：`qa/changes/<change-id>/plans/api-test-data-plan.md`
+Path: `qa/changes/<change-id>/plans/api-test-data-plan.md`
 
-必须包含：
+Must include:
 
-- **Scope** — 需要数据准备的 Case 列表
-- **Required Data** — 表格：Entity \| State \| Capability
-- **Preconditions** — 来自 `case.yaml:preconditions`
-- **Capability Mapping** — 表格：Need \| Capability \| Source \| Status（found/missing/warning）
-- **Setup Strategy** — 有序的数据准备步骤
-- **Runtime Verify Strategy** — API 调用前的数据验证断言
-- **Cleanup Strategy** — 测试后清理
-- **No Data Required Cases** — 不需要数据准备的 Case
-- **Blockers / Assumptions** — 未解决的数据依赖
-- **Review Checklist** — 需要 reviewer 确认的项
+- **Scope** — cases requiring data setup
+- **Required Data** — table: Entity \| State \| Capability
+- **Preconditions** — from `case.yaml:preconditions`
+- **Capability Mapping** — table: Need \| Capability \| Source \| Status (found/missing/warning)
+- **Factory / Boundary Strategy** — per-entity seeding approach (see three-ring rules below)
+- **Setup Strategy** — ordered data setup steps
+- **Runtime Verify Strategy** — data verification assertions before API calls
+- **Cleanup Strategy** — post-test cleanup
+- **No Data Required Cases** — cases needing no data setup
+- **Blockers / Assumptions** — unresolved data dependencies
+- **Review Checklist** — items for reviewer confirmation
+
+#### Factory / Boundary Strategy — Three-Ring Rules
+
+Seeding method is determined by **aggregate boundary**; do not mix layers:
+
+| Ring | Seeding method | Typical scenario |
+|------|----------------|------------------|
+| **Within domain (same aggregate)** | Call local factory functions from `tests/factories/` modules; functions are named `make_*` and call service/controller code internally | `make_role()` / `make_user()` / `make_dept()` / `make_menu()` |
+| **Cross domain (cross-aggregate reference)** | Seed a valid entity in the other domain first, then pass its id as reference | Bind Role to User: `make_role()` first, then pass id to `make_user(role_ids=[...])` |
+| **External domain (external systems)** | mock / contract stub (no external deps in this project; reserved) | third-party auth, message queues, etc. |
+
+**Per-entity seeding table (plan MUST document every entity under test):**
+
+**Factory module naming convention:** factory capabilities live under `tests/factories/`. Each module is named `test_<module>_<library>.py` (for example, a menu factory module can be `tests/factories/test_menu_admin.py`), and exported factory function names are always `make_*` (for example, `make_menu()`).
+
+**Factory usage contract (must appear in plan when fixtures/factories are involved):**
+
+1. Setup uses factory; test body uses HTTP.
+2. Factory modules call service/controller code; do not copy controller code into tests.
+3. Factories must not leak ORM objects to test functions; return plain data snapshots or convert ORM objects to snapshots inside fixtures.
+4. `run_orm()` is only for live-server mode; in-process async tests must call `await make_*()` directly.
+5. Create API cases must exercise HTTP create; do not replace create behavior assertions with the same create factory path.
+6. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
+7. Factory modules live under `tests/factories/test_<module>_<library>.py`; exported function names are always `make_*`.
+
+| Entity | Ring | Preferred method | Notes |
+|--------|------|------------------|-------|
+| Role | Within domain | `make_role()` | M2M menus/apis |
+| User | Within domain | `make_user()` | M2M roles + password hash |
+| Dept | Within domain | `make_dept()` | DeptClosure |
+| Menu | Within domain | `make_menu()` when present in a `tests/factories/test_menu_<library>.py` module; else propose in `data-knowledge.proposal.yaml` | Single table + `parent_id`; create API may not return id — factory encapsulates resolve |
+| AuditLog | Within domain (leaf) | `make_audit_log()` or direct insert | No derived tables |
+
+**HTTP API seeding boundary (hard rule for plan + codegen):**
+
+- **Forbidden** for fixture/setup/teardown: calling `POST /.../create` (or equivalent) to seed data for cases whose **primary assertion is NOT the create endpoint itself**.
+- **Allowed** only when:
+  - The case explicitly tests create/update/delete HTTP behavior (e.g. TC_*_create happy path, validation on create body), **or**
+  - No `make_*` / service path exists **and** plan documents degradation step + reviewer accepts (see ladder below).
+- **Forbidden** pattern to flag in plan review: `tmp_<entity>` fixture that POSTs create + GET list to resolve id — replace with a `make_<entity>()` function from the relevant `tests/factories/test_<module>_<library>.py` module when factory exists or is proposed.
+
+**Mandatory rules (codegen must follow):**
+
+- **Default (within domain):** all setup/teardown for entities under test **must** go through `tests/factories/` factory modules (`test_<module>_<library>.py`, exported function `make_*`) when the factory exists or is authorized in `.aws/data-knowledge.yaml`.
+- Entities with M2M tables (Role↔menus/apis, User↔roles): **must** use `tests/factories/` `make_*` functions; **must not** raw-insert single table; **must not** HTTP-create in fixtures.
+- Entities with closure derived tables (Dept↔DeptClosure): **must** use `make_dept()`; **must not** raw-insert `Dept`; **must not** HTTP-create in fixtures.
+- Entities with password hashing (User): **must** use `make_user()`; **must not** raw-insert plaintext password; **must not** HTTP-create in fixtures.
+- Menu (and other single-table domain entities): **must** use `make_menu()` when factory exists; **must not** HTTP-create in fixtures except create-focused cases.
+- Leaf tables with no derived relations (e.g. AuditLog): `make_audit_log()` or `Model.create` direct insert allowed; still **must not** use HTTP-create in fixtures unless case tests create API.
+- Test config (BASE_URL / admin credentials / prefixes): **must** reference `tests.config.settings`; **must not** hardcode or `os.environ.get`.
+
+**Degradation ladder when no factory / service / API exists (priority order):**
+
+1. Add `make_<entity>()` to the appropriate `tests/factories/test_<module>_<library>.py` module (preferred — plan as **Blocker** for codegen until implemented).
+2. Indirect seeding via byproducts or composed operations on real code paths (service/controller).
+3. Reuse app internal helpers to maintain invariants.
+4. Copy invariants on test side + add contract guard tests (prevent drift).
+5. Add env-flag-guarded test seed entry in app.
+6. HTTP create for setup **only** with explicit plan + reviewer approval and documented in **Needs Review** (not default).
+7. Pure leaf table with no invariants → direct insert (last resort).
 
 ### api-codegen-plan.md
 
-路径：`qa/changes/<change-id>/plans/api-codegen-plan.md`
+Path: `qa/changes/<change-id>/plans/api-codegen-plan.md`
 
-此文件只描述如何生成测试代码，不直接包含测试代码。
+This file describes how to generate test code; it must NOT contain test code.
 
-必须包含：
+Must include:
 
-- **Target Files** — 表格：File \| Purpose
-- **Test Function Mapping** — 表格：Case ID \| Test Function \| Target File
-- **Fixture Mapping** — 表格：Fixture \| Source \| Required By
-- **Helper Mapping** — 共享 helper 说明
-- **Import Strategy** — 每个文件需要的 import 模块
-- **Assertion Mapping** — 表格：Case ID \| Assertions
-- **Data Setup Mapping** — 每个 Case 的数据准备步骤
-- **Cleanup Mapping** — 每个 Case 的清理步骤
-- **Run Guidance** — 供 `aws-run`（Phase 8）参考的运行指引（如 pytest 参数、标记、环境变量）；此字段不由 aws-api-codegen 执行，仅作为执行层的输入
-- **Codegen Preconditions** — codegen 开始前必须满足的条件：
+- **Target Files** — table: File \| Purpose
+  - If any fixture/setup creates or cleans up domain data, Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` domain factory before any `tests/fixtures/*.py` wrapper.
+  - `tests/fixtures/*.py` may appear only as pytest injection wrappers around `make_*`; it must not be the only target for domain data creation.
+- **Test Function Mapping** — table: Case ID \| Test Function \| Target File
+- **Factory Mapping** — table: Entity \| Factory Module (`tests/factories/test_<module>_<library>.py`) \| Function (`make_*`) \| Ring \| Required By
+- **Fixture Mapping** — table: Fixture \| Source Factory \| Wrapper Only (yes/no) \| Required By
+- **Helper Mapping** — shared helper description
+- **Import Strategy** — import modules per file
+- **Assertion Mapping** — table: Case ID \| Assertions
+- **Data Setup Mapping** — data setup steps per case
+- **Cleanup Mapping** — cleanup steps per case
+- **Run Guidance** — run hints for `aws-run` (Phase 8) (pytest args, markers, env vars); not executed by aws-api-codegen, input for execution layer only
+- **Codegen Preconditions** — conditions before codegen starts:
   - `api-plan-review.json` `decision == "pass"`
-  - `codegen_readiness in ["ready", "ready_with_warnings"]`（来自 reviewer，非 plan 自评）
-  - **正式** `.aws/data-knowledge.yaml` **必须存在**（硬 gate；`data-knowledge.proposal.yaml` 不可替代；plan 阶段缺失时 Codegen Readiness 必须为 `not_ready`，须先补齐知识库）
+  - `codegen_readiness in ["ready", "ready_with_warnings"]` (from reviewer, not plan self-assessment)
+  - **Formal** `.aws/data-knowledge.yaml` **must exist** (hard gate; `data-knowledge.proposal.yaml` cannot substitute; if missing at plan stage Codegen Readiness MUST be `not_ready` until knowledge base is filled)
 
 ### m3-review-summary.md
 
-路径：`qa/changes/<change-id>/plans/m3-review-summary.md`
+Path: `qa/changes/<change-id>/plans/m3-review-summary.md`
 
-必须包含：
+Must include:
 
 - **Change** — change-id
-- **Loaded Case Files** — 已处理的 case.yaml 路径列表
-- **API Cases** — 总数（仅 `added` + `modified`）、plan 就绪数、codegen 就绪状态
-- **Removed Cases** — `removed` 中的 case_id 列表（仅记录，不纳入 plan）
-- **Generated Plan Files** — 必填四个 plan 文件路径；若生成了 `data-knowledge.proposal.yaml`，单独列出为 optional artifact
-- **Data Knowledge Layer Status** — OK / Warning 及 capability 解析结果
-- **Blockers** — 阻塞 codegen 的项（或 None）
-- **Needs Review** — 需要人工确认的项
-- **Plan Readiness** — `ready` / `ready_with_warnings` / `not_ready`（plan 文档是否完整、可 review）
-- **Codegen Readiness** — `ready` / `ready_with_warnings` / `not_ready`（review pass 后 orchestrator 是否可进入 `aws-api-codegen`）
-- **Next Step** — 指引 reviewer 运行 `aws-api-plan-reviewer`；codegen 需等 `api-plan-review.json` gate 通过
+- **Loaded Case Files** — processed case.yaml path list
+- **API Cases** — total (`added` + `modified` only), plan-ready count, codegen readiness status
+- **Removed Cases** — case_id list from `removed` (record only, not in plan)
+- **Generated Plan Files** — four required plan file paths; if `data-knowledge.proposal.yaml` was generated, list separately as optional artifact
+- **Data Knowledge Layer Status** — OK / Warning and capability resolution results
+- **Blockers** — items blocking codegen (or None)
+- **Needs Review** — items requiring human confirmation
+- **Plan Readiness** — `ready` / `ready_with_warnings` / `not_ready` (plan document complete and reviewable)
+- **Codegen Readiness** — `ready` / `ready_with_warnings` / `not_ready` (orchestrator may enter `aws-api-codegen` after review pass)
+- **Next Step** — direct reviewer to run `aws-api-plan-reviewer`; codegen waits for `api-plan-review.json` gate
 
-### Plan Readiness 判定
+### Plan Readiness Decision
 
-评估 plan 文档本身是否完整、可 review（**不**等同于可 codegen）：
+Assess whether the plan document itself is complete and reviewable (**not** the same as codegen-ready):
 
-| 值 | 条件 |
-|----|------|
-| `ready` | 无 Blockers；Needs Review 为空或均为非阻塞项；所有 selected API cases 已映射 |
-| `ready_with_warnings` | 无 Blockers；存在非阻塞 Needs Review；或 capability `confidence: low` 但未阻塞 endpoint 映射 |
-| `not_ready` | 存在 Blockers；或 API Target Method/Path 为 `TBD` 且无法映射 |
+| Value | Condition |
+|-------|-----------|
+| `ready` | No blockers; Needs Review empty or all non-blocking; all selected API cases mapped |
+| `ready_with_warnings` | No blockers; non-blocking Needs Review exists; or capability `confidence: low` but endpoint mapping not blocked |
+| `not_ready` | Blockers exist; or API Target Method/Path is `TBD` and cannot be mapped |
 
-### Codegen Readiness 判定
+### Codegen Readiness Decision
 
-评估 review pass 后 orchestrator 是否可进入 `aws-api-codegen`（**严于** Plan Readiness）：
+Assess whether orchestrator may enter `aws-api-codegen` after review pass (**stricter** than Plan Readiness):
 
-| 值 | 条件 |
-|----|------|
-| `ready` | Plan Readiness = `ready`；`.aws/data-knowledge.yaml` 存在且 selected cases 所需 capability 解析 OK |
-| `ready_with_warnings` | Plan Readiness = `ready` 或 `ready_with_warnings`；`.aws/data-knowledge.yaml` **存在**；存在非阻塞 Needs Review；所需 capability 已确认或 safely optional |
-| `not_ready` | Plan Readiness = `not_ready`；**或** `.aws/data-knowledge.yaml` 缺失（**无论** selected cases 是否有 data / auth / cleanup 需求）；**或** 缺失 data capability 且无法 propose 合理候选 |
+| Value | Condition |
+|-------|-----------|
+| `ready` | Plan Readiness = `ready`; `.aws/data-knowledge.yaml` exists and selected case capabilities resolve OK |
+| `ready_with_warnings` | Plan Readiness = `ready` or `ready_with_warnings`; `.aws/data-knowledge.yaml` **exists**; non-blocking Needs Review; required capabilities confirmed or safely optional |
+| `not_ready` | Plan Readiness = `not_ready`; **or** `.aws/data-knowledge.yaml` missing (**regardless** of selected case data/auth/cleanup needs); **or** missing data capability with no reasonable proposal |
 
-**`.aws/data-knowledge.yaml` 缺失时的分层（硬规则）：**
+**Tier rules when `.aws/data-knowledge.yaml` is missing (hard rule):**
 
-- Plan 阶段不阻断 → 可生成 `data-knowledge.proposal.yaml`；**Plan Readiness** 可为 `ready_with_warnings`。
-- **Codegen Readiness 必须为 `not_ready`** — 无论 selected API cases 是否有最小 data 需求。
-- **Reason**：`aws-api-codegen` 启动前均要求正式 `.aws/data-knowledge.yaml` 存在；`data-knowledge.proposal.yaml` 仅为 remediation artifact。
-- Orchestrator 须在 `.aws/data-knowledge.yaml` 补齐并 re-review 后，才可进入 codegen。
+- Plan stage does not block → may generate `data-knowledge.proposal.yaml`; **Plan Readiness** may be `ready_with_warnings`.
+- **Codegen Readiness MUST be `not_ready`** — regardless of whether selected API cases have minimal data needs.
+- **Reason**: `aws-api-codegen` requires formal `.aws/data-knowledge.yaml` before start; `data-knowledge.proposal.yaml` is a remediation artifact only.
+- Orchestrator must fill `.aws/data-knowledge.yaml` and re-review before codegen.
 
 ## Data Knowledge Layer Rules
 
-必须尝试读取：`.aws/data-knowledge.yaml`（缺失时不阻断 plan 阶段）。
+Must attempt to read: `.aws/data-knowledge.yaml` (missing does not block plan stage).
 
-**Stage gate（plan vs codegen）：**
+**Stage gate (plan vs codegen):**
 
-| Stage | `.aws/data-knowledge.yaml` 缺失时 |
-|-------|-----------------------------------|
-| **aws-api-plan** | 不阻断 planning；生成 `plans/data-knowledge.proposal.yaml`；Plan Readiness 可为 `ready_with_warnings`；**Codegen Readiness 必须为 `not_ready`** |
-| **aws-api-codegen** | **BLOCKER**；`data-knowledge.proposal.yaml` 仅供参考，不可替代正式知识库 |
+| Stage | When `.aws/data-knowledge.yaml` is missing |
+|-------|---------------------------------------------|
+| **aws-api-plan** | Do not block planning; generate `plans/data-knowledge.proposal.yaml`; Plan Readiness may be `ready_with_warnings`; **Codegen Readiness MUST be `not_ready`** |
+| **aws-api-codegen** | **BLOCKER**; `data-knowledge.proposal.yaml` is reference only and cannot substitute formal knowledge base |
 
-如果文件不存在：
+If the file does not exist:
 
-1. 生成 `plans/data-knowledge.proposal.yaml` — 使用以下**空提案模板**。
-2. **不得**生成 `.aws/data-knowledge.yaml`。
-3. **不得**在模板中发明具体能力名称（fixture 名、auth 方式、cleanup 方法）。
-4. 若 `tests/` 目录存在，扫描并将发现的候选能力填入 `discovered_candidates`（置 `confidence: low`）。
-5. 若 `tests/` 目录不存在或不可读，**不得**伪造候选能力；在 `m3-review-summary.md` 记录 warning，并将相关项写入 `needs_review`。
-6. 将缺失能力记录在 `needs_review`。
+1. Generate `plans/data-knowledge.proposal.yaml` — use the **empty proposal template** below.
+2. **Must NOT** generate `.aws/data-knowledge.yaml`.
+3. **Must NOT** invent specific capability names in the template (fixture names, auth methods, cleanup methods).
+4. If `tests/` exists, scan and fill `discovered_candidates` (`confidence: low`). Priority scan targets:
+   - `tests/factories/` — domain-aware factory modules (`test_<module>_<library>.py`; exported functions such as `make_role` / `make_user` / `make_dept` / `make_menu` / `make_audit_log`)
+   - `tests/config.py` — unified settings (`base_url` / `admin_username` / `admin_password` / `*_prefix`)
+   - `tests/conftest.py` — shared fixtures (`api_client` / `auth_headers` / `assert_schema`)
+   - `tests/schema_validation.py` — `assert_matches_schema` / `_LOCAL_SCHEMAS`
+5. If `tests/` is missing or unreadable, **must NOT** fabricate candidates; record warning in `m3-review-summary.md` and add items to `needs_review`.
+6. Record missing capabilities in `needs_review`.
+
+**`tests/config.py` write / update gate:**
+
+If `tests/config.py` does not exist, or if planning reveals that a new field or default value would be needed:
+
+1. **STOP** before writing or proposing any default value.
+2. **Ask the user** to confirm each runtime fact. Required questions:
+
+   | Field | Question to ask |
+   |-------|-----------------|
+   | `base_url` | "What is the backend base URL? — please confirm from `run.py` or your start command." |
+   | `frontend_url` | "What is the frontend dev server URL? — please confirm from `package.json` or `vite.config.ts`." |
+   | `admin_username` | "What admin username does QA use? — please confirm from seed config or README." |
+   | `admin_password` | "What admin password does QA use? — please confirm from seed config or README." |
+   | new `*_prefix` | "What prefix should `<entity>` test data use? Must be a value production data will never have." |
+
+3. Do **not** propose a default value based on convention or prior generated tests.
+4. If the user cannot confirm a value → add it to `needs_review` in `m3-review-summary.md` and set `codegen_readiness = not_ready`.
+5. If `tests/config.py` already exists and covers the needed fields → scan and use existing values; do not modify the file.
 
 ```yaml
 capabilities:
@@ -306,15 +392,15 @@ needs_review:
   - <missing capability description>
 ```
 
-规则：
+Rules:
 
-- 不得自由发明 fixture、factory、auth、cleanup。
-- `discovered_candidates` 仅记录候选，不等于已确认的能力。
-- 如果 capability 缺失或 `confidence: low`，必须记录为 blocker 或 needs_review，并据此更新 **Plan Readiness** 与 **Codegen Readiness**（见判定规则）。
-- 如果 `.aws/data-knowledge.yaml` 缺失，**Codegen Readiness 必须为 `not_ready`**（与 case 是否有 data 需求无关）。
-- 如果 capability 存在但 verify 不完整，必须记录为 needs_review。
-- Stage 1 只做静态校验，不执行真实造数。
-- `data-knowledge.proposal.yaml` 不得被 codegen 当作 `.aws/data-knowledge.yaml` 的替代品。
+- Do not freely invent fixtures, factories, auth, or cleanup.
+- `discovered_candidates` records candidates only; not confirmed capabilities.
+- If capability is missing or `confidence: low`, record as blocker or needs_review and update **Plan Readiness** and **Codegen Readiness** (see decision rules).
+- If `.aws/data-knowledge.yaml` is missing, **Codegen Readiness MUST be `not_ready`** (regardless of case data needs).
+- If capability exists but verify is incomplete, record as needs_review.
+- Stage 1 is static validation only; do not execute real seeding.
+- `data-knowledge.proposal.yaml` must NOT be used by codegen as a substitute for `.aws/data-knowledge.yaml`.
 
 ## Hard Rules
 
@@ -339,22 +425,22 @@ needs_review:
 
 ## Stop Conditions
 
-必须在生成以下四个必填 plan 文件后立即停止：
+Must stop immediately after generating these four required plan files:
 
 - `api-plan.md`
 - `api-test-data-plan.md`
 - `api-codegen-plan.md`
 - `m3-review-summary.md`
 
-若 `.aws/data-knowledge.yaml` 缺失，还必须生成 `data-knowledge.proposal.yaml`（第五个 optional artifact）。
+If `.aws/data-knowledge.yaml` is missing, must also generate `data-knowledge.proposal.yaml` (fifth optional artifact).
 
-停止前必须先更新 `workflow-state.yaml`：
+Before stopping, update `workflow-state.yaml`:
 
-- 设置 `phases.api_plan.status = done`
-- 在 `phases.api_plan.outputs` 下列出**所有实际生成**的输出文件路径（含 `data-knowledge.proposal.yaml`，若已生成）
-- **不得**设置 `phases.api_plan_review.status`
+- Set `phases.api_plan.status = done`
+- List **all actually generated** output paths under `phases.api_plan.outputs` (include `data-knowledge.proposal.yaml` if generated)
+- **Must NOT** set `phases.api_plan_review.status`
 
-停止后必须输出：
+After stopping, output:
 
 ```
 M3 Stage 1 completed. Next: aws-api-plan-reviewer.
@@ -365,37 +451,38 @@ Orchestrator may invoke aws-api-codegen only if:
 User verbal approval cannot substitute api-plan-review.json.
 ```
 
-不得继续生成：
+Must NOT continue generating:
 
 - `/tests/api/*.py`
-- `/tests/fixtures/*.py`
+- `/tests/factories/test_<module>_<library>.py`
+- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 
 ## Anti-patterns
 
-禁止：
+Forbidden:
 
-- "这个 Case 很简单，直接生成测试代码"
-- 未生成 plan 就生成 `/tests/api`
-- 自动猜测 endpoint 并不标记 review
-- 自由发明 fixture 或 auth helper
-- 在 plan 阶段执行 pytest
-- 在 plan 阶段写 execution result
-- 将 method/path/header 写回 case.yaml
+- "This case is simple, generate test code directly"
+- Generating `/tests/api` without a plan
+- Silently guessing endpoints without marking for review
+- Freely inventing fixtures or auth helpers
+- Running pytest during plan stage
+- Writing execution results during plan stage
+- Writing method/path/header back to case.yaml
 
 ## Next Workflow
 
-完成后，下一个工作流是：
+After completion, next workflow is:
 
 **aws-api-plan-reviewer**
 
-流程：
-1. 将 plan 文件交由 `aws-api-plan-reviewer` 生成 `api-plan-review.json`。
-2. orchestrator 进入 `aws-api-codegen` 须**同时**满足：
+Flow:
+1. Hand plan files to `aws-api-plan-reviewer` to produce `api-plan-review.json`.
+2. Orchestrator may enter `aws-api-codegen` only when **all** are true:
    - `decision == "pass"`
    - `codegen_readiness in ["ready", "ready_with_warnings"]`
-   - `.aws/data-knowledge.yaml` 存在
-3. 若 plan 阶段 `.aws/data-knowledge.yaml` 缺失，`m3-review-summary.md` 中 **Codegen Readiness 必须为 `not_ready`**；须先补齐正式知识库并 re-review，不可仅凭 `ready_with_warnings` 跳转 codegen。
+   - `.aws/data-knowledge.yaml` exists
+3. If `.aws/data-knowledge.yaml` was missing at plan stage, **Codegen Readiness in m3-review-summary.md MUST be `not_ready`**; fill formal knowledge base and re-review before codegen — do not jump to codegen on `ready_with_warnings` alone.
 
-用户的自然语言确认（"看起来不错"、"继续"）**不能替代** `api-plan-review.json` gate；用户 approval 可作为 `aws-api-plan-reviewer` 的输入，但不是 gate artifact 本身。
+User verbal approval ("looks good", "continue") **cannot substitute** `api-plan-review.json` gate; user approval may be input to `aws-api-plan-reviewer` but is not a gate artifact itself.

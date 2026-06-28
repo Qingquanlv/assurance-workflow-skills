@@ -43,9 +43,38 @@ Translate a reviewed performance plan into an executable Locust load test. This 
 ## What to Generate
 
 ```python
-from locust import HttpUser, task, between
+from locust import HttpUser, events, task, between
+import httpx
+
+from tests.config import settings
+
+
+# Locust does NOT load pytest conftest.py, so the SUT readiness check
+# implemented in tests/conftest.py::_verify_sut_ready does NOT run here.
+# Every locustfile MUST replicate readiness via @events.test_start so
+# Locust fails fast (rather than reporting 100% errors) when the SUT
+# is unreachable or admin login is broken.
+@events.test_start.add_listener
+def _verify_sut_ready(environment, **_kwargs):
+    base_url = settings.base_url
+    try:
+        resp = httpx.get(f"{base_url}/openapi.json", timeout=5)
+    except Exception as exc:  # pragma: no cover - readiness fail-fast
+        environment.runner.quit()
+        raise SystemExit(
+            f"SUT unreachable at {base_url} "
+            f"({settings.base_url_source}): {exc}"
+        )
+    if resp.status_code != 200:
+        environment.runner.quit()
+        raise SystemExit(
+            f"SUT not ready at {base_url}: GET /openapi.json -> "
+            f"HTTP {resp.status_code}"
+        )
+
 
 class MenuListUser(HttpUser):
+    host = settings.base_url
     wait_time = between(1, 2)
 
     # case_id TC_MENU_PERF_001
@@ -55,6 +84,8 @@ class MenuListUser(HttpUser):
         self.client.get("/api/v1/menu/list", name="menu-list-query")
 ```
 
+- **Configuration source (mandatory):** every locustfile MUST `from tests.config import settings` and use `settings.base_url` (as the `HttpUser.host` and in the readiness listener), `settings.admin_username` / `settings.admin_password` (for auth setup), and any QA test-data prefixes from `settings`. Do **not** use `os.environ.get(...)`, `os.getenv(...)`, or hardcoded URLs/credentials.
+- **Readiness check (mandatory):** every locustfile MUST register an `@events.test_start.add_listener` that probes `GET {settings.base_url}/openapi.json` and aborts the run via `environment.runner.quit()` + `raise SystemExit(...)` on failure. This mirrors `tests/conftest.py::_verify_sut_ready` for the Locust runner, which does not load pytest conftest. The listener message MUST include `settings.base_url_source` so on-call can tell whether the URL came from env or default.
 - **The `@task` method name MUST be prefixed with the normalized case_id** (lowercase case_id + `__` + description): `def <case_id lowercase>__<description>(self)`. Locust tasks do **not** take a `test_` prefix. e.g. case_id `TC_MENU_PERF_001` → `def tc_menu_perf_001__menu_list(self)`. This is the mandatory source-level traceability marker. (Keep `name=` matching the scenario `capability` for threshold mapping — do **not** move the case_id into `name=` if it would break that mapping.)
 - Endpoints, task weights, and the `name=` labels come from the plan and MUST match the scenario `capability` so the runner can map measured stats back to thresholds.
 - The locustfile declares **load behavior only**; absolute thresholds (`p95_ms`, `error_rate_max`) live in the case/plan and are enforced by the CLI runner against Locust output — do **not** re-encode thresholds inside the locustfile.
@@ -79,6 +110,8 @@ Self-check before reporting complete:
 1. Does the load actually hit the endpoint(s) the thresholds are defined for?
 2. Are failures (5xx/timeouts) reported to Locust's stats, not swallowed?
 3. Do the `name=` labels match the scenario `capability` for threshold mapping?
+4. Does every locustfile `from tests.config import settings` and use `settings.base_url` for `HttpUser.host` (no hardcoded URLs)?
+5. Does every locustfile register `@events.test_start` readiness against `GET {settings.base_url}/openapi.json` that aborts via `environment.runner.quit()` + `raise SystemExit`?
 
 If any answer is unsafe, fix the locustfile before reporting codegen complete.
 
@@ -89,3 +122,6 @@ If any answer is unsafe, fix the locustfile before reporting codegen complete.
 - Do not encode pass/fail thresholds in the locustfile; thresholds are enforced by the CLI against absolute values from the case.
 - Do not design new cases or change scope.
 - Do not write to `tests/api/`, `tests/e2e/`, or `tests/fuzz/` — performance output goes to `tests/perf/` only.
+- Do **not** read URLs / credentials / prefixes from `os.environ` or hardcoded literals in the locustfile — always go through `tests.config.settings`.
+- Do **not** skip the `@events.test_start` readiness listener — Locust does not load pytest conftest, so this is the only readiness gate for the performance layer.
+- If `tests/config.py` does not exist (test-infra not bootstrapped), STOP and request `aws-test-infra-bootstrap` to run — do not create it from `aws-performance-codegen`.

@@ -189,9 +189,47 @@ When `fallback_runner.used == true`:
 - Optionally write skill-owned `execution/run-summary-note.md` explaining fallback mode — do **not** rewrite CLI-owned `summary.md`
 - `final_status = PASS_WITH_WARNINGS` if fallback passed; `FAIL` if fallback failed
 
+## SUT Connectivity Check
+
+**Enforced in code, not duplicated in this skill.**
+
+SUT readiness is validated by the session autouse fixture `_verify_sut_ready` in `tests/conftest.py`. It runs automatically for every pytest invocation that loads the root conftest (API, E2E, Fuzz).
+
+The fixture verifies:
+
+1. `tests/config.py` is importable (via `tests.config.settings`)
+2. `GET {base_url}/openapi.json` returns HTTP 200
+3. `POST /api/v1/base/access_token` succeeds with configured admin credentials
+
+On failure it calls `pytest.exit(..., returncode=2)` — pytest stops immediately with a clear message instead of producing false test failures.
+
+**Skill / CLI behavior when connectivity fails:**
+
+- If pytest exits with code `2` before tests run, treat as **SUT connectivity failure**
+- Set `final_status = FAIL`
+- Report the pytest exit message to the user (do not re-run curl checks manually)
+- Do **not** fabricate test results
+
+**Optional bypass (local debugging only):**
+
+```bash
+QA_SKIP_SUT_READINESS=1 pytest ...
+```
+
+Do not use bypass in CI or formal QA workflow runs.
+
+**Manifest note (optional):** If pytest fails at session startup, record in `execution-manifest.yaml`:
+
+```yaml
+sut_connectivity:
+  enforced_by: tests/conftest.py::_verify_sut_ready
+  status: fail
+  reason: <pytest exit message summary>
+```
+
 ## CLI Invocation
 
-This Skill **must** run **AWS CLI Identity Check** before invoking primary mode.
+This Skill **must** run **AWS CLI Identity Check** before invoking primary mode. SUT connectivity is enforced by `tests/conftest.py` during pytest startup — do not duplicate manual curl/login probes here.
 
 If identity check passes, attempt:
 

@@ -181,6 +181,23 @@ Check:
 
 Flag unknown factories, unknown states, and missing cleanup.
 
+**Domain Boundary Checks:**
+
+- **Factory-first default:** for every entity listed in **Required Data**, plan must specify Ring + method in **Factory / Boundary Strategy** → else `severity: medium` (`auto_fix_allowed: true`).
+- If `tests/factories/` contains a `test_<module>_<library>.py` factory module defining `make_<entity>()` for an entity under test, plan/fixtures **must** use it for setup/teardown → else `severity: high`.
+- If `api-codegen-plan.md` Target Files includes `tests/fixtures/<module>_fixtures.py` for a fixture that creates or cleans up domain data but does **not** include the corresponding `tests/factories/test_<module>_<library>.py` target → `severity: high`, `codegen_readiness = not_ready`.
+- `tests/fixtures/` must be wrapper-only: `@pytest.fixture`, yield/lifecycle orchestration, and calls to `make_*`. Any direct business data creation in `tests/fixtures/` plan text → `severity: high`.
+- **HTTP setup ban:** fixture or setup step uses `POST /.../create` (or helper wrapping create) for cases **not** primarily testing create → `severity: high` (`auto_fix_allowed: false`). Exception: create-focused case IDs explicitly mapped in **Data Setup Mapping** with reason.
+- Anti-pattern: `tmp_<entity>` fixture = POST create + GET list resolve id → flag when `make_<entity>` exists or should exist per degradation ladder step 1.
+- Cleanup must maintain the same invariants as setup; raw-delete cleanup for M2M, closure, or soft-delete entities → `severity: high` (`auto_fix_allowed: false` unless plan only needs wording clarification).
+- Entities with M2M tables (Role↔menus/apis / User↔roles): plan must use `make_*` from `tests/factories/` modules; must not plan raw single-table insert or HTTP fixture seeding → else `severity: high`.
+- Entities with closure derived tables (Dept↔DeptClosure): plan must use `make_dept()` → else `severity: high`.
+- Entities with password hashing (User): plan must use `make_user()` → else `severity: high`.
+- Menu / single-table domain entities: plan must use `make_menu()` when factory exists; HTTP fixture seeding forbidden except create cases → else `severity: high` (or `medium` if factory missing but step 1 documented in Blockers).
+- Test config (BASE_URL / admin credentials / prefixes): plan must reference `tests.config.settings`; must not hardcode → else `severity: medium`.
+- If `tests/factories/` is in `discovered_candidates` or `.aws/data-knowledge.yaml`, capabilities must map to the correct `test_<module>_<library>.py` module and exported `make_*` functions (including `make_menu` when present).
+- If `api-test-data-plan.md` lacks **Factory / Boundary Strategy** section → `severity: medium` (`auto_fix_allowed: true`).
+
 ### 4. Codegen Readiness
 
 Return one of: `ready` / `ready_with_warnings` / `not_ready`
@@ -400,10 +417,13 @@ Auto-fixable examples:
 - Add known execution command
 - Add TODO markers only for already documented non-blocking warnings
 - Clarify fixture reuse if known from `.aws/data-knowledge.yaml`
+- Add missing **Factory / Boundary Strategy** section skeleton (entities already listed in plan; include per-entity Ring + method table)
+- Replace hardcoded `BASE_URL` / credential string in plan with reference to `tests.config.settings`
+- Add note in **Fixture Mapping** that HTTP create must not be used for non-create cases (wording only when reviewer flagged HTTP setup)
 
 Do not downgrade blockers into TODO-only warnings.
 
-Unknown endpoint, unknown method, unknown auth mechanism, missing required fixture/factory, unknown expected response schema, or unsafe cleanup must remain blockers or `needs_human_review`.
+Unknown endpoint, unknown method, unknown auth mechanism, missing required fixture/factory, unknown expected response schema, unsafe cleanup, or **inventing `make_*` factory implementations** must remain blockers or `needs_human_review`.
 
 Not auto-fixable:
 
