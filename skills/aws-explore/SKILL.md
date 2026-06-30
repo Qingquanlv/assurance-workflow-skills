@@ -1,6 +1,6 @@
 ---
 name: aws-explore
-description: "Phase 1.1 Explore: run `aws risk context`, then write advisory.json only. Use before aws-case-design. Artifacts still live under explore/ (context.json, advisory.json). Never modify context.json or write case.yaml."
+description: "Phase 1.1 Explore: run `aws risk context`, shallow-read source code, synthesize advisory.json, then collect answers to open_questions one at a time. Use before aws-case-design. Artifacts live under explore/ (context.json, advisory.json). Never modify context.json or write case.yaml."
 ---
 
 ## Context Contract
@@ -62,34 +62,93 @@ aws risk context \
 
 Check `context.degraded` and `phases.explore.weak_data_treat_as` (default: `done`):
 
-**Hard rule:** if ALL THREE of `no_diff`, `no_cases`, `no_history` are present in `degraded_reasons`, treat as `unavailable` regardless of config — there is no evidence to reason from and the advisory would be fabricated.
-
 | `degraded` | `weak_data_treat_as` | `degraded_reasons` | Action |
 |------------|----------------------|--------------------|--------|
-| false | any | — | Continue to Step 3 |
+| false | any | — | Continue to Step 3 (source read) |
 | true | `done` | partial (not all 3) | Continue to Step 3; cap confidence at `medium` |
-| true | `unavailable` | any | Skip Step 3 → `status = unavailable` → END |
-| true | any | all 3 present | Skip Step 3 → `status = unavailable` → END |
+| true | `unavailable` | any | Skip Steps 3–5 → `status = unavailable` → END |
+| true | any | all 3 present | **Do NOT immediately go to unavailable** — proceed to Step 3 to attempt source code read first |
 
-When `status = unavailable`: update `workflow-state.yaml`, output one-line notice, stop.
+**Revised hard rule:** If ALL THREE of `no_diff`, `no_cases`, `no_history` are present in `degraded_reasons`, proceed to Step 3 and attempt source code read. Only if source code is also empty (no routes, no models, empty project directory) does `status = unavailable` apply. Source code structure is valid evidence; do not fabricate unavailability when the codebase is readable.
+
+When `status = unavailable` (confirmed after Step 3): update `workflow-state.yaml`, output one-line notice, stop.
 
 ---
 
-## Step 3 — LLM synthesis
+## Step 3 — Shallow source code read (新增)
 
-Read `context.json` and requirement text. Produce `advisory.json` only.
+Read source code structure to supplement or replace missing historical evidence. This step is always executed unless `weak_data_treat_as = unavailable`.
+
+### What to read
+
+Use Read/Grep tools. Do NOT read test source files or business logic implementations.
+
+**Backend (find and read):**
+- Route definition files: search for `routes/`, `router.ts`, `*router*.ts`, `*.routes.ts`, `*controller*.ts` under the target module directory.
+  - Extract: HTTP method, path pattern, handler name per route.
+- Model/entity definition files: search for `models/`, `entities/`, `*model*.ts`, `*entity*.ts`, `*schema*.ts` under the target module directory.
+  - Extract: field names, types, key constraints (required, unique, FK/relation).
+- RBAC/permission configuration: search for `rbac`, `permission`, `guard`, `role` files.
+  - Extract: role names or permission enum values relevant to the module.
+
+**Frontend (directory structure only — do NOT read component internals):**
+- List the target module's directory hierarchy and file names (e.g. `src/views/<module>/`).
+- Do NOT read component/page source code.
+
+**Not read (intentionally out of scope):**
+- Existing test source files (`tests/`, `test/`, `*.spec.ts`, `*.test.ts`) — these belong to aws-test-author.
+- Business logic implementations (service layer, use-case implementations).
+- Configuration/environment files.
+
+### Evidence produced from source code
+
+Each structural fact found becomes an evidence entry:
+
+```json
+{
+  "id": "SC-001",
+  "source": "source_code",
+  "type": "api_route | model_field | rbac_role | frontend_structure",
+  "description": "POST /api/v1/users — createUser handler",
+  "parse_confidence_cap": "medium"
+}
+```
+
+All `source: "source_code"` evidence has `parse_confidence_cap: "medium"` — code structure proves interface shape, not failure history.
+
+### Empty source gate
+
+After reading, if **no** routes, models, or frontend structure were found (project directory is empty or unreadable):
+- AND historical data was also empty (all 3 degraded_reasons present)
+- THEN → `status = unavailable`; update `workflow-state.yaml`; output one-line notice; stop.
+
+Otherwise continue to Step 4.
+
+### evidence_inventory update
+
+Move actually-read items from `not_inspected` to `available`:
+- If routes were read → `api_routes` moves to `available`.
+- If model files were read → `rbac_<module>_model` moves to `available`.
+- If frontend structure was listed → add `frontend_structure` to `available`.
+- Test source files always remain in `not_inspected`.
+
+---
+
+## Step 4 — LLM synthesis
+
+Read `context.json`, requirement text, **and source code evidence collected in Step 3**. Produce `advisory.json` only.
 
 ### LLM Hard Rules
 
-1. All numbers, `case_id`, `issue_id`, module names **must** come from `context.json` fields (`evidence[]`, `impact.*`, `historical_issues[]`, `case_signals[]`).
-2. Every hotspot / watchlist item **must** reference ≥1 `context.evidence[].id` via `evidence_ids[]`.
+1. All numbers, `case_id`, `issue_id`, module names **must** come from `context.json` fields (`evidence[]`, `impact.*`, `historical_issues[]`, `case_signals[]`) **or from source code evidence (SC-* IDs) collected in Step 3**.
+2. Every hotspot / watchlist item **must** reference ≥1 evidence ID (`context.evidence[].id` or Step 3 `SC-*` ID) via `evidence_ids[]`.
 3. No `evidence_ids` → item MUST be `confidence: low`. Do not generate hotspot/watchlist items with no evidence.
-4. `case_design_guidance` is an **evidence-anchored channel** — never write case files. When `evidence[]`, `impact.affected_case_ids[]`, `historical_issues[]`, and `case_signals[]` are all empty, set `priority_hints`, `suggested_scenarios`, and `regression_focus` to `[]`. Do **not** fill them with generic advice or module walkthroughs — generic "at least cover" guidance belongs exclusively in `minimum_required_coverage`; degraded disclaimers belong exclusively in `executive_summary`.
-5. Respect `parse_confidence_cap` on evidence — do not exceed cap in item confidence.
+4. `case_design_guidance` is an **evidence-anchored channel** — never write case files. When ALL evidence (historical AND source code) is empty, set `priority_hints`, `suggested_scenarios`, and `regression_focus` to `[]`. Do **not** fill them with generic advice — generic "at least cover" guidance belongs exclusively in `minimum_required_coverage`; degraded disclaimers belong exclusively in `executive_summary`.
+5. Respect `parse_confidence_cap` on evidence — do not exceed cap in item confidence. All `source: "source_code"` evidence has cap `medium`; do not assign `high` confidence to any item backed only by SC-* evidence.
 6. Use `evidence[]` IDs only — do not use unstable path expressions like `context.test_health[menus].pass_rate`.
 7. If `context.staleness.stale == true` → cap all confidence at `medium`; add staleness disclaimer to Executive Summary.
 8. `evidence_inventory` and `minimum_required_coverage` are top-level metadata fields. Do **not** place them under `hotspots` or `watchlist`.
-9. In degraded / weak-data conditions, keep `hotspots` and `watchlist` empty unless there is direct `evidence_ids[]` support; never turn `minimum_required_coverage` into an evidence-backed hotspot.
+9. In degraded / weak-data conditions, keep `hotspots` and `watchlist` empty unless there is direct `evidence_ids[]` support (SC-* IDs from Step 3 count); never turn `minimum_required_coverage` into an evidence-backed hotspot.
 10. **Channel separation (hard):** each piece of output content has exactly one home.
     - "Why the advisory is limited" → `executive_summary` only.
     - "What evidence was / wasn't available" → `evidence_inventory` only.
@@ -97,6 +156,8 @@ Read `context.json` and requirement text. Produce `advisory.json` only.
     - "Prioritised risk signals from evidence" → `hotspots` / `watchlist` / `case_design_guidance` (when evidence exists).
     - "Open questions for case-design" → `open_questions_for_case_design` only.
     Duplicating the same content across channels is a violation.
+11. When producing items backed exclusively by `source: "source_code"` evidence (SC-* IDs), add `"source_basis": "code_structure_only"` to each such `case_design_guidance` item, and note in `executive_summary` that results are derived from code structure analysis with no historical execution data.
+12. `open_questions_for_case_design` items are advisory draft only — leave `answer` and `answered_via` as `null`; they are populated in Step 5.
 
 ### advisory.json schema (MVP)
 
@@ -114,20 +175,29 @@ Three buckets; populate dynamically for every change, do **not** copy-paste the 
 
 | Bucket | Definition | Rule |
 |--------|-----------|------|
-| `available` | Data that **was read and used** by this advisory | Always: `requirement_text`, `explore_context`. Add others only if actually consumed. |
+| `available` | Data that **was read and used** by this advisory | Always: `requirement_text`, `explore_context`. Add route/model/frontend items here **only if actually read in Step 3**. |
 | `missing` | Data the aggregator **tried to collect** (within its scope) but found empty or unavailable | = fields that are empty in `context.json` and whose absence is a degraded_reason (`no_diff` → `git_diff`/`changed_files`; `no_history` → `historical_issues`/`previous_failure_analysis`/`known_product_issues`). |
-| `not_inspected` | Data that **exists and could be read** but is **outside this phase's scope** (source code, live API schema, existing test files) | Always: `existing_tests` (source files), `api_routes`, `api_schema`, `rbac_<module>_model`. Name the model after the actual module (e.g. `rbac_dept_model`, `rbac_role_model`). |
+| `not_inspected` | Data that **exists and could be read** but was **not read in this run** | Always: `existing_tests` (source files), `api_schema` (live schema). Move `api_routes` / `rbac_<module>_model` / `frontend_structure` to `available` if Step 3 actually read them. |
 
-> **Caution — `existing_tests` ambiguity:** test *source files* are `not_inspected`; test *health signals* (`test_health[]` aggregated from archive) may be `missing` if the archive returned no data. These are different things — do not conflate them.
+> **Caution — `existing_tests` ambiguity:** test *source files* are always `not_inspected`; test *health signals* (`test_health[]` aggregated from archive) may be `missing` if the archive returned no data. These are different things — do not conflate them.
 
-*Example (menu-management, no diff, no history):*
+*Example (menu-management, no diff, no history, routes+model read in Step 3):*
+```json
+"evidence_inventory": {
+  "available": ["requirement_text", "explore_context", "api_routes", "rbac_menu_model"],
+  "missing": ["git_diff", "changed_files", "historical_issues",
+              "previous_failure_analysis", "known_product_issues"],
+  "not_inspected": ["existing_tests", "api_schema"]
+}
+```
+
+*Example (menu-management, no diff, no history, source also empty):*
 ```json
 "evidence_inventory": {
   "available": ["requirement_text", "explore_context"],
   "missing": ["git_diff", "changed_files", "historical_issues",
               "previous_failure_analysis", "known_product_issues"],
-  "not_inspected": ["existing_tests", "api_routes", "api_schema",
-                    "rbac_menu_model"]
+  "not_inspected": ["existing_tests", "api_routes", "api_schema", "rbac_menu_model"]
 }
 ```
 
@@ -183,18 +253,46 @@ Generate from the **module's domain shape** (CRUD operations + tree/hierarchy if
 
 ---
 
-## Step 4 — Validate
+## Step 5 — Collect open_questions answers (一次一问交互，新增)
+
+After writing the advisory draft, check `open_questions_for_case_design[]`:
+
+- If empty → skip this step, proceed to Step 6.
+- If non-empty → ask the user one question at a time, in array order.
+
+**Question format:**
+
+```
+探索发现一个需要确认的问题（<i>/<N>）：
+
+<question text>
+
+<if options present, list them as choices>
+
+请回答，或输入"跳过"（此问题将留给 case-design 阶段处理）。
+```
+
+- User provides answer → write to `open_questions_for_case_design[i].answer` (string), set `answered_via = "explore"`.
+- User inputs "跳过" (or equivalent) → leave `answer = null`, `answered_via = null`.
+- After all questions are asked (or user skips ≥3 in a row), output:
+  `"已记录回答，继续生成最终 advisory。"` and proceed to Step 6.
+
+Answers are persisted into `advisory.json` — `aws-case-design` will skip re-asking answered questions.
+
+---
+
+## Step 6 — Validate
 
 ```bash
 aws risk validate-advisory --change <change-id> --project-dir <project-root>
 ```
 
 - Fail → `status = failed`; if `mode == required` → STOP before Phase 1.
-- Pass → proceed to Step 5.
+- Pass → proceed to Step 7.
 
 ---
 
-## Step 5 — Update `workflow-state.yaml`
+## Step 7 — Update `workflow-state.yaml`
 
 ```yaml
 phases:
@@ -206,6 +304,8 @@ phases:
     hotspots_count: <n>
     watchlist_high_count: <n>
     degraded: <bool from context.json>
+    source_code_read: <bool>         # true if Step 3 found and read any source files
+    open_questions_answered: <n>     # count of questions answered in Step 5
     validation_errors: []
 ```
 
@@ -234,13 +334,14 @@ phases:
 ```
 
 - 仅展示 `confidence: high` 或 `medium` 的项。
-- 若所有项均为 `low`（通常因为 degraded 数据），只输出：`⚠ 无历史证据，advisory 未能提供有效信号。建议补充 qa/archive/ 后重试。`
+- 若所有项均为 `low` 但有代码 evidence（SC-* 证据），输出：`⚠ 无历史证据；advisory 基于代码结构合成，置信度上限 medium。`
+- 若所有项均为 `low` 且无任何 evidence，输出：`⚠ 无历史证据，advisory 未能提供有效信号。建议补充 qa/archive/ 后重试。`
 - 不展示文件清单、执行步骤表、合规说明。
 
 **When `status = unavailable`:**
 
 ```
-⚠ Explore 跳过 — 历史数据不足（<degraded_reasons>）
+⚠ Explore 跳过 — 历史数据不足（<degraded_reasons>），源码也为空
 Phase 1 aws-case-design 将在无 advisory 的情况下继续。
 ```
 

@@ -82,12 +82,12 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
-0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user)
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` are pre-answered and must **not** be asked again in Step 4
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
    - If `phases.explore.status == done`: after module confirm, show **3–5 bullet Explore 摘要** (confidence tags; path to `advisory.json`; no full dump)
-4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists
+4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; treat advisory `open_questions` with `answer != null` as already-clarified context (do not re-ask); only surface `answer == null` open_questions when their category hasn't been covered yet
 5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
 6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
 7. **Get user approval** — wait for explicit confirmation
@@ -122,6 +122,15 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 - If a category can be inferred from project context, state the inference and ask for confirmation instead of asking an open-ended question.
 - Only move to the next question when the current one is answered.
 - Prefer multiple-choice questions when possible.
+
+**open_questions deduplication (when advisory `done`):**
+
+Before starting Step 4, partition `open_questions_for_case_design[]` from the advisory:
+
+- `answered` = items where `answer != null` and `answered_via = "explore"` → treat these answers as already-established context; map each answer to its `maps_to_clarifying_categories` and mark those categories as pre-satisfied (no re-asking required).
+- `pending` = items where `answer == null` → merge these into the 8-category queue; ask them when their category comes up, using the original question text and options from the advisory item.
+
+Do NOT repeat an advisory question that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context.
 
 **The 8 categories must be covered before case delta generation — but must NOT be asked as a batch:**
 
@@ -480,6 +489,20 @@ Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
 - TC_MENU_PERF_001: Performance
   - reason: <high-frequency query endpoint, P95 < 200ms; relates TC_MENU_002>
+
+## Explore Input
+
+<!-- Include this section ONLY when phases.explore.status == done. Otherwise write: _skipped (no advisory)_ -->
+
+- advisory: `explore/advisory.json` (status: done | degraded)
+- source_code_read: true | false
+- open_questions:
+  - answered in explore: OQ-001 (module_confirmation) — "<answer>", OQ-003 (data_needs) — "<answer>"
+  - pending (answered here): OQ-002 (exception_scenarios) — "<answer given in this session>"
+  - skipped: OQ-004 (test_types) — left unanswered
+- adopted: [HS-001 → TC_MODULE_001, WL-002 → TC_MODULE_003]
+- override: [HS-002: reason — <rationale for overriding this hotspot>]
+- gap: [test_types clarified here that advisory did not cover]
 
 ## Data Needs
 
