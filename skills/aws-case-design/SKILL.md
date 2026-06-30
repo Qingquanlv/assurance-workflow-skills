@@ -10,9 +10,9 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
-2. **Risk Advisory gate (Phase 0.5):** If `phases.risk_advisory` exists (written by `aws-risk-advisory`), apply gate logic from `docs/design/2026-06-19-risk-advisory-spec.md` §3.2:
+2. **Explore gate (Phase 1.1):** If `phases.explore` exists (written by `aws-explore`), apply gate logic from this repo's `aws-explore/SKILL.md` (Context Contract + Phase 1 gate):
    - `status == pending` → **STOP**
-   - `status == done` → read `risk-advisory/advisory.json` and `advisory.md`; missing files → **STOP**
+   - `status == done` → read `explore/advisory.json`; missing file → **STOP**
    - `mode == required` and `status in [failed, unavailable]` → **STOP**
    - `mode == advisory` and `status in [skipped, unavailable, failed]` → record warning, continue without advisory
 3. Read **Required** inputs:
@@ -82,33 +82,33 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
-0. **Risk Advisory gate** — read `phases.risk_advisory`; if `done`, read advisory files (internal; no dump to user)
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user)
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
-   - If `phases.risk_advisory.status == done`: after module confirm, show **3–5 bullet Risk Advisory 摘要** (confidence tags; path to `advisory.md`; no full dump)
+   - If `phases.explore.status == done`: after module confirm, show **3–5 bullet Explore 摘要** (confidence tags; path to `advisory.json`; no full dump)
 4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists
 5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
 6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
 7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — must include `## Risk Advisory Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`
+8. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`
 9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
 10. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
 11. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
 
-### case.yaml boundary (Risk Advisory)
+### case.yaml boundary (Explore)
 
 **MUST NOT** persist in `case.yaml`:
 
 - advisory IDs (`WL-*`, `HS-*`, `KPI-*` as trace fields)
 - `evidence_ids[]`, `adopted[]`, `override[]`, `gap[]`
-- `risk_advisory`, `advisory_input`, or Reconcile blocks
+- `explore`, `advisory_input`, or Reconcile blocks
 
 **Only** user-approved case business fields (priority, type, assertions, automation, etc.).
 
-Risk Advisory disposition lives **only** in `proposal.md` (`## Risk Advisory Input`).
+Explore disposition lives **only** in `proposal.md` (`## Explore Input`).
 
-**Readiness:** generated `case.yaml` must not contain Risk Advisory Input / evidence_ids / WL-* / HS-* metadata keys.
+**Readiness:** generated `case.yaml` must not contain Explore Input / evidence_ids / WL-* / HS-* metadata keys.
 
 ---
 

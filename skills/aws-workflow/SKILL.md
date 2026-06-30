@@ -198,7 +198,7 @@ Before starting any workflow phase, verify all required skills can be loaded in 
 ```yaml
 required_skills:
   - aws-test-infra-bootstrap
-  - aws-risk-advisory
+  - aws-explore
   - aws-case-design
   - aws-case-reviewer
   - aws-case-fixer
@@ -240,17 +240,17 @@ After verifying required skills, **write the initial `workflow-state.yaml`** and
 
 ---
 
-## Phase 1.2 — Risk Advisory
+## Phase 1.2 — Explore
 
 Runs **after Phase 1.1** and **before Phase 2.1** (`aws-case-design`) when `run_mode` is `full` or `case-only`.
 
-**Skip** when `run_mode == codegen-only` → set `phases.risk_advisory.status = skipped` and proceed to Phase 2.1 without advisory.
+**Skip** when `run_mode == codegen-only` → set `phases.explore.status = skipped` and proceed to Phase 2.1 without advisory.
 
 ### workflow-state (initial fields)
 
 ```yaml
 phases:
-  risk_advisory:
+  explore:
     status: pending | done | skipped | unavailable | failed
     mode: advisory          # advisory | required — default advisory
     weak_data_treat_as: done  # done | unavailable — default done
@@ -264,18 +264,18 @@ phases:
 ### Steps
 
 ```
-Load aws-risk-advisory
+Load aws-explore
   The skill owns the full pipeline internally:
     - runs aws risk context (CLI)
     - applies weak_data_treat_as branch
-    - writes advisory.json + advisory.md
+    - writes advisory.json only
     - runs aws risk validate-advisory
     - updates workflow-state.yaml
 ```
 
-See `aws-risk-advisory` SKILL.md for the step-by-step.
+See `aws-explore` SKILL.md for the step-by-step.
 
-**Boundary:** Phase 1.2 only produces `risk-advisory/` artifacts. Do not inline or simulate `aws-case-design`.
+**Boundary:** Phase 1.2 only produces `explore/` artifacts. Do not inline or simulate `aws-case-design`.
 
 ### Phase 2.1 gate (summary)
 
@@ -347,7 +347,7 @@ The orchestrator does NOT hardcode a phase sequence. It calls `aws status --chan
 | Schema phase id | kind | skill | agent |
 |---|---|---|---|
 | skill-registry-check | orchestrator-internal | — | — |
-| risk-advisory | agent | aws-risk-advisory | aws-author |
+| explore | agent | aws-explore | aws-author |
 | case-design | agent | aws-case-design | aws-author |
 | case-review | agent | aws-case-reviewer | aws-reviewer |
 | case-fix | agent | aws-case-fixer | aws-author |
@@ -434,7 +434,7 @@ The skill base directory is `/Users/lvqingquan/skills/assurance-workflow-skills/
 | Phase | skill_name | SKILL.md relative path |
 |---|---|---|
 | test_infra_bootstrap | aws-test-infra-bootstrap | `aws-test-infra-bootstrap/SKILL.md` |
-| risk_advisory | aws-risk-advisory | `aws-risk-advisory/SKILL.md` |
+| explore | aws-explore | `aws-explore/SKILL.md` |
 | case_design | aws-case-design | `aws-case-design/SKILL.md` |
 | case_review | aws-case-reviewer | `aws-case-reviewer/SKILL.md` |
 | api_plan | aws-api-plan | `aws-api-plan/SKILL.md` |
@@ -512,7 +512,7 @@ phases:
       - aws-run
       - aws-inspect
       - aws-report-generator
-      - aws-risk-advisory
+      - aws-explore
       - aws-test-infra-bootstrap
 
   test_infra_bootstrap:
@@ -524,9 +524,9 @@ phases:
     created: []
     kept: []
 
-  risk_advisory:
+  explore:
     status: pending | done | skipped | unavailable | failed
-    skill_loaded: false       # → true after Read(aws-risk-advisory/SKILL.md)
+    skill_loaded: false       # → true after Read(aws-explore/SKILL.md)
     skill_md_path: null
     skill_loaded_at: null
     mode: advisory | required
@@ -1413,15 +1413,15 @@ Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
   → STOP if any file is BLOCKED (contract mismatch requires user decision)
 
 Phase 1.1 — Skill Registry Check
-  → Verify aws-test-infra-bootstrap, aws-risk-advisory, aws-case-design, aws-case-reviewer, aws-case-fixer load
+  → Verify aws-test-infra-bootstrap, aws-explore, aws-case-design, aws-case-reviewer, aws-case-fixer load
   → Write workflow-state.yaml (execution_mode: inline)
   → STOP if any required case skill missing
 
-Phase 1.2 — Risk Advisory
-  → Load aws-risk-advisory
-  → Execute inline (writes risk-advisory/context.json and advisory artifacts when available)
-  → Apply Phase 2.1 risk advisory gate semantics
-  → Update workflow-state.yaml: phases.risk_advisory.status
+Phase 1.2 — Explore
+  → Load aws-explore
+  → Execute inline (writes explore/context.json and advisory artifacts when available)
+  → Apply Phase 2.1 explore gate semantics
+  → Update workflow-state.yaml: phases.explore.status
 
 Phase 2.1 — Case Design
   → Load aws-case-design
@@ -1542,11 +1542,11 @@ Phase 1.1 — Skill Registry Check
   → Write workflow-state.yaml (create, set execution_mode: inline)
   → Record OPENCODE-SKILL-RESOLUTION-001 warning in workflow-state.yaml
 
-Phase 1.2 — Risk Advisory
-  → Load skill aws-risk-advisory in primary agent
-  → Execute inline (runs risk context, writes risk-advisory artifacts, validates advisory)
-  → Apply Phase 2.1 risk advisory gate semantics
-  → Update workflow-state.yaml: phases.risk_advisory.status
+Phase 1.2 — Explore
+  → Load skill aws-explore in primary agent
+  → Execute inline (runs risk context, writes explore artifacts, validates advisory)
+  → Apply Phase 2.1 explore gate semantics
+  → Update workflow-state.yaml: phases.explore.status
 
 Phase 2.1 — Case Design
   → Load skill aws-case-design in primary agent

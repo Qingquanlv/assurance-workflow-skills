@@ -36,4 +36,16 @@ describe('copyAgentAssets', () => {
       );
     }
   });
+
+  it('generated agent edit globs match absolute paths and case-design outputs', () => {
+    copyAgentAssets(root, packageRoot);
+    const author = fs.readFileSync(
+      path.join(root, '.opencode', 'agents', 'aws-author.md'),
+      'utf-8',
+    );
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/cases\/\*\*":\s*allow/);
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/proposal\.md":\s*allow/);
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/\.qa\.yaml":\s*allow/);
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/workflow-state\.yaml":\s*deny/);
+  });
 });

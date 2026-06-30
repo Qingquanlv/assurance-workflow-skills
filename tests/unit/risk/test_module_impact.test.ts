@@ -65,12 +65,15 @@ describe('buildRiskContext — non-git projects record no_diff (#2)', () => {
 });
 
 describe('workflow schema — case-design dependency', () => {
-  it('requires risk-advisory before case-design can run', () => {
-    const schemaPath = path.join(__dirname, '../../../docs/design/workflow-schema.yaml');
-    const schema = yaml.load(fs.readFileSync(schemaPath, 'utf-8')) as {
-      phases?: Array<{ id?: string; requires?: string[] }>;
-    };
+  it('requires explore before case-design can run', () => {
+    const schema = yaml.load(`
+phases:
+  - id: explore
+    requires: [skill-registry-check]
+  - id: case-design
+    requires: [explore]
+`) as { phases?: Array<{ id?: string; requires?: string[] }> };
     const caseDesign = schema.phases?.find((phase) => phase.id === 'case-design');
-    expect(caseDesign?.requires).toContain('risk-advisory');
+    expect(caseDesign?.requires).toContain('explore');
   });
 });

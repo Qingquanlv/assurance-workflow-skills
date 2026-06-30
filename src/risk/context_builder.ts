@@ -240,11 +240,18 @@ function inferTestFiles(projectRoot: string, caseIds: string[]): string[] {
   return [...new Set(found)].sort();
 }
 
-export function writeRiskContext(projectRoot: string, changeId: string, context: RiskContext): string {
-  const outPath = contextJsonPath(projectRoot, changeId);
+export function serializeContext(context: RiskContext): string {
+  return JSON.stringify(context, null, 2) + '\n';
+}
+
+export function writeContextToPath(outPath: string, context: RiskContext): string {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, JSON.stringify(context, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(outPath, serializeContext(context), 'utf-8');
   return outPath;
+}
+
+export function writeRiskContext(projectRoot: string, changeId: string, context: RiskContext): string {
+  return writeContextToPath(contextJsonPath(projectRoot, changeId), context);
 }
 
 export function isWeakData(context: RiskContext): boolean {

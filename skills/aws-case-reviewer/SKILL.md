@@ -114,13 +114,13 @@ Review the generated case artifacts for:
 - Duplicate or conflicting cases
 - Test layer assignments (API vs E2E per the decision tree in `aws-case-design`)
 
-### Risk Advisory soft check (Phase 0.5 — warning only, not blocker)
+### Explore soft check (Phase 0.5 — warning only, not blocker)
 
-When `risk-advisory/advisory.json` exists and `phases.risk_advisory.status == done`:
+When `explore/advisory.json` exists and `phases.explore.status == done`:
 
 ```
 FOR EACH watchlist item WHERE confidence == high:
-  proposal.md ## Risk Advisory Input MUST list WL-* as disposition in [adopted, override]
+  proposal.md ## Explore Input MUST list WL-* as disposition in [adopted, override]
   IF override → reason required in table
 ELSE emit warning: RISK-ADVISORY-WATCHLIST-UNADDRESSED
 ```
@@ -132,11 +132,11 @@ Finding example:
   "id": "RISK-ADVISORY-WATCHLIST-UNADDRESSED",
   "severity": "low",
   "human_review_required": false,
-  "message": "High-confidence watchlist item WL-001 not addressed in proposal.md Risk Advisory Input"
+  "message": "High-confidence watchlist item WL-001 not addressed in proposal.md Explore Input"
 }
 ```
 
-Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `risk_advisory`, `WL-*` / `HS-*` as dedicated trace fields).
+Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `explore`, `risk_advisory` (legacy), `WL-*` / `HS-*` as dedicated trace fields).
 
 ---
 

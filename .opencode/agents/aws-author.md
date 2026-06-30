@@ -4,13 +4,15 @@ mode: all
 description: Execute a bounded AWS authoring phase. Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "qa/changes/**/workflow-state.yaml": deny
-    "qa/changes/**/cases/**": allow
-    "qa/changes/**/plans/**": allow
-    "qa/changes/**/facts/**": allow
-    "qa/changes/**/risk-advisory/**": allow
-    "qa/changes/**/review/**": allow
-    "qa/changes/**/healing/**": allow
+    "**/qa/changes/**/workflow-state.yaml": deny
+    "**/qa/changes/**/cases/**": allow
+    "**/qa/changes/**/plans/**": allow
+    "**/qa/changes/**/facts/**": allow
+    "**/qa/changes/**/explore/**": allow
+    "**/qa/changes/**/review/**": allow
+    "**/qa/changes/**/healing/**": allow
+    "**/qa/changes/**/proposal.md": allow
+    "**/qa/changes/**/.qa.yaml": allow
     "**": deny
   bash:
     "aws risk *": allow

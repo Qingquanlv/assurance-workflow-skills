@@ -403,11 +403,11 @@ aws doctor --json    # 机器可读 JSON
 | `aws doctor --json` | JSON 格式检查结果 |
 | `aws config print` | 查看当前配置 |
 
-### Risk Advisory（Phase 0.5）
+### Explore（Phase 0.5）
 
 | 命令 | 说明 |
 |---|---|
-| `aws risk context --change <id> [--project-dir <root>]` | 聚合 git diff / cases / archive → `risk-advisory/context.json` |
+| `aws risk context --change <id> [--project-dir <root>]` | 聚合 git diff / cases / archive → `explore/context.json` |
 | `aws risk validate-advisory --change <id>` | 校验 `advisory.json` 与 `context.json`（§5.5） |
 
 ### 测试执行与质量报告
