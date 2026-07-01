@@ -82,12 +82,12 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
-0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` are pre-answered and must **not** be asked again in Step 4
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` resolve the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in Step 4), but do **not** mark the whole category satisfied — still cover the broader category, citing resolved pitfalls as established context; also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach — this skill still owns asking and confirming those categories, but presents `test_strategy` as a starting recommendation instead of asking from a blank slate
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
    - If `phases.explore.status == done`: after module confirm, show **3–5 bullet Explore 摘要** (confidence tags; path to `advisory.json`; no full dump)
-4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; treat advisory `open_questions` with `answer != null` as already-clarified context (do not re-ask); only surface `answer == null` open_questions when their category hasn't been covered yet
+4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; lead macro categories with the `test_strategy` proposal (confirm/override) when present; treat advisory `open_questions` with `answer != null` as already-resolved for that specific pitfall (do not re-ask the same pitfall, but still cover the category); surface `answer == null` open_questions as part of their category's question
 5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
 6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
 7. **Get user approval** — wait for explicit confirmation
@@ -100,15 +100,16 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
 
 **MUST NOT** persist in `case.yaml`:
 
-- advisory IDs (`WL-*`, `HS-*`, `KPI-*` as trace fields)
+- advisory IDs (`WL-*`, `PH-*`, `KPI-*` as trace fields)
 - `evidence_ids[]`, `adopted[]`, `override[]`, `gap[]`
 - `explore`, `advisory_input`, or Reconcile blocks
+- `test_strategy`, `pitfall_ref`, `assertion_intent`, or any `OQ-*` id
 
 **Only** user-approved case business fields (priority, type, assertions, automation, etc.).
 
 Explore disposition lives **only** in `proposal.md` (`## Explore Input`).
 
-**Readiness:** generated `case.yaml` must not contain Explore Input / evidence_ids / WL-* / HS-* metadata keys.
+**Readiness:** generated `case.yaml` must not contain Explore Input / evidence_ids / WL-* / PH-* metadata keys.
 
 ---
 
@@ -127,10 +128,18 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 
 Before starting Step 4, partition `open_questions_for_case_design[]` from the advisory:
 
-- `answered` = items where `answer != null` and `answered_via = "explore"` → treat these answers as already-established context; map each answer to its `maps_to_clarifying_categories` and mark those categories as pre-satisfied (no re-asking required).
-- `pending` = items where `answer == null` → merge these into the 8-category queue; ask them when their category comes up, using the original question text and options from the advisory item.
+- `answered` = items where `answer != null` and `answered_via = "explore"` → treat as already-established context for that specific `pitfall_ref`; do not re-ask that exact pitfall. **Do NOT mark the whole category pre-satisfied** — each item only resolves the assertion intent for one pitfall, not the entire `success_assertions` / `exception_scenarios` / `out_of_scope` category. Still ask the category's broader question in Step 4, citing the already-resolved pitfalls as established context rather than re-deciding them.
+- `pending` = items where `answer == null` → merge these into the category queue; ask them when their category comes up, using the original question text and options from the advisory item.
 
-Do NOT repeat an advisory question that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context.
+Do NOT repeat an advisory question (same `pitfall_ref`) that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context when covering the broader category.
+
+**`test_strategy` as a macro-plan starting point (when advisory `done`):**
+
+`aws-explore` may populate `advisory.json.test_strategy` (scope / data_focus / layer_recommendation / approach) as an evidence-derived proposal. This skill still owns the macro categories (`module_confirmation`, `change_type`, `test_types`, `data_needs`, `target_selection_depth`, `out_of_scope`) — `test_strategy` does not pre-answer them. Instead, when asking each of those categories, lead with the relevant `test_strategy` slice as a recommendation to confirm or override, rather than asking open-ended:
+
+> "Explore 基于代码证据建议覆盖 API + E2E，并对 UserCreate/UserUpdate schema 增加 Fuzz（依据：发现用户输入 schema SC-SCHEMA-002/004）。是否采用此方案，还是需要调整？"
+
+The user's confirm/override response is what gets recorded as `adopted[]` / `override[]` in Step 5 (Reconcile) — same mechanism as priority_hint/watchlist adoption. If `test_strategy` is absent or empty, ask the category normally with no proposal to lead with.
 
 **The 8 categories must be covered before case delta generation — but must NOT be asked as a batch:**
 
@@ -496,13 +505,16 @@ Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
 - advisory: `explore/advisory.json` (status: done | degraded)
 - source_code_read: true | false
-- open_questions:
-  - answered in explore: OQ-001 (module_confirmation) — "<answer>", OQ-003 (data_needs) — "<answer>"
-  - pending (answered here): OQ-002 (exception_scenarios) — "<answer given in this session>"
-  - skipped: OQ-004 (test_types) — left unanswered
-- adopted: [HS-001 → TC_MODULE_001, WL-002 → TC_MODULE_003]
-- override: [HS-002: reason — <rationale for overriding this hotspot>]
-- gap: [test_types clarified here that advisory did not cover]
+- test_strategy: adopted as-is | adopted with overrides | not provided
+  - proposal: <test_strategy.approach, if present>
+  - override: [<layer/scope item>: reason — <rationale for overriding this part of the proposal>]
+- open_questions (assertion-intent, per pitfall):
+  - answered in explore: OQ-001 (pitfall_ref: SC-RBAC-001, success_assertions) — assert_known_bug, "<answer>"
+  - pending (answered here): OQ-002 (pitfall_ref: SC-SCHEMA-005, exception_scenarios) — assert_ideal, "<answer given in this session>"
+  - skipped: OQ-004 (pitfall_ref: SC-SCHEMA-004, out_of_scope) — left unanswered
+- adopted: [PH-001 → TC_MODULE_001, WL-002 → TC_MODULE_003]
+- override: [PH-002: reason — <rationale for overriding this priority hint>]
+- gap: [macro categories clarified here beyond what test_strategy covered]
 
 ## Data Needs
 

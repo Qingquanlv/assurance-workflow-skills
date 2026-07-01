@@ -9,6 +9,9 @@ permission:
     "**/qa/changes/**/plans/**": allow
     "**/qa/changes/**/facts/**": allow
     "**/qa/changes/**/explore/**": allow
+    "**/qa/changes/**/explore/advisory.json": allow
+    "**/qa/changes/**/explore/context.json": allow
+    "**/qa/changes/**/risk-advisory/**": allow
     "**/qa/changes/**/review/**": allow
     "**/qa/changes/**/healing/**": allow
     "**/qa/changes/**/proposal.md": allow

@@ -255,7 +255,7 @@ phases:
     mode: advisory          # advisory | required — default advisory
     weak_data_treat_as: done  # done | unavailable — default done
     outputs: []
-    hotspots_count: 0
+    priority_hints_count: 0
     watchlist_high_count: 0
     degraded: false
     validation_errors: []
@@ -532,7 +532,7 @@ phases:
     mode: advisory | required
     weak_data_treat_as: done | unavailable
     outputs: []
-    hotspots_count: 0
+    priority_hints_count: 0
     watchlist_high_count: 0
     degraded: false
     validation_errors: []

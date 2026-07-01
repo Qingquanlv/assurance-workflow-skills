@@ -9,7 +9,6 @@
     "context_ref",
     "generated_at",
     "executive_summary",
-    "hotspots",
     "watchlist",
     "case_design_guidance",
     "open_questions_for_case_design"
@@ -18,28 +17,79 @@
     "schema_version": { "const": "1.0" },
     "change_id": { "type": "string" },
     "context_ref": { "type": "string" },
-    "hotspots": { "type": "array" },
     "watchlist": { "type": "array" },
+    "case_design_guidance": {
+      "description": "Evidence-anchored guidance for aws-case-design. priority_hints is the sole channel for risk-area signals (formerly split into a separate hotspots array) — every priority_hint now carries its own confidence, same as watchlist items.",
+      "type": "object",
+      "properties": {
+        "priority_hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "hint", "confidence", "evidence_ids"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^PH-\\d+$" },
+              "hint": { "type": "string" },
+              "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } },
+              "source_basis": { "type": "string" },
+              "case_id": { "type": "string" }
+            }
+          }
+        },
+        "suggested_scenarios": { "type": "array" },
+        "regression_focus": { "type": "array" }
+      }
+    },
+    "test_strategy": {
+      "description": "Macro test plan proposal (scope/data/layer/approach) derived from evidence. This is a PROPOSAL for aws-case-design to confirm/adjust during its own clarifying questions — it is never asked as an explore open_question.",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "in_scope": { "type": "array", "items": { "type": "string" } },
+            "out_of_scope": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "data_focus": { "type": "array", "items": { "type": "string" } },
+        "layer_recommendation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["layer", "recommended"],
+            "properties": {
+              "layer": { "type": "string", "enum": ["API", "E2E", "Fuzz", "Performance"] },
+              "recommended": { "type": "boolean" },
+              "depth": { "type": "string", "enum": ["smoke", "core", "exhaustive"] },
+              "rationale": { "type": "string" },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "approach": { "type": "string" }
+      }
+    },
     "open_questions_for_case_design": {
+      "description": "Per-pitfall assertion-intent questions ONLY. Each item must trace to a discovered code pitfall (evidence_ids) and ask whether to assert the known-bug behavior, the ideal behavior, or ignore it. Macro scope/data/layer/approach questions belong in test_strategy, not here.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "question", "maps_to_clarifying_categories"],
+        "required": ["id", "question", "pitfall_ref", "maps_to_clarifying_categories"],
         "properties": {
           "id": { "type": "string", "pattern": "^OQ-\\d+$" },
           "question": { "type": "string" },
+          "pitfall_ref": {
+            "description": "Evidence or priority-hint/watchlist id this question traces to, e.g. an SC-* source-code evidence id or PH-*/WL-* item id.",
+            "type": "string"
+          },
           "maps_to_clarifying_categories": {
             "type": "array",
             "items": {
               "type": "string",
               "enum": [
-                "module_confirmation",
-                "change_type",
-                "test_types",
-                "data_needs",
                 "success_assertions",
                 "exception_scenarios",
-                "target_selection_depth",
                 "out_of_scope"
               ]
             }
@@ -47,6 +97,14 @@
           "options": {
             "type": "array",
             "items": { "type": "string" }
+          },
+          "assertion_intent": {
+            "description": "Structured decision captured from the user's answer. null until answered.",
+            "oneOf": [
+              { "type": "string", "enum": ["assert_known_bug", "assert_ideal", "ignore", "undecided"] },
+              { "type": "null" }
+            ],
+            "default": null
           },
           "answer": {
             "description": "User's answer collected during aws-explore Step 5. null means not yet answered.",

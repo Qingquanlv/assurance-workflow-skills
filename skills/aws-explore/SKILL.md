@@ -1,6 +1,6 @@
 ---
 name: aws-explore
-description: "Phase 1.1 Explore: run `aws risk context`, shallow-read source code, synthesize advisory.json, then collect answers to open_questions one at a time. Use before aws-case-design. Artifacts live under explore/ (context.json, advisory.json). Never modify context.json or write case.yaml."
+description: "Phase 1.1 Explore: run `aws risk context`, shallow-read source code, synthesize advisory.json (including a test_strategy macro-plan proposal), then collect per-pitfall assertion-intent answers (ignore / assert known-bug / assert ideal) to open_questions one at a time. Use before aws-case-design. Artifacts live under explore/ (context.json, advisory.json). Never modify context.json or write case.yaml."
 ---
 
 ## Context Contract
@@ -141,33 +141,62 @@ Read `context.json`, requirement text, **and source code evidence collected in S
 ### LLM Hard Rules
 
 1. All numbers, `case_id`, `issue_id`, module names **must** come from `context.json` fields (`evidence[]`, `impact.*`, `historical_issues[]`, `case_signals[]`) **or from source code evidence (SC-* IDs) collected in Step 3**.
-2. Every hotspot / watchlist item **must** reference ≥1 evidence ID (`context.evidence[].id` or Step 3 `SC-*` ID) via `evidence_ids[]`.
-3. No `evidence_ids` → item MUST be `confidence: low`. Do not generate hotspot/watchlist items with no evidence.
-4. `case_design_guidance` is an **evidence-anchored channel** — never write case files. When ALL evidence (historical AND source code) is empty, set `priority_hints`, `suggested_scenarios`, and `regression_focus` to `[]`. Do **not** fill them with generic advice — generic "at least cover" guidance belongs exclusively in `minimum_required_coverage`; degraded disclaimers belong exclusively in `executive_summary`.
+2. Every `priority_hint` / watchlist item **must** reference ≥1 evidence ID (`context.evidence[].id` or Step 3 `SC-*` ID) via `evidence_ids[]`.
+3. No `evidence_ids` → item MUST be `confidence: low`. Do not generate `priority_hint`/watchlist items with no evidence.
+4. `case_design_guidance` is an **evidence-anchored channel** — never write case files. `priority_hints` is the **sole channel for risk-area signals** (there is no separate `hotspots` array — every `priority_hint` carries its own `confidence`, following the same §5.7 rules as watchlist). When ALL evidence (historical AND source code) is empty, set `priority_hints`, `suggested_scenarios`, and `regression_focus` to `[]`. Do **not** fill them with generic advice — generic "at least cover" guidance belongs exclusively in `minimum_required_coverage`; degraded disclaimers belong exclusively in `executive_summary`.
+4a. `test_strategy` is the **macro plan channel** — scope / data focus / layer recommendation / approach. It is a **proposal**, not a decision: `aws-case-design` confirms or overrides it during its own clarifying questions. Never ask the user about scope/data/layer/approach as an `open_questions_for_case_design` item — that question belongs to `aws-case-design`, not explore. When evidence is empty, set `test_strategy.layer_recommendation` to `[]` and leave `scope`/`approach` unset rather than guessing.
 5. Respect `parse_confidence_cap` on evidence — do not exceed cap in item confidence. All `source: "source_code"` evidence has cap `medium`; do not assign `high` confidence to any item backed only by SC-* evidence.
 6. Use `evidence[]` IDs only — do not use unstable path expressions like `context.test_health[menus].pass_rate`.
 7. If `context.staleness.stale == true` → cap all confidence at `medium`; add staleness disclaimer to Executive Summary.
-8. `evidence_inventory` and `minimum_required_coverage` are top-level metadata fields. Do **not** place them under `hotspots` or `watchlist`.
-9. In degraded / weak-data conditions, keep `hotspots` and `watchlist` empty unless there is direct `evidence_ids[]` support (SC-* IDs from Step 3 count); never turn `minimum_required_coverage` into an evidence-backed hotspot.
+8. `evidence_inventory` and `minimum_required_coverage` are top-level metadata fields. Do **not** place them under `case_design_guidance.priority_hints` or `watchlist`.
+9. In degraded / weak-data conditions, keep `case_design_guidance.priority_hints` and `watchlist` empty unless there is direct `evidence_ids[]` support (SC-* IDs from Step 3 count); never turn `minimum_required_coverage` into an evidence-backed `priority_hint`.
 10. **Channel separation (hard):** each piece of output content has exactly one home.
     - "Why the advisory is limited" → `executive_summary` only.
     - "What evidence was / wasn't available" → `evidence_inventory` only.
     - "What to cover at minimum" → `minimum_required_coverage` only.
-    - "Prioritised risk signals from evidence" → `hotspots` / `watchlist` / `case_design_guidance` (when evidence exists).
-    - "Open questions for case-design" → `open_questions_for_case_design` only.
+    - "Prioritised risk signals from evidence" → `watchlist` / `case_design_guidance.priority_hints` (when evidence exists). A single risk insight belongs in exactly ONE of these two, never both — do not restate the same evidence as both a `priority_hint` and a `watchlist` item.
+    - "Proposed macro test plan (scope/data/layer/approach)" → `test_strategy` only.
+    - "Per-pitfall assertion-intent question (ignore / assert known-bug / assert ideal)" → `open_questions_for_case_design` only.
     Duplicating the same content across channels is a violation.
+10a. **`priority_hints` vs `watchlist` (deciding which channel):** use `watchlist` when the risk item maps cleanly to one of the 8 case-design clarifying categories (`maps_to_clarifying_categories`) AND you want `aws-case-reviewer`'s downstream gate to enforce disposition (high-confidence watchlist items must appear in `proposal.md` as `adopted`/`override`). Use `priority_hints` for everything else — general risk-area signals, code-structure-only findings, or items that don't need a hard reviewer gate. When in doubt, prefer `priority_hints` (lighter-weight, no enforced gate).
 11. When producing items backed exclusively by `source: "source_code"` evidence (SC-* IDs), add `"source_basis": "code_structure_only"` to each such `case_design_guidance` item, and note in `executive_summary` that results are derived from code structure analysis with no historical execution data.
-12. `open_questions_for_case_design` items are advisory draft only — leave `answer` and `answered_via` as `null`; they are populated in Step 5.
+12. `open_questions_for_case_design` items are advisory draft only — leave `answer`, `assertion_intent`, and `answered_via` as `null`; they are populated in Step 5.
+13. Every `open_questions_for_case_design` item MUST set `pitfall_ref` to an evidence/priority-hint/watchlist id (e.g. `SC-RBAC-001`, `PH-001`, `WL-002`) and MUST be one of: should we ignore the assertion for this discovered pitfall, or what should it assert (known-bug behavior vs ideal behavior). Do **not** generate open_questions about module confirmation, change type, test types, data needs, or target selection/depth — those macro decisions belong exclusively in `test_strategy` for `aws-case-design` to resolve.
 
 ### advisory.json schema (MVP)
 
-Required top-level fields: `schema_version`, `change_id`, `context_ref`, `generated_at`, `executive_summary`, `hotspots`, `watchlist`, `evidence_inventory`, `case_design_guidance`, `minimum_required_coverage`, `open_questions_for_case_design`.
+Required top-level fields: `schema_version`, `change_id`, `context_ref`, `generated_at`, `executive_summary`, `watchlist`, `evidence_inventory`, `case_design_guidance`, `minimum_required_coverage`, `open_questions_for_case_design`. `test_strategy` is optional but should be populated whenever evidence supports it.
+
+### `case_design_guidance.priority_hints` — schema and derivation
+
+Every `priority_hint` item MUST have: `id` (`PH-\d+`), `hint` (natural language), `confidence` (`high | medium | low`, governed by the same §5.7 rules as `watchlist`), `evidence_ids[]`. Optional: `source_basis` (`code_structure_only` when backed exclusively by SC-* evidence), `case_id` (only if it points at an existing case being revisited).
+
+```json
+{"id": "PH-001", "hint": "优先覆盖 superuser 旁路：is_superuser=True 用户无需角色绑定即可访问所有 DependPermission 端点。", "confidence": "medium", "evidence_ids": ["SC-RBAC-001"], "source_basis": "code_structure_only"}
+```
+
+`suggested_scenarios` and `regression_focus` remain descriptive/derived from `priority_hints` + evidence — they should reference the same `evidence_ids` (and MAY reference a `priority_hint` id in free text) rather than re-deriving a risk that isn't already backed by a `priority_hint` or `watchlist` item.
 
 See `schemas/explore-advisory.schema.json` for the MVP advisory shape.
 
+### test_strategy — derivation rules (新增)
+
+`test_strategy` answers the **macro** question "整体测试范围/数据/层级/方案怎么定" from evidence, so `aws-case-design` doesn't have to start from zero. It is synthesized — never asked as an open_question.
+
+| Field | Derive from |
+|-------|-------------|
+| `scope.in_scope` / `scope.out_of_scope` | Diff-changed modules/files (`context.json` `impact.modules`) + requirement text scope; uncertain areas go to `out_of_scope` with a note in `executive_summary`, not a guess |
+| `data_focus` | Model/entity fields read in Step 3 (SC-* `model_field` evidence) that are central to the change |
+| `layer_recommendation` | One entry per `API/E2E/Fuzz/Performance`: `recommended: true` only when evidence supports it (e.g. user-input schema found → recommend Fuzz; high-frequency query route found → recommend Performance); always cite `evidence_ids` |
+| `approach` | One sentence combining the recommended layers, e.g. "API + E2E，并对 UserCreate/UserUpdate schema 增加 Fuzz 覆盖" |
+
+`depth` (`smoke | core | exhaustive`) reflects how much evidence supports broad coverage — `low`/no evidence caps depth at `smoke`.
+
+If evidence is insufficient to recommend a layer, omit that layer's entry entirely rather than emitting `recommended: false` with no rationale.
+
 ### Required degraded-output metadata
 
-When advisory is degraded and evidence-backed signals are unavailable, `hotspots` and `watchlist` remain empty arrays, `case_design_guidance` sub-arrays are all `[]`, and the advisory MUST still populate `evidence_inventory` and `minimum_required_coverage` per the rules below.
+When advisory is degraded and evidence-backed signals are unavailable, `watchlist` remains an empty array, `case_design_guidance` sub-arrays (including `priority_hints`) are all `[]`, and the advisory MUST still populate `evidence_inventory` and `minimum_required_coverage` per the rules below.
 
 #### evidence_inventory — derivation rules
 
@@ -240,40 +269,45 @@ Generate from the **module's domain shape** (CRUD operations + tree/hierarchy if
 
 ### Clarifying category enum (`maps_to_clarifying_categories`)
 
-| enum | case-design category |
-|------|----------------------|
-| `module_confirmation` | Module confirmation |
-| `change_type` | Change type |
-| `test_types` | Test types |
-| `data_needs` | Data needs |
-| `success_assertions` | Success assertions |
-| `exception_scenarios` | Exception scenarios |
-| `target_selection_depth` | Target selection + depth |
-| `out_of_scope` | Out of scope |
+`aws-case-design` has 8 clarifying categories in total (see its own SKILL.md), but `open_questions_for_case_design` from explore may **only** use the 3 assertion-related categories below — explore's 反问 is scoped to per-pitfall assertion intent, not macro planning. Macro categories (`module_confirmation`, `change_type`, `test_types`, `data_needs`, `target_selection_depth`) are covered by `test_strategy` instead, as a proposal — never as an open_question.
+
+| enum | case-design category | when explore uses it |
+|------|----------------------|----------------------|
+| `success_assertions` | Success assertions | pitfall's assertion content is undecided (assert known-bug behavior vs assert ideal behavior) |
+| `exception_scenarios` | Exception scenarios | pitfall is an edge/error path whose handling is undecided |
+| `out_of_scope` | Out of scope | pitfall should plausibly be ignored (known/accepted behavior) rather than asserted at all |
 
 ---
 
-## Step 5 — Collect open_questions answers (一次一问交互，新增)
+## Step 5 — Collect open_questions answers (逐坑断言取舍，一次一问交互)
 
 After writing the advisory draft, check `open_questions_for_case_design[]`:
 
 - If empty → skip this step, proceed to Step 6.
-- If non-empty → ask the user one question at a time, in array order.
+- If non-empty → ask the user one question at a time, in array order. Each question is about exactly one discovered pitfall (`pitfall_ref`) and asks only: ignore it, or assert which behavior.
 
 **Question format:**
 
 ```
-探索发现一个需要确认的问题（<i>/<N>）：
+探索发现一个代码坑（<i>/<N>，关联 <pitfall_ref>）：
 
-<question text>
+<pitfall 描述，来自 evidence>
 
-<if options present, list them as choices>
+这个坑测试应该如何处理？
+A. 断言当前行为（已知 bug / 已知限制）
+B. 断言理想行为（视为需修复的缺陷）
+C. 忽略，不针对此坑写断言
 
-请回答，或输入"跳过"（此问题将留给 case-design 阶段处理）。
+请选择 A/B/C，或输入"跳过"（此问题将留给 case-design 阶段处理）。
 ```
 
-- User provides answer → write to `open_questions_for_case_design[i].answer` (string), set `answered_via = "explore"`.
-- User inputs "跳过" (or equivalent) → leave `answer = null`, `answered_via = null`.
+Do NOT ask about test scope, layer, data needs, or target selection in this step — those are already proposed in `test_strategy` for `aws-case-design` to confirm.
+
+- User provides answer →
+  - write the free-text answer to `open_questions_for_case_design[i].answer`
+  - map the choice to `open_questions_for_case_design[i].assertion_intent`: A → `assert_known_bug`, B → `assert_ideal`, C → `ignore` (open-ended answers that don't fit A/B/C → `undecided`, with the raw text kept in `answer`)
+  - set `answered_via = "explore"`
+- User inputs "跳过" (or equivalent) → leave `answer = null`, `assertion_intent = null`, `answered_via = null`.
 - After all questions are asked (or user skips ≥3 in a row), output:
   `"已记录回答，继续生成最终 advisory。"` and proceed to Step 6.
 
@@ -301,10 +335,11 @@ phases:
     outputs:
       - explore/context.json
       - explore/advisory.json    # only when done
-    hotspots_count: <n>
+    priority_hints_count: <n>
     watchlist_high_count: <n>
     degraded: <bool from context.json>
     source_code_read: <bool>         # true if Step 3 found and read any source files
+    test_strategy_populated: <bool>  # true if test_strategy has any layer_recommendation entries
     open_questions_answered: <n>     # count of questions answered in Step 5
     validation_errors: []
 ```
@@ -320,17 +355,21 @@ phases:
 ```
 ✓ Explore 完成 — explore/advisory.json
 
-[Hotspots]
-- HS-001 <area> [high/medium]
+[Priority Hints]
+- PH-001 <hint> [high/medium]
 - ...
 
 [Watchlist]
 - WL-001 <item> [high/medium] → <case-design category>
 - ...
 
+[Test Strategy 提案]
+- approach: <test_strategy.approach>
+- layers: <layer> (<depth>) — <rationale> ...
+
 （low confidence 项已省略；详见 advisory.json）
 
-下一步：运行 aws-case-design，Skill 将自动读取 advisory。
+下一步：运行 aws-case-design，Skill 将读取 test_strategy 提案与已记录的断言取舍。
 ```
 
 - 仅展示 `confidence: high` 或 `medium` 的项。

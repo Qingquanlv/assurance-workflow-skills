@@ -8,6 +8,11 @@ function asStringArray(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === 'string');
 }
 
+function getCaseDesignGuidance(advisory: AdvisoryJson): Record<string, unknown> | null {
+  const guidance = advisory.case_design_guidance;
+  return guidance && typeof guidance === 'object' ? (guidance as Record<string, unknown>) : null;
+}
+
 function collectEvidenceIds(advisory: AdvisoryJson): string[] {
   const ids = new Set<string>();
   const scanItems = (items: unknown) => {
@@ -19,27 +24,23 @@ function collectEvidenceIds(advisory: AdvisoryJson): string[] {
       }
     }
   };
-  scanItems(advisory.hotspots);
   scanItems(advisory.watchlist);
-  const guidance = advisory.case_design_guidance;
-  if (guidance && typeof guidance === 'object') {
-    const g = guidance as Record<string, unknown>;
-    scanItems(g.priority_hints);
-    scanItems(g.suggested_scenarios);
+  const guidance = getCaseDesignGuidance(advisory);
+  if (guidance) {
+    scanItems(guidance.priority_hints);
+    scanItems(guidance.suggested_scenarios);
   }
   return [...ids];
 }
 
 function collectCaseIds(advisory: AdvisoryJson): string[] {
   const ids: string[] = [];
-  const guidance = advisory.case_design_guidance;
-  if (guidance && typeof guidance === 'object') {
-    const hints = (guidance as Record<string, unknown>).priority_hints;
-    if (Array.isArray(hints)) {
-      for (const h of hints) {
-        if (h && typeof h === 'object' && typeof (h as Record<string, unknown>).case_id === 'string') {
-          ids.push((h as Record<string, unknown>).case_id as string);
-        }
+  const guidance = getCaseDesignGuidance(advisory);
+  const hints = guidance?.priority_hints;
+  if (Array.isArray(hints)) {
+    for (const h of hints) {
+      if (h && typeof h === 'object' && typeof (h as Record<string, unknown>).case_id === 'string') {
+        ids.push((h as Record<string, unknown>).case_id as string);
       }
     }
   }
@@ -57,8 +58,9 @@ function collectIssueRefs(advisory: AdvisoryJson): string[] {
       for (const id of asStringArray(o.issue_ids)) ids.add(id);
     }
   };
-  scan(advisory.hotspots);
   scan(advisory.watchlist);
+  const guidance = getCaseDesignGuidance(advisory);
+  if (guidance) scan(guidance.priority_hints);
   return [...ids];
 }
 
@@ -152,8 +154,8 @@ export function validateAdvisory(
     }
   };
 
-  checkConfidenceItems(advisory.hotspots, 'hotspots');
   checkConfidenceItems(advisory.watchlist, 'watchlist');
+  checkConfidenceItems(getCaseDesignGuidance(advisory)?.priority_hints, 'case_design_guidance.priority_hints');
 
   // Structured issue references only (no fragile substring scan).
   for (const issueId of collectIssueRefs(advisory)) {

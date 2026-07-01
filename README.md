@@ -436,6 +436,7 @@ aws doctor --json    # 机器可读 JSON
 | `aws skill refresh` | 清除 OpenCode 中 AWS skill 包缓存，重启后生效 |
 | `aws skill refresh --dry-run` | 预览待删除缓存，不实际执行 |
 | `aws skill refresh --build-link` | 同时重新编译 CLI 并刷新 npm link（本地开发用） |
+| `aws skill refresh --sync-agents` | 将 `.opencode/agents/aws-*.md` 权限文件同步到当前 AWS 项目（修复 explore/ 路径 allow 未更新） |
 
 **典型执行链路：**
 

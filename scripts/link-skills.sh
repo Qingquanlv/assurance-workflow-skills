@@ -5,8 +5,10 @@
 #
 # Why: the omo plugin replaces OpenCode's native `skill` tool with its own,
 # and its discovery does NOT read opencode.json's `skills.paths`. It only scans
-# fixed locations such as ~/.config/opencode/skills/. So skills registered via
-# `skills.paths` are invisible. Symlinking them into a scanned dir fixes that.
+# fixed locations such as ~/.config/opencode/skills/. Symlink aws-* skills there.
+#
+# IMPORTANT: when using omo, do NOT also set skills.paths in opencode.json or let
+# the AWS plugin register paths — that duplicates every skill in the palette.
 #
 # Usage:
 #   scripts/link-skills.sh            # link into ~/.config/opencode/skills (global)

@@ -3,11 +3,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { Command } from 'commander';
 import { execSync } from 'child_process';
+import { findAwsProjectRoot, syncAgentAssets } from '../core/agents_assets';
 import { logBlank, logHeader, logInfo, logOk, logWarn } from '../utils/logger';
 
 interface RefreshOptions {
   dryRun?: boolean;
   buildLink?: boolean;
+  syncAgents?: boolean;
 }
 
 interface RefreshPlan {
@@ -218,6 +220,7 @@ export function registerSkillCommand(program: Command): void {
     )
     .option('--dry-run', 'Show what would change without modifying anything')
     .option('--build-link', 'Also run npm run build && npm link from the AWS package root')
+    .option('--sync-agents', 'Sync .opencode/agents/aws-*.md permission files into the AWS project (fixes stale risk-advisory ? explore paths)')
     .action((options: RefreshOptions) => {
       const packageRoot = path.resolve(__dirname, '../../');
       const dryRun = options.dryRun === true;
@@ -253,7 +256,7 @@ export function registerSkillCommand(program: Command): void {
 
       // Report: skills.paths in global opencode.json
       if (plan.openCodeJsonPath === null) {
-        logWarn('Global opencode.json not found — skills.paths not configured automatically.');
+        logWarn('Global opencode.json not found � skills.paths not configured automatically.');
         logWarn('  Add manually: { "skills": { "paths": ["' + path.join(packageRoot, 'skills') + '"] } }');
       } else if (plan.skillsPathAlreadySet) {
         logOk(`[global] skills.paths already set in ${plan.openCodeJsonPath}`);
@@ -267,7 +270,7 @@ export function registerSkillCommand(program: Command): void {
 
       // Report: skills.paths in project-level opencode.json
       if (plan.projectJsonPath === null) {
-        logInfo('[project] no project-level opencode.json found near cwd — skipping');
+        logInfo('[project] no project-level opencode.json found near cwd � skipping');
       } else if (plan.projectPathAlreadySet) {
         logOk(`[project] skills.paths already set in ${plan.projectJsonPath}`);
       } else if (plan.projectPathAdded) {
@@ -276,6 +279,25 @@ export function registerSkillCommand(program: Command): void {
       } else {
         logInfo(`[dry-run] would add skills.paths to ${plan.projectJsonPath}`);
         logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      }
+
+      // Optional: sync runtime agent permission files into AWS project
+      if (options.syncAgents) {
+        const projectRoot = findAwsProjectRoot(process.cwd());
+        if (projectRoot === null) {
+          logWarn('[agents] no AWS project root found near cwd (.aws/config.yaml or qa/) � skipping agent sync');
+        } else if (dryRun) {
+          logInfo(`[dry-run] would sync .opencode/agents/aws-*.md into ${projectRoot}`);
+        } else {
+          const agentSync = syncAgentAssets(projectRoot, packageRoot);
+          for (const f of agentSync.created) logOk(`[agents] created: ${f}`);
+          for (const f of agentSync.updated) logOk(`[agents] updated: ${f}`);
+          for (const f of agentSync.unchanged) logInfo(`[agents] unchanged: ${f}`);
+          if (agentSync.updated.length > 0) {
+            logWarn('[agents] permission files updated � restart OpenCode so aws-author picks up explore/** allow rules');
+          }
+        }
+        logBlank();
       }
 
       logBlank();

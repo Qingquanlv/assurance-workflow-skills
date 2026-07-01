@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { copyAgentAssets } from '../../../src/core/agents_assets';
+import { copyAgentAssets, syncAgentAssets } from '../../../src/core/agents_assets';
 
 const packageRoot = path.resolve(__dirname, '../../../');
 let root: string;
@@ -44,8 +44,23 @@ describe('copyAgentAssets', () => {
       'utf-8',
     );
     expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/cases\/\*\*":\s*allow/);
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/explore\/\*\*":\s*allow/);
+    expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/explore\/advisory\.json":\s*allow/);
     expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/proposal\.md":\s*allow/);
     expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/\.qa\.yaml":\s*allow/);
     expect(author).toMatch(/"\*\*\/qa\/changes\/\*\*\/workflow-state\.yaml":\s*deny/);
+  });
+
+  it('syncAgentAssets overwrites stale agent permission files', () => {
+    fs.mkdirSync(path.join(root, '.opencode/agents'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.opencode/agents/aws-author.md'),
+      'permission:\n  edit:\n    "**/qa/changes/**/risk-advisory/**": allow\n',
+    );
+    const r = syncAgentAssets(root, packageRoot);
+    expect(r.updated).toContain('.opencode/agents/aws-author.md');
+    const author = fs.readFileSync(path.join(root, '.opencode/agents/aws-author.md'), 'utf-8');
+    expect(author).toMatch(/explore\/\*\*":\s*allow/);
+    expect(author).toContain('name: aws-author');
   });
 });
