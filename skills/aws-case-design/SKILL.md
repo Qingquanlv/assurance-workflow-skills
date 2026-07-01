@@ -82,7 +82,7 @@ Every QA change goes through this process. A one-line fix, a small new field, a 
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
-0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` resolve the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in Step 4), but do **not** mark the whole category satisfied — still cover the broader category, citing resolved pitfalls as established context; also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach — this skill still owns asking and confirming those categories, but presents `test_strategy` as a starting recommendation instead of asking from a blank slate
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` resolve the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in Step 4), but do **not** mark the whole category satisfied — still cover the broader category, citing resolved pitfalls as established context; **also read propagated `assertion_intent` on `case_design_guidance.priority_hints[]`, `watchlist[]`, and `suggested_scenarios[]`** — when present, treat the hint/scenario text as the authoritative test directive (do not reinterpret neutral pitfall wording); also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach — this skill still owns asking and confirming those categories, but presents `test_strategy` as a starting recommendation instead of asking from a blank slate
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
@@ -132,6 +132,21 @@ Before starting Step 4, partition `open_questions_for_case_design[]` from the ad
 - `pending` = items where `answer == null` → merge these into the category queue; ask them when their category comes up, using the original question text and options from the advisory item.
 
 Do NOT repeat an advisory question (same `pitfall_ref`) that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context when covering the broader category.
+
+**Assertion intent from propagated guidance (when advisory `done`):**
+
+When a `priority_hint`, `watchlist` item, or `suggested_scenario` carries `assertion_intent` + `open_question_ref`, that pair is the **authoritative test directive** for that pitfall — prefer it over neutral pitfall descriptions or your own inference:
+
+| `assertion_intent` | Case-design action |
+|---|---|
+| `assert_ideal` | Design cases that assert the **ideal** behavior (expected rejection / correct constraint) — do NOT write cases that merely reproduce the bug as acceptable |
+| `assert_known_bug` | Design cases that assert the **current** buggy behavior (document as known limitation) |
+| `ignore` | Do not generate assertions for this pitfall; if a `priority_hint` was correctly removed in explore reconciliation, do not reintroduce coverage via `suggested_scenarios` |
+| absent / `undecided` | Fall back to open_question answer if present; otherwise ask during the matching clarifying category |
+
+If `priority_hint.hint` text still reads like neutral pitfall reproduction but `assertion_intent` is set, **trust `assertion_intent`** and rewrite case expectations accordingly — flag in `proposal.md` Explore Input if hint and intent appear contradictory (reviewer signal).
+
+**`priority_hints` vs `suggested_scenarios` (how to consume each):** `priority_hints` tell you **测什么方向** (which pitfalls to cover + assertion direction); `suggested_scenarios` are **怎么测** drafts (case-ready scenarios, each carrying `priority_hint_ref`). Use a PH to decide coverage/direction, and turn each SS into one concrete `case.yaml` entry — a single PH may fan out into several SS along distinct input/assertion dimensions. If an SS only restates its PH with no extra execution detail (no concrete input value, no specific asserted status/field), treat it as a thin pointer and derive the case's concrete steps/assertions yourself from the PH + module contract; do not blindly copy the SS description into the case.
 
 **`test_strategy` as a macro-plan starting point (when advisory `done`):**
 

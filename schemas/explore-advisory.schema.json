@@ -33,11 +33,35 @@
               "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
               "evidence_ids": { "type": "array", "items": { "type": "string" } },
               "source_basis": { "type": "string" },
-              "case_id": { "type": "string" }
+              "case_id": { "type": "string" },
+              "open_question_ref": {
+                "description": "OQ-* id whose assertion_intent decision this hint propagates. Required when assertion_intent is set.",
+                "type": "string",
+                "pattern": "^OQ-\\d+$"
+              },
+              "assertion_intent": {
+                "description": "Propagated from open_questions_for_case_design after Step 5. Tells case-design what to assert for this pitfall — must align with the linked OQ answer. Omit on draft hints until Step 5 reconciliation; remove the entire hint when OQ decision is ignore.",
+                "oneOf": [
+                  { "type": "string", "enum": ["assert_known_bug", "assert_ideal", "ignore", "undecided"] },
+                  { "type": "null" }
+                ]
+              }
             }
           }
         },
-        "suggested_scenarios": { "type": "array" },
+        "suggested_scenarios": {
+          "description": "Case-ready scenarios derived from priority_hints. Each MUST add concrete execution detail beyond its PH (input value, asserted status/field, or precondition) — do not restate the hint. One priority_hint may fan out into multiple scenarios along distinct input/assertion dimensions.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "description": { "type": "string" },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } },
+              "priority_hint_ref": { "type": "string", "pattern": "^PH-\\d+$" }
+            }
+          }
+        },
         "regression_focus": { "type": "array" }
       }
     },

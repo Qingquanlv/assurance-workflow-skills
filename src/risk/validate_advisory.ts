@@ -70,6 +70,84 @@ function capRank(c: string): number {
   return 1;
 }
 
+function checkAssertionPropagation(advisory: AdvisoryJson, errors: string[]): void {
+  const oqs = advisory.open_questions_for_case_design;
+  if (!Array.isArray(oqs)) return;
+
+  const guidance = getCaseDesignGuidance(advisory);
+  const hints = Array.isArray(guidance?.priority_hints) ? guidance.priority_hints : [];
+  const hintById = new Map<string, Record<string, unknown>>();
+  for (const hint of hints) {
+    if (!hint || typeof hint !== 'object') continue;
+    const row = hint as Record<string, unknown>;
+    if (typeof row.id === 'string') hintById.set(row.id, row);
+  }
+
+  const watchlist = Array.isArray(advisory.watchlist) ? advisory.watchlist : [];
+  const watchById = new Map<string, Record<string, unknown>>();
+  for (const item of watchlist) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.id === 'string') watchById.set(row.id, row);
+  }
+
+  for (const oq of oqs) {
+    if (!oq || typeof oq !== 'object') continue;
+    const row = oq as Record<string, unknown>;
+    if (row.answer == null || row.answered_via !== 'explore') continue;
+
+    const intent = row.assertion_intent;
+    const oqId = typeof row.id === 'string' ? row.id : '(unknown OQ)';
+    const pitfallRef = row.pitfall_ref;
+    if (typeof pitfallRef !== 'string') continue;
+
+    if (intent === 'ignore') {
+      if (pitfallRef.match(/^PH-\d+$/) && hintById.has(pitfallRef)) {
+        errors.push(
+          `${oqId}: assertion_intent ignore but case_design_guidance.priority_hints still contains ${pitfallRef}`,
+        );
+      }
+      continue;
+    }
+
+    if (intent !== 'assert_ideal' && intent !== 'assert_known_bug') continue;
+
+    const linkedHint =
+      (pitfallRef.match(/^PH-\d+$/) ? hintById.get(pitfallRef) : undefined) ??
+      [...hintById.values()].find((h) => h.open_question_ref === oqId);
+
+    if (pitfallRef.match(/^PH-\d+$/)) {
+      if (!linkedHint) {
+        errors.push(
+          `${oqId}: assertion_intent ${intent} requires priority_hint ${pitfallRef} with propagated assertion_intent`,
+        );
+      } else {
+        if (linkedHint.assertion_intent !== intent) {
+          errors.push(
+            `${oqId}: priority_hint ${pitfallRef} assertion_intent must be ${intent}, got ${String(linkedHint.assertion_intent)}`,
+          );
+        }
+        if (linkedHint.open_question_ref !== oqId) {
+          errors.push(`${oqId}: priority_hint ${pitfallRef} must set open_question_ref to ${oqId}`);
+        }
+      }
+    }
+
+    if (pitfallRef.match(/^WL-\d+$/)) {
+      const wl = watchById.get(pitfallRef);
+      if (!wl) continue;
+      if (wl.assertion_intent !== intent) {
+        errors.push(
+          `${oqId}: watchlist ${pitfallRef} assertion_intent must be ${intent}, got ${String(wl.assertion_intent)}`,
+        );
+      }
+      if (wl.open_question_ref !== oqId) {
+        errors.push(`${oqId}: watchlist ${pitfallRef} must set open_question_ref to ${oqId}`);
+      }
+    }
+  }
+}
+
 export function validateAdvisory(
   context: RiskContext,
   advisory: AdvisoryJson,
@@ -156,6 +234,8 @@ export function validateAdvisory(
 
   checkConfidenceItems(advisory.watchlist, 'watchlist');
   checkConfidenceItems(getCaseDesignGuidance(advisory)?.priority_hints, 'case_design_guidance.priority_hints');
+
+  checkAssertionPropagation(advisory, errors);
 
   // Structured issue references only (no fragile substring scan).
   for (const issueId of collectIssueRefs(advisory)) {

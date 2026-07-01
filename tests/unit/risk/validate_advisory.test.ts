@@ -107,3 +107,112 @@ describe('validateAdvisory — case_design_guidance.priority_hints (merged hotsp
     expect(result.valid).toBe(true);
   });
 });
+
+describe('validateAdvisory — assertion_intent propagation (OQ → guidance)', () => {
+  const propagatedHint = {
+    id: 'PH-001',
+    hint: '断言理想行为：superuser 无角色时应被拒绝',
+    confidence: 'medium',
+    evidence_ids: ['SC-RBAC-001'],
+    open_question_ref: 'OQ-001',
+    assertion_intent: 'assert_ideal',
+  };
+
+  it('passes when answered OQ assert_ideal matches priority_hint propagation', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [propagatedHint] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          pitfall_ref: 'PH-001',
+          answer: 'assert ideal',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'explore',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects when priority_hint contradicts OQ assert_ideal', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: {
+        priority_hints: [
+          {
+            id: 'PH-001',
+            hint: '优先覆盖 superuser 旁路',
+            confidence: 'medium',
+            evidence_ids: ['SC-RBAC-001'],
+          },
+        ],
+      },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          pitfall_ref: 'PH-001',
+          answer: 'assert ideal',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'explore',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('PH-001') && e.includes('assertion_intent'))).toBe(true);
+  });
+
+  it('rejects when OQ ignore but priority_hint still present', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: {
+        priority_hints: [
+          { id: 'PH-002', hint: 'dev token backdoor', confidence: 'medium', evidence_ids: ['SC-RBAC-001'] },
+        ],
+      },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-002',
+          pitfall_ref: 'PH-002',
+          answer: 'ignore',
+          assertion_intent: 'ignore',
+          answered_via: 'explore',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('ignore but case_design_guidance.priority_hints still contains PH-002'))).toBe(
+      true,
+    );
+  });
+
+  it('requires watchlist propagation when pitfall_ref is WL-*', () => {
+    const advisory = {
+      watchlist: [
+        {
+          id: 'WL-001',
+          item: 'update_password returns 200 on wrong password',
+          confidence: 'medium',
+          evidence_ids: ['SC-RBAC-001'],
+          open_question_ref: 'OQ-003',
+          assertion_intent: 'assert_known_bug',
+        },
+      ],
+      case_design_guidance: { priority_hints: [] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-003',
+          pitfall_ref: 'WL-001',
+          answer: 'assert current behavior',
+          assertion_intent: 'assert_known_bug',
+          answered_via: 'explore',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(true);
+  });
+});

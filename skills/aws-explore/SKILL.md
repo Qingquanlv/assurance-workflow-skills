@@ -161,7 +161,7 @@ Read `context.json`, requirement text, **and source code evidence collected in S
 10a. **`priority_hints` vs `watchlist` (deciding which channel):** use `watchlist` when the risk item maps cleanly to one of the 8 case-design clarifying categories (`maps_to_clarifying_categories`) AND you want `aws-case-reviewer`'s downstream gate to enforce disposition (high-confidence watchlist items must appear in `proposal.md` as `adopted`/`override`). Use `priority_hints` for everything else — general risk-area signals, code-structure-only findings, or items that don't need a hard reviewer gate. When in doubt, prefer `priority_hints` (lighter-weight, no enforced gate).
 11. When producing items backed exclusively by `source: "source_code"` evidence (SC-* IDs), add `"source_basis": "code_structure_only"` to each such `case_design_guidance` item, and note in `executive_summary` that results are derived from code structure analysis with no historical execution data.
 12. `open_questions_for_case_design` items are advisory draft only — leave `answer`, `assertion_intent`, and `answered_via` as `null`; they are populated in Step 5.
-13. Every `open_questions_for_case_design` item MUST set `pitfall_ref` to an evidence/priority-hint/watchlist id (e.g. `SC-RBAC-001`, `PH-001`, `WL-002`) and MUST be one of: should we ignore the assertion for this discovered pitfall, or what should it assert (known-bug behavior vs ideal behavior). Do **not** generate open_questions about module confirmation, change type, test types, data needs, or target selection/depth — those macro decisions belong exclusively in `test_strategy` for `aws-case-design` to resolve.
+13. Every `open_questions_for_case_design` item MUST set `pitfall_ref` to the guidance id it resolves (`PH-*` or `WL-*` preferred; `SC-*` only when no PH/WL exists yet). Each item asks: should we ignore the assertion for this discovered pitfall, or what should it assert (known-bug behavior vs ideal behavior). Do **not** generate open_questions about module confirmation, change type, test types, data needs, or target selection/depth — those macro decisions belong exclusively in `test_strategy` for `aws-case-design` to resolve. After Step 5, the answer MUST be propagated into the linked `priority_hint` / `watchlist` / `suggested_scenario` per the reconciliation table — an answered OQ must never contradict its linked guidance item.
 
 ### advisory.json schema (MVP)
 
@@ -171,11 +171,42 @@ Required top-level fields: `schema_version`, `change_id`, `context_ref`, `genera
 
 Every `priority_hint` item MUST have: `id` (`PH-\d+`), `hint` (natural language), `confidence` (`high | medium | low`, governed by the same §5.7 rules as `watchlist`), `evidence_ids[]`. Optional: `source_basis` (`code_structure_only` when backed exclusively by SC-* evidence), `case_id` (only if it points at an existing case being revisited).
 
+**Draft hints (Step 4 only)** describe the discovered pitfall neutrally — e.g. "发现 superuser 旁路". They are **not final** until Step 5 reconciliation rewrites or removes them based on `open_questions` answers.
+
+After Step 5, each surviving `priority_hint` that corresponds to an answered open_question MUST carry:
+- `open_question_ref` (`OQ-*`)
+- `assertion_intent` (copied from the OQ)
+- `hint` rewritten to state **what to assert**, not merely **what was found** (see Step 5 reconciliation table)
+
 ```json
-{"id": "PH-001", "hint": "优先覆盖 superuser 旁路：is_superuser=True 用户无需角色绑定即可访问所有 DependPermission 端点。", "confidence": "medium", "evidence_ids": ["SC-RBAC-001"], "source_basis": "code_structure_only"}
+{"id": "PH-001", "hint": "断言理想行为：is_superuser=True 的用户在无角色绑定时应被拒绝访问 DependPermission 端点（不应旁路权限校验）。", "confidence": "medium", "evidence_ids": ["SC-RBAC-001"], "source_basis": "code_structure_only", "open_question_ref": "OQ-004", "assertion_intent": "assert_ideal"}
 ```
 
-`suggested_scenarios` and `regression_focus` remain descriptive/derived from `priority_hints` + evidence — they should reference the same `evidence_ids` (and MAY reference a `priority_hint` id in free text) rather than re-deriving a risk that isn't already backed by a `priority_hint` or `watchlist` item.
+### `priority_hints` vs `suggested_scenarios` — different granularity, not duplicates
+
+These two live at **different levels** — never restate the same sentence in both:
+
+| | `priority_hints` (PH) | `suggested_scenarios` (SS) |
+|---|---|---|
+| Answers | **测什么方向** — the conclusion: should this pitfall be tested, and in which assertion direction | **怎么测** — a concrete, case-ready scenario derived from that conclusion |
+| Level | Strategic / one line per pitfall | Tactical / one PH can fan out into **multiple** SS |
+| Carries the assertion decision? | **Yes** — `assertion_intent` + `open_question_ref`, authoritative | No — it inherits the PH's direction and only spells out execution |
+| Link | Referenced by SS | Each SS MUST carry `priority_hint_ref` pointing at its PH |
+
+**Hard rule — SS must add execution detail beyond its PH.** A `suggested_scenario` is only worth emitting if its `description` contains at least one concrete testable detail the PH does not already state, e.g.:
+- a concrete input value / request body (`{menu_ids:[99999]}` where 99999 is a nonexistent id), or
+- a specific asserted status code / response field (`→ 400, detail contains "menu not found"`), or
+- a specific precondition / data state (`role already bound to 2 users, then delete`).
+
+If a scenario would only restate the PH's wording in different words (no new input value, no new assertion target), **do NOT emit it** — let `aws-case-design` derive cases straight from the PH instead. One PH SHOULD fan out into multiple SS along distinct input/assertion dimensions (e.g. PH "无效引用应返回 4xx" → SS-a: invalid `menu_id`; SS-b: invalid `api path/method`), each differing in its concrete detail — not the same sentence split in two.
+
+`suggested_scenarios` and `regression_focus` stay descriptive/derived from `priority_hints` + evidence — reference the same `evidence_ids` rather than re-deriving a risk not already backed by a `priority_hint` or `watchlist` item. After Step 5, any scenario that primarily covers a pitfall with a decided `assertion_intent` MUST rewrite its expected outcome to match that intent (or be removed when intent is `ignore`).
+
+**Good vs bad SS (relative to PH-001 "无效引用应返回 400/404 而非 500"):**
+
+| Bad (mere restatement) | Good (adds execution detail) |
+|---|---|
+| "update_authorized 传入不存在的 menu_id，应返回 400/404 而非 500" | "PUT /role/authorized body `{menu_ids:[99999]}`（99999 不存在）→ 断言 400，`detail` 含 'menu not found'，且角色原有 menus 不被清空" |
 
 See `schemas/explore-advisory.schema.json` for the MVP advisory shape.
 
@@ -308,10 +339,41 @@ Do NOT ask about test scope, layer, data needs, or target selection in this step
   - map the choice to `open_questions_for_case_design[i].assertion_intent`: A → `assert_known_bug`, B → `assert_ideal`, C → `ignore` (open-ended answers that don't fit A/B/C → `undecided`, with the raw text kept in `answer`)
   - set `answered_via = "explore"`
 - User inputs "跳过" (or equivalent) → leave `answer = null`, `assertion_intent = null`, `answered_via = null`.
-- After all questions are asked (or user skips ≥3 in a row), output:
+- After all questions are asked (or user skips ≥3 in a row), **reconcile `case_design_guidance` with the collected answers** (mandatory — do not proceed to Step 6 until done), then output:
   `"已记录回答，继续生成最终 advisory。"` and proceed to Step 6.
 
-Answers are persisted into `advisory.json` — `aws-case-design` will skip re-asking answered questions.
+Answers are persisted into `advisory.json` — `aws-case-design` reads the propagated `assertion_intent` on `priority_hints` / `watchlist` / `suggested_scenarios`, not just the raw OQ entries.
+
+### Step 5 reconciliation — propagate assertion decisions into guidance
+
+For each `open_questions_for_case_design[]` item with `answer != null` and `answered_via = "explore"`, find the linked guidance item(s) by `pitfall_ref`:
+
+| `pitfall_ref` pattern | Linked guidance |
+|---|---|
+| `PH-*` | `case_design_guidance.priority_hints[]` item with matching `id` |
+| `WL-*` | `watchlist[]` item with matching `id` |
+| `SC-*` or other evidence id | `priority_hint` or `watchlist` item whose `evidence_ids` includes that id; prefer `PH-*` when an open_question exists for the same pitfall |
+
+Apply by `assertion_intent`:
+
+| `assertion_intent` | `priority_hints` | `watchlist` | `suggested_scenarios` / `regression_focus` |
+|---|---|---|---|
+| **`ignore`** | **Remove** the matching `PH-*` entirely — do not leave a neutral hint (see HS-002 / OQ-001: ignored pitfall → no PH). | Set `assertion_intent: "ignore"` + `open_question_ref`; keep item for traceability but case-design must not generate assertions for it. | **Remove** scenarios whose primary purpose is this pitfall. |
+| **`assert_ideal`** | **Keep** `PH-*`; set `open_question_ref`, `assertion_intent: "assert_ideal"`; **rewrite `hint`** to state the ideal expected behavior explicitly (what should happen / what should be rejected). | Same fields on matching `WL-*`. | Rewrite scenario expected outcome to the **ideal** behavior — e.g. "superuser 无角色时应收到 403", not "验证 superuser 能绕过去". |
+| **`assert_known_bug`** | **Keep** `PH-*`; set `open_question_ref`, `assertion_intent: "assert_known_bug"`; **rewrite `hint`** to state the current buggy behavior to assert. | Same on `WL-*`. | Rewrite scenario to assert **current** behavior. |
+| **`undecided`** or skipped (`answer == null`) | Keep Step 4 neutral pitfall wording; omit `assertion_intent` / `open_question_ref`. | Unchanged. | Keep ambiguous wording; case-design may re-ask via pending OQ. |
+
+**Hint wording rule (critical):** When `assertion_intent` is decided, a `priority_hint.hint` MUST NOT read like a neutral reproduction prompt ("优先覆盖 X 旁路：用户能 Y"). It MUST read like a test directive:
+
+| Wrong (neutral / contradicts OQ) | Right (propagated) |
+|---|---|
+| "优先覆盖 superuser 旁路：is_superuser=True 用户无需角色绑定即可访问所有端点" + OQ=`assert_ideal` | "断言理想行为：is_superuser=True 的用户在无角色绑定时应被拒绝访问 DependPermission 端点" |
+| "优先覆盖 reset_password 越权场景：角色能否重置他人密码？" + OQ=`assert_ideal` | "断言理想行为：reset_password 应限制只能管理员或本人重置，持有权限的角色不应能重置他人密码" |
+| dev token 后门 + OQ=`ignore` | **No** matching `priority_hint` at all |
+
+When an open_question's `pitfall_ref` is a `PH-*` id, set that `PH-*` item's `open_question_ref` to the `OQ-*` id. When `pitfall_ref` is `WL-*` only (no `PH-*`), propagate only to `watchlist` — do not duplicate into a new `priority_hint`.
+
+After reconciliation, re-run a mental check: for every answered OQ, no surviving guidance item should imply the opposite assertion direction.
 
 ---
 
