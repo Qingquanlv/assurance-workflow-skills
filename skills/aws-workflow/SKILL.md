@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow — dispatches each phase to a bounded task subagent that loads the phase skill; orchestrator (primary agent) owns aws status / aws gate check / workflow-state.yaml. Phase sequencing is deterministic: driven by aws status --next --json."
+description: "Run the full AWS QA workflow. Phase 1.1 detects whether the task tool is available: if yes, uses subagent-dispatch (Scheme E) — each phase is delegated to a bounded task subagent; if no, falls back to inline execution in the primary agent. Orchestrator always owns aws status / aws gate check / workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -22,9 +22,22 @@ Do not perform detailed case design, review, fix, or codegen work directly insid
 
 ---
 
-## Execution Mode — Scheme E
+## Execution Mode — Detection in Phase 1.1
 
-This workflow uses **subagent-dispatch orchestration**. The primary agent is the orchestrator; it never does phase work itself. Each phase is dispatched to a bounded `task` subagent.
+This workflow supports two execution modes. **Phase 1.1 probes the `task` tool** and sets `execution_mode` in `workflow-state.yaml`:
+
+| `execution_mode` | Condition | Behaviour |
+|---|---|---|
+| `subagent-dispatch` | `task` tool call succeeded in Phase 1.1 probe | Each phase is delegated to a bounded `task` subagent (Scheme E) |
+| `inline` | `task` tool unavailable or probe failed | All phases execute directly in the primary agent |
+
+Regardless of mode, the **orchestrator always owns** `aws status --next --json`, `aws gate check`, and `workflow-state.yaml`. Subagents (in dispatch mode) never touch these.
+
+---
+
+## Execution Mode — Scheme E (subagent-dispatch)
+
+Used when `execution_mode == subagent-dispatch`. The primary agent is the orchestrator; it never does phase work itself. Each phase is dispatched to a bounded `task` subagent.
 
 ### Determinism boundary (invariant)
 
@@ -37,7 +50,7 @@ This workflow uses **subagent-dispatch orchestration**. The primary agent is the
 
 The subagent never runs `aws gate`, `aws status`, or any other gate-decision command, and never modifies `workflow-state.yaml`. These constraints are enforced by `.opencode/agents/*.md` permission floors (bash deny + explicit `workflow-state.yaml: deny`) and verified by the orchestrator's state-hash check (see Phase 0).
 
-### Orchestration loop
+### Orchestration loop (subagent-dispatch mode)
 
 ```text
 loop (max 50 iterations):
@@ -193,7 +206,7 @@ Load aws-test-infra-bootstrap
 
 ## Phase 1.1 — Skill Registry Check
 
-Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**.
+Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**, then **detect the execution mode**.
 
 ```yaml
 required_skills:
@@ -236,7 +249,41 @@ healing_skills:
   # If execution later FAIL and eligible failures exist: STOP after Phase 8 — cannot heal.
 ```
 
-After verifying required skills, **write the initial `workflow-state.yaml`** and set `phases.skill_registry_check.status = pass`.
+### Task-tool detection (determines execution_mode)
+
+After skill loading, probe whether the `task` tool is callable:
+
+```
+Task Tool Detection:
+  → Attempt to call the task tool with a minimal no-op:
+      task(prompt  = "Reply with the single word: task-tool-available. Do nothing else.",
+           agent   = "aws-author")   ← use a known bounded agent with minimal permissions
+  → If the call returns successfully (any response received):
+      task_tool_available = true
+      execution_mode = subagent-dispatch
+  → If the call errors / the task tool is not in the available tool list / the call is rejected:
+      task_tool_available = false
+      execution_mode = inline
+      Record warning: TASK-TOOL-UNAVAILABLE (see below)
+```
+
+The probe response content is irrelevant — only whether the call itself succeeded without error. Do NOT retry the probe; a single failure is sufficient to set `execution_mode = inline`.
+
+**Warning written when task tool is unavailable:**
+
+```yaml
+- id: TASK-TOOL-UNAVAILABLE
+  severity: low
+  title: task tool not available — falling back to inline execution
+  detail: >
+    The task tool could not be called successfully during Phase 1.1 detection.
+    This workflow will execute all phases inline in the primary agent instead
+    of using subagent dispatch (Scheme E). Parallel plan/codegen branches will
+    run sequentially in inline mode.
+  status: acknowledged
+```
+
+After completing skill verification and detection, **write the initial `workflow-state.yaml`** with `execution_mode` and `phases.skill_registry_check.status = pass`.
 
 ---
 
@@ -482,7 +529,7 @@ schema_version: "1.0"
 change_id: <change-id>
 module: <module>
 
-execution_mode: subagent-dispatch
+execution_mode: subagent-dispatch | inline   # set by Phase 1.1 task-tool detection
 
 phases:
   # ─── Skill Load Gate (common fields — see "Skill Load Gate" section above) ───
@@ -497,6 +544,7 @@ phases:
     status: pass | fail | skipped
     skill_loaded: n/a   # no dedicated SKILL.md — registry check is self-contained
     reason: <optional — e.g. standalone aws-case-design invocation>
+    task_tool_available: true | false   # set by Phase 1.1 detection probe
     checked_skills:
       - aws-case-design
       - aws-case-reviewer
@@ -1403,7 +1451,11 @@ notes:
 - Valid `change_id`
 - `.aws/data-knowledge.yaml` (or promotable proposal) on disk under `qa/changes/<change-id>/`
 
-**Phase sequence (inline primary agent only):**
+**Phase sequence:**
+
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop (see "Execution Mode — Scheme E" section above). The loop calls `aws status --next --json` each iteration and dispatches every phase to a bounded `task` subagent — do not describe each phase step-by-step here; the loop and the per-phase SKILL.md files are the authoritative source.
+
+**If `execution_mode == inline`:** execute each phase sequentially in the primary agent as described below.
 
 ```
 Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
@@ -1414,7 +1466,8 @@ Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
 
 Phase 1.1 — Skill Registry Check
   → Verify aws-test-infra-bootstrap, aws-explore, aws-case-design, aws-case-reviewer, aws-case-fixer load
-  → Write workflow-state.yaml (execution_mode: inline)
+  → Probe task tool; set execution_mode accordingly (inline if probe fails, subagent-dispatch if succeeds)
+  → Write workflow-state.yaml
   → STOP if any required case skill missing
 
 Phase 1.2 — Explore
@@ -1475,6 +1528,10 @@ If any required file is missing, **STOP** and list paths — do not invoke plan 
 
 **Phase sequence:**
 
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop. The loop drives codegen phases (6A–6D) and Phase 7 via `task` subagents. Codegen phases still carry the Inline Execution Rule (see §6A/6B) — the `task` prompt for codegen subagents must say "execute inline in this subagent".
+
+**If `execution_mode == inline`:** execute all phases directly in the primary agent as described below.
+
 ```
 Phase 1.1 — Skill Registry Check (codegen subset)
   → Verify skills for active layers only:
@@ -1531,15 +1588,19 @@ If run_tests == true:
 
 ## Full Workflow (run_mode = full)
 
-All phases execute **inline in the primary agent**. No subagents or tasks are used.
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop above. Each phase is dispatched to a bounded `task` subagent; parallel branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls in the same iteration.
+
+**If `execution_mode == inline`:** all phases execute sequentially in the primary agent as described below. No subagents or tasks are used. Parallel branches run sequentially.
 
 After every phase that writes artifacts or updates `workflow-state.yaml`, apply the **Phase Completion Rule** above, including the shadow-mode CLI calls (`aws status` always; `aws gate check` when the phase has a schema gate). The prose workflow remains authoritative during shadow mode; CLI disagreements are recorded, not used to override routing.
+
+**Inline mode phase sequence (when `execution_mode == inline`):**
 
 ```
 Phase 1.1 — Skill Registry Check
   → Verify all required skills can load in primary agent
   → If any skill fails to load: STOP, report missing skill name
-  → Write workflow-state.yaml (create, set execution_mode: inline)
+  → Write workflow-state.yaml (create, set execution_mode per Phase 1.1 detection)
   → Record OPENCODE-SKILL-RESOLUTION-001 warning in workflow-state.yaml
 
 Phase 1.2 — Explore
