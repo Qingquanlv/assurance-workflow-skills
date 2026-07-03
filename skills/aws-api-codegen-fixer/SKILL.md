@@ -119,7 +119,7 @@ If a proposal in `fix-proposal.json` requires modifying any forbidden file:
 2. Write `qa/changes/<change-id>/healing/api-fixer-error.json`.
 3. Do **not** apply any patch.
 4. Do **not** rerun.
-5. Update `workflow-state.yaml`: `phases.healing.status = failed`.
+5. Report state delta `phases.healing.status = failed` (inline mode: apply directly; dispatched subagent: report in your final message — the orchestrator applies it to `workflow-state.yaml`).
 
 ---
 
@@ -342,8 +342,8 @@ phases:
    a. For each validated proposal, apply each `patch_plan` step.
    b. Re-read each modified file to confirm patch applied correctly.
 7. Write `qa/changes/<change-id>/healing/api-apply-summary.json` and `qa/changes/<change-id>/healing/api-apply-summary.md`.
-8. Update `workflow-state.yaml` attempt entry: set `api_apply_status` and `api_apply_summary` only.
-   (`applied_files` is NOT written here — it is an orchestrator-only aggregate field)
+8. Report the attempt-entry state delta: `api_apply_status` and `api_apply_summary` only (orchestrator applies it to `workflow-state.yaml` when dispatched).
+   (`applied_files` is NOT part of this delta — it is an orchestrator-only aggregate field)
    - **Do NOT** set `phases.healing.status = applied`.
 9. Report summary to user.
 

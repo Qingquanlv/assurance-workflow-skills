@@ -27,10 +27,10 @@ Do not rely on prior conversation context.
 1. Write generated Locust files per `performance-codegen-plan.md` Target Files:
    - `tests/perf/locustfile_<module>.py` (required path — runner discovers `tests/perf/`)
    - `qa/changes/<change-id>/codegen/performance-codegen-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.performance_codegen.status = done`
-   - Set `phases.performance_codegen.review_gate_file = review/performance-plan-review.json`
-   - List generated files under `phases.performance_codegen.generated_tests.files`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.performance_codegen.status = done`
+   - `phases.performance_codegen.review_gate_file = review/performance-plan-review.json`
+   - `phases.performance_codegen.generated_tests.files` = list of generated files
 
 ---
 

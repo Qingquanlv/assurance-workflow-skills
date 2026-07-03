@@ -33,9 +33,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/api-codegen-plan.md`
    - `qa/changes/<change-id>/plans/m3-review-summary.md`
    - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (only when `.aws/data-knowledge.yaml` is missing)
-2. Update `workflow-state.yaml`:
-   - Set `phases.api_plan.status = done`
-   - List **all actually generated** output files under `phases.api_plan.outputs` (include `data-knowledge.proposal.yaml` if generated)
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.api_plan.status = done`
+   - `phases.api_plan.outputs` = **all actually generated** output files (include `data-knowledge.proposal.yaml` if generated)
    - **Do NOT** set `phases.api_plan_review.status` — that gate belongs to `aws-api-plan-reviewer`
 
 ---
@@ -155,7 +155,7 @@ Complete in order:
 - [ ] Generate `api-codegen-plan.md`
 - [ ] Generate `m3-review-summary.md`
 - [ ] Confirm no test code was generated
-- [ ] Update `workflow-state.yaml` (`phases.api_plan.status = done`)
+- [ ] Report the `phases.api_plan.status = done` state delta (applied to `workflow-state.yaml` per the Context Contract)
 - [ ] Output next-step hint (point to `aws-api-plan-reviewer`, not directly to `aws-api-codegen`)
 
 ## Output Contract
@@ -434,10 +434,10 @@ Must stop immediately after generating these four required plan files:
 
 If `.aws/data-knowledge.yaml` is missing, must also generate `data-knowledge.proposal.yaml` (fifth optional artifact).
 
-Before stopping, update `workflow-state.yaml`:
+Before stopping, report the `workflow-state.yaml` state delta (see Context Contract for who applies it):
 
-- Set `phases.api_plan.status = done`
-- List **all actually generated** output paths under `phases.api_plan.outputs` (include `data-knowledge.proposal.yaml` if generated)
+- `phases.api_plan.status = done`
+- `phases.api_plan.outputs` = **all actually generated** output paths (include `data-knowledge.proposal.yaml` if generated)
 - **Must NOT** set `phases.api_plan_review.status`
 
 After stopping, output:

@@ -26,8 +26,8 @@ Do not rely on prior conversation context.
 1. Write `qa/changes/<change-id>/explore/advisory.json`
 2. Do **not** write `qa/changes/<change-id>/explore/advisory.md`
 3. Run `aws risk validate-advisory --change <change-id> --project-dir <project-root>`
-4. On validation failure → set `phases.explore.status = failed`, record `validation_errors`
-5. On success → set `phases.explore.status = done`, update counts and outputs in `workflow-state.yaml`
+4. On validation failure → report state delta `phases.explore.status = failed` with `validation_errors`
+5. On success → report state delta `phases.explore.status = done` with counts and outputs (see Step 7). Inline mode: apply the delta to `workflow-state.yaml` directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them.
 
 ---
 
@@ -71,7 +71,7 @@ Check `context.degraded` and `phases.explore.weak_data_treat_as` (default: `done
 
 **Revised hard rule:** If ALL THREE of `no_diff`, `no_cases`, `no_history` are present in `degraded_reasons`, proceed to Step 3 and attempt source code read. Only if source code is also empty (no routes, no models, empty project directory) does `status = unavailable` apply. Source code structure is valid evidence; do not fabricate unavailability when the codebase is readable.
 
-When `status = unavailable` (confirmed after Step 3): update `workflow-state.yaml`, output one-line notice, stop.
+When `status = unavailable` (confirmed after Step 3): report the `phases.explore.status = unavailable` state delta (see Context Contract), output one-line notice, stop.
 
 ---
 
@@ -120,7 +120,7 @@ All `source: "source_code"` evidence has `parse_confidence_cap: "medium"` — co
 
 After reading, if **no** routes, models, or frontend structure were found (project directory is empty or unreadable):
 - AND historical data was also empty (all 3 degraded_reasons present)
-- THEN → `status = unavailable`; update `workflow-state.yaml`; output one-line notice; stop.
+- THEN → `status = unavailable`; report the state delta (see Context Contract); output one-line notice; stop.
 
 Otherwise continue to Step 4.
 
@@ -388,7 +388,9 @@ aws risk validate-advisory --change <change-id> --project-dir <project-root>
 
 ---
 
-## Step 7 — Update `workflow-state.yaml`
+## Step 7 — `workflow-state.yaml` State Delta
+
+Report the following delta (applied by the state owner per the Context Contract):
 
 ```yaml
 phases:

@@ -35,19 +35,23 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/.qa.yaml`
    - `qa/changes/<change-id>/proposal.md`
    - `qa/changes/<change-id>/cases/<module>/case.yaml`
-2. Create or update `qa/changes/<change-id>/workflow-state.yaml`:
-   - If the file does **not** exist, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
-     - `execution_mode: inline`
-     - `subagent_skill_inheritance: disabled`
-     - `phases.skill_registry_check.status: skipped`
-     - `phases.skill_registry_check.reason: standalone aws-case-design invocation; full registry check is owned by aws-workflow`
-     - `phases.skill_registry_check.checked_skills: [aws-case-design]`
-     - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
-   - Do **not** set `phases.skill_registry_check.status: pass` from this skill — full registry verification belongs to `aws-workflow` Phase 0.
-   - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
-   - Set `phases.case_design.status = done`
-   - List all output files under `phases.case_design.outputs`
-3. Record any warnings or known issues explicitly in `workflow-state.yaml`.
+2. Handle `qa/changes/<change-id>/workflow-state.yaml` by execution context:
+   - **Dispatched phase subagent (aws-workflow subagent-dispatch mode):** never create or write `workflow-state.yaml` — the orchestrator owns it and created it in Phase 1.1. Report the state delta in your final message instead:
+     - `phases.case_design.status = done`
+     - `phases.case_design.outputs` = all output files
+   - **Standalone / inline invocation (primary agent):** create or update the file directly:
+     - If the file does **not** exist, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
+       - `execution_mode: inline`
+       - `subagent_skill_inheritance: disabled`
+       - `phases.skill_registry_check.status: skipped`
+       - `phases.skill_registry_check.reason: standalone aws-case-design invocation; full registry check is owned by aws-workflow`
+       - `phases.skill_registry_check.checked_skills: [aws-case-design]`
+       - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
+     - Do **not** set `phases.skill_registry_check.status: pass` from this skill — full registry verification belongs to `aws-workflow` Phase 0.
+     - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
+     - Set `phases.case_design.status = done`
+     - List all output files under `phases.case_design.outputs`
+3. Record any warnings or known issues explicitly (in `workflow-state.yaml` when inline/standalone; in the reported state delta when dispatched).
 
 ---
 

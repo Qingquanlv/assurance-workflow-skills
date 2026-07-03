@@ -33,9 +33,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
    - `qa/changes/<change-id>/plans/m4-review-summary.md`
    - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`（仅当 `.aws/data-knowledge.yaml` 缺失时）
-2. Update `workflow-state.yaml`:
-   - Set `phases.e2e_plan.status = done`
-   - List **all actually generated** output files under `phases.e2e_plan.outputs`（含 `data-knowledge.proposal.yaml`，若已生成）
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.e2e_plan.status = done`
+   - `phases.e2e_plan.outputs` = **all actually generated** output files（含 `data-knowledge.proposal.yaml`，若已生成）
 
 ---
 

@@ -32,7 +32,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/m3-review-summary.md`
    - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (only if changed per authorized `auto_fix_plan` entry — see **data-knowledge.proposal.yaml** rules)
    - `qa/changes/<change-id>/review/api-plan-review-apply-summary.md`
-2. Update `workflow-state.yaml`:
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - Append to `phases.api_plan_review.fix_attempts`:
      ```yaml
      - attempt: <n>
@@ -290,7 +290,7 @@ May create or modify `data-knowledge.proposal.yaml` **only when**:
 5. Preserve existing style and ordering.
 6. Add unknowns to plan TODO sections or `data-knowledge.proposal.yaml` — only when authorized by a validated `auto_fix_plan` entry and the unknown is already a non-blocking reviewer warning. Never downgrade blockers.
 7. Write `api-plan-review-apply-summary.md`.
-8. Update `workflow-state.yaml`: append to `phases.api_plan_review.fix_attempts` (do **not** modify `phases.api_plan_review.status`).
+8. Report the state delta: append to `phases.api_plan_review.fix_attempts` (do **not** modify `phases.api_plan_review.status`) — applied to `workflow-state.yaml` per the Context Contract.
 9. Tell the orchestrator to re-run `aws-api-plan-reviewer`.
 
 ---

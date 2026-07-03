@@ -20,7 +20,7 @@ Do not rely on prior conversation context.
 
 1. Verify `qa/changes/<change-id>/healing/fix-proposal.json` exists and is valid JSON.
 2. Verify `qa/changes/<change-id>/healing/fix-proposal.md` exists.
-3. Update `workflow-state.yaml`: `phases.healing.status = proposal_created` (or `not_needed` if no eligible failures).
+3. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them): `phases.healing.status = proposal_created` (or `not_needed` if no eligible failures).
 
 ---
 
@@ -295,7 +295,7 @@ And set `workflow_status = stopped` if `phases.execution.status == FAIL` (FAIL +
    c. If not eligible: build a `not_eligible` entry with `recommended_next_action`.
 4. Write `healing/fix-proposal.json` (create `healing/` directory if not present).
 5. Write `healing/fix-proposal.md`.
-6. Update `workflow-state.yaml`.
+6. Report the state delta per the Context Contract (orchestrator applies it to `workflow-state.yaml` when dispatched).
 7. Present summary to user.
 
 ---

@@ -33,16 +33,16 @@ Do not rely on prior conversation context.
    - `tests/api/conftest.py` — only if plan explicitly requires it (see conftest rules)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/api-codegen-summary.md` (create `codegen/` directory if missing)
-2. Update `workflow-state.yaml`:
-   - Set `phases.api_codegen.status = done`
-   - Set `phases.api_codegen.review_gate_file = review/api-plan-review.json`
-   - Set `phases.api_codegen.codegen_readiness` = value from review JSON
-   - List generated files under `phases.api_codegen.generated_tests.files`
-   - Set `phases.api_codegen.warnings_carried` = warning IDs or summaries from review JSON
-   - Set `phases.api_codegen.known_product_issues.present` = true|false
-   - Set `phases.api_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.api_codegen.status = done`
+   - `phases.api_codegen.review_gate_file = review/api-plan-review.json`
+   - `phases.api_codegen.codegen_readiness` = value from review JSON
+   - `phases.api_codegen.generated_tests.files` = list of generated files
+   - `phases.api_codegen.warnings_carried` = warning IDs or summaries from review JSON
+   - `phases.api_codegen.known_product_issues.present` = true|false
+   - `phases.api_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
 
-Example `workflow-state.yaml` fragment:
+Example `workflow-state.yaml` fragment (as applied by the state owner):
 
 ```yaml
 phases:
@@ -239,7 +239,7 @@ Complete in order:
 - [ ] Generate `tests/fixtures/<module>_fixtures.py` only as a wrapper around `make_*` (only when plan + data-knowledge authorize)
 - [ ] Generate `tests/api/helpers/<module>_api.py` (when helper mapping non-empty)
 - [ ] Update `tests/api/conftest.py` (only when plan explicitly requires)
-- [ ] Update `workflow-state.yaml` (`phases.api_codegen` with review_gate_file, codegen_readiness, warnings_carried, known_product_issues)
+- [ ] Report the `phases.api_codegen` state delta (review_gate_file, codegen_readiness, warnings_carried, known_product_issues) — applied to `workflow-state.yaml` by the state owner per the Context Contract
 - [ ] Create `codegen/` directory (if missing), write `api-codegen-summary.md`
 - [ ] If any endpoint is not registered in `_LOCAL_SCHEMAS`, write **Schema Registration Required** section in `api-codegen-summary.md`
 - [ ] Output Codegen Summary (file list + next step)

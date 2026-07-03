@@ -191,7 +191,8 @@ Load aws-test-infra-bootstrap
     - CREATEs any missing file (with defaults sourced from run.py / web/.env / app/core/init_app.py — asks the user when a default cannot be verified)
     - KEEPs any contract-conformant file untouched
     - STOPs and asks the user if a file exists but does NOT match the contract (never silently overwrites)
-    - writes phases.test_infra_bootstrap into workflow-state.yaml
+    - determines the phases.test_infra_bootstrap state delta (status, files, created, kept);
+      the orchestrator applies it to workflow-state.yaml (see State-delta convention)
 ```
 
 ### Gate
@@ -215,6 +216,7 @@ required_skills:
   - aws-case-design
   - aws-case-reviewer
   - aws-case-fixer
+  - aws-fact-baseline
   - aws-api-plan
   - aws-e2e-plan
   - aws-api-plan-reviewer
@@ -325,7 +327,8 @@ Load aws-explore
     - applies weak_data_treat_as branch
     - writes advisory.json only
     - runs aws risk validate-advisory
-    - updates workflow-state.yaml
+    - reports the phases.explore state delta; the orchestrator applies it to workflow-state.yaml
+      (in inline mode the executor is the orchestrator and applies it directly)
 ```
 
 See `aws-explore` SKILL.md for the step-by-step.
@@ -406,6 +409,7 @@ The orchestrator does NOT hardcode a phase sequence. It calls `aws status --chan
 | case-design | agent | aws-case-design | aws-author |
 | case-review | agent | aws-case-reviewer | aws-reviewer |
 | case-fix | agent | aws-case-fixer | aws-author |
+| fact-baseline | agent | aws-fact-baseline | aws-author |
 | api-plan | agent | aws-api-plan | aws-author |
 | api-plan-review | agent | aws-api-plan-reviewer | aws-reviewer |
 | api-plan-fix | agent | aws-api-plan-fixer | aws-author |
@@ -433,17 +437,15 @@ Loading a skill is **never** enough to mark a phase complete.
 
 A phase is complete only when **all** of the following are true:
 
-0. **Skill Load Gate (mandatory)** — before executing any phase work, the primary agent MUST:
-   1. Read the phase's SKILL.md file from disk (not from memory, not from a prior conversation turn).
-   2. Set `phases.<phase_name>.skill_loaded = true` in `workflow-state.yaml`.
-   3. Set `phases.<phase_name>.skill_md_path` to the absolute path of the SKILL.md that was read.
-   4. Set `phases.<phase_name>.skill_loaded_at` to the ISO 8601 timestamp of the Read.
+0. **Skill Load Gate (mandatory, mode-aware)** — before any phase work executes, the phase's SKILL.md MUST be read from disk by the **phase executor** (not from memory, not from a prior conversation turn):
+   - `inline` mode: the primary agent reads the SKILL.md itself, then sets `phases.<phase_name>.skill_loaded = true`, `skill_md_path = <absolute path read>`, `skill_loaded_at = <ISO 8601 timestamp>` in `workflow-state.yaml`.
+   - `subagent-dispatch` mode: the dispatched phase subagent reads the SKILL.md (the dispatch prompt names the skill) and MUST report the absolute SKILL.md path it read in its final message. The **orchestrator** then writes the same three fields into `workflow-state.yaml` on the subagent's behalf. The subagent never writes them itself. If the subagent's report does not confirm the skill was read, treat the phase as not executed and retry per the subagent retry rule.
    If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
-   This gate exists because the primary agent can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
-1. The phase skill was loaded and executed by the dispatched subagent for that phase (or, for CLI phases, `aws run` completed successfully).
+   This gate exists because the executor can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
+1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode; the dispatched subagent in subagent-dispatch mode; for CLI phases, `aws run` completed successfully).
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
-4. `workflow-state.yaml` was updated for that phase (status set to the correct terminal value).
+4. The orchestrator applied the phase's `state_delta` to `workflow-state.yaml` (status set to the correct terminal value). In dispatch mode this write happens **after** the state-hash check passes — never inside the subagent.
 5. The next-phase gate was explicitly evaluated before advancing.
 6. **CLI status and gate check are authoritative** (not advisory):
    - After writing each phase's outputs to disk and updating `workflow-state.yaml`, run `aws status --change <change-id> --next --json` to determine whether the phase is `done` and which phase(s) run next.
@@ -460,22 +462,25 @@ Do **not** report a phase as done based on:
 - agent claim without file verification
 - partial output (some files present but not all required outputs)
 
-**Codegen phases are especially strict** — see Phase 6A and Phase 6B Inline Execution Rules.
+**Codegen phases are especially strict** — see Phase 6A and Phase 6B Phase-Local Execution Rules.
 
 ---
 
 ## Skill Load Gate (Phase Entry Check)
 
-Before executing **any** phase work (reading inputs, generating outputs, writing files), the primary agent MUST:
+Before executing **any** phase work (reading inputs, generating outputs, writing files):
 
 1. Identify the skill name for the phase from the table below.
-2. Read the SKILL.md file from disk using the `Read` tool — not from conversation memory, not from a prior turn's context.
-3. Update `workflow-state.yaml` `phases.<phase_name>` with:
+2. The **phase executor** reads the SKILL.md file from disk — not from conversation memory, not from a prior turn's context:
+   - `inline` mode: the primary agent reads it with the `Read` tool.
+   - `subagent-dispatch` mode: the dispatched subagent reads it (via `skill(...)` or `Read`) and reports the absolute path read in its final message.
+3. The **orchestrator** (primary agent) updates `workflow-state.yaml` `phases.<phase_name>` with:
    - `skill_loaded: true`
    - `skill_md_path: <absolute path to SKILL.md>`
    - `skill_loaded_at: <ISO 8601 timestamp>`
+   In inline mode the orchestrator writes this before starting the phase work. In dispatch mode it writes this together with the phase's `state_delta`, after the subagent returns and the state-hash check passes — the subagent never writes `workflow-state.yaml`.
 
-If the agent attempts to set `phases.<phase_name>.status` to a terminal value (`done` / `pass` / `fail` / `skipped`) while `skill_loaded != true`, the workflow MUST STOP and report:
+If the orchestrator attempts to set `phases.<phase_name>.status` to a terminal value (`done` / `pass` / `fail` / `skipped`) while `skill_loaded != true`, the workflow MUST STOP and report:
 
 ```
 SKILL_LOAD_GATE_VIOLATION: phase <phase_name> cannot be marked <status> because skill_loaded is not true.
@@ -492,6 +497,7 @@ The skill base directory is `/Users/lvqingquan/skills/assurance-workflow-skills/
 | explore | aws-explore | `aws-explore/SKILL.md` |
 | case_design | aws-case-design | `aws-case-design/SKILL.md` |
 | case_review | aws-case-reviewer | `aws-case-reviewer/SKILL.md` |
+| fact_baseline | aws-fact-baseline | `aws-fact-baseline/SKILL.md` |
 | api_plan | aws-api-plan | `aws-api-plan/SKILL.md` |
 | e2e_plan | aws-e2e-plan | `aws-e2e-plan/SKILL.md` |
 | api_plan_review | aws-api-plan-reviewer | `aws-api-plan-reviewer/SKILL.md` |
@@ -512,7 +518,7 @@ The skill base directory is `/Users/lvqingquan/skills/assurance-workflow-skills/
 | report | aws-report-generator | `aws-report-generator/SKILL.md` |
 | archive | aws-archive | `aws-archive/SKILL.md` |
 
-Phases that do not have a dedicated SKILL.md (e.g. `skill_registry_check`, `fact_baseline`, `layers`) are exempt — set `skill_loaded: n/a` for those.
+Phases that do not have a dedicated SKILL.md (e.g. `skill_registry_check`, `layers`) are exempt — set `skill_loaded: n/a` for those.
 
 ### Why This Gate Exists
 
@@ -565,6 +571,7 @@ phases:
       - aws-case-design
       - aws-case-reviewer
       - aws-case-fixer
+      - aws-fact-baseline
       - aws-api-plan
       - aws-e2e-plan
       - aws-api-plan-reviewer
@@ -620,8 +627,10 @@ phases:
     fix_attempts: []   # appended by aws-case-fixer each run
 
   fact_baseline:
-    status: pending | done | unavailable
-    skill_loaded: n/a   # no dedicated SKILL.md — fact baseline is data collection only
+    status: pending | done | unavailable | failed
+    skill_loaded: false       # → true after Read(aws-fact-baseline/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     # unavailable = seed file not found AND db_probe not configured; planning continues with warning
     source: null      # seed_file | db_probe | both | unavailable
     file: facts/fact-baseline.json
@@ -680,7 +689,7 @@ phases:
     skill_loaded_at: null
     # needs_patch = codegen completed but generated tests contain stale facts (e.g. wrong role name)
     # requires manual patch + re-collect before Phase 7 can proceed
-    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to nested/background worker; must execute in the assigned phase executor"
     needs_patch_reason: null  # set when status == needs_patch; e.g. "stale_role_name_fact"
     review_gate_file: review/api-plan-review.json
     codegen_readiness: ready | ready_with_warnings
@@ -699,7 +708,7 @@ phases:
     skill_loaded: false       # → true after Read(aws-e2e-codegen/SKILL.md)
     skill_md_path: null
     skill_loaded_at: null
-    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to nested/background worker; must execute in the assigned phase executor"
     needs_patch_reason: null
     review_gate_file: review/plan-review.json
     codegen_readiness: ready | ready_with_warnings
@@ -871,6 +880,11 @@ agent_warnings:
 
 ## Phase Contracts
 
+**State-delta convention (applies to every contract below):** `workflow-state.yaml` has exactly **one writer — the orchestrator (primary agent)**. Each contract's `state_delta:` block lists the `workflow-state.yaml` fields whose values the phase determines; it is **not** a file the phase executor writes.
+
+- `inline` mode: the executor and the orchestrator are the same agent — it applies the delta itself immediately after producing the outputs.
+- `subagent-dispatch` mode: the phase subagent NEVER writes `workflow-state.yaml` (permission floor + state-hash guard). It reports the delta values in its final message; the orchestrator verifies the output files on disk, then applies the delta. If a delta value is missing from the subagent's report, the orchestrator derives it by reading the phase's output files.
+
 ### Phase 2.1 — Case Design
 
 ```yaml
@@ -882,7 +896,10 @@ outputs:
   - qa/changes/<change-id>/.qa.yaml
   - qa/changes/<change-id>/proposal.md
   - qa/changes/<change-id>/cases/<module>/case.yaml
-  - qa/changes/<change-id>/workflow-state.yaml (create/update)
+state_delta:
+  - phases.case_design.status = done
+  - phases.case_design.outputs
+  # workflow-state.yaml itself is created by the orchestrator in Phase 1.1 if missing
 ```
 
 ### Phase 2.2 — Case Review
@@ -896,13 +913,15 @@ inputs:
 outputs:
   - review/case-review.json
   - review/case-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.case_review.status = pass | fail
 gate: decision == "pass"
 ```
 
 ### Phase 2.4 — Fact Baseline
 
 ```yaml
+skill: aws-fact-baseline
 inputs:
   - workflow-state.yaml
   - app/core/init_app.py (or equivalent seed/fixture file)
@@ -910,7 +929,11 @@ inputs:
   - live DB read-only probe (optional, if db_probe: true in config)
 outputs:
   - facts/fact-baseline.json
-  - workflow-state.yaml (updated: phases.fact_baseline.status)
+state_delta:
+  - phases.fact_baseline.status
+  - phases.fact_baseline.source
+  - phases.fact_baseline.file
+  - phases.fact_baseline.warnings
 gate: facts/fact-baseline.json must exist before Phase 4A or 4B run
 ```
 
@@ -941,15 +964,15 @@ gate: facts/fact-baseline.json must exist before Phase 4A or 4B run
 
 If the seed file cannot be found and db_probe is false, write `fact-baseline.json` with `"source": "unavailable"` and record a warning — do **not** STOP; continue to Phase 3 but planners must note that fact validation is skipped.
 
-### Phase 2.5 — Layer Scan *(inline — determines which test layers run)*
+### Phase 2.5 — Layer Scan *(orchestrator-local in both modes — determines which test layers run)*
 
-Before dispatching plan phases, scan the finalized scoped cases to decide which of the four test layers are in scope. Each case has a single `type` (`API | E2E | Fuzz | Performance`) and an `automation.required` flag (see `aws-case-design`).
+Before dispatching plan phases, the orchestrator scans the finalized scoped cases to decide which of the four test layers are in scope. This step is never dispatched to a subagent. Each case has a single `type` (`API | E2E | Fuzz | Performance`) and an `automation.required` flag (see `aws-case-design`).
 
 ```yaml
 inputs:
   - qa/changes/<change-id>/cases/**/case*.yaml   # finalized after Phase 2.3 (case fix)
-outputs:
-  - workflow-state.yaml (updated: layers block)
+state_delta:
+  - layers block (written directly by the orchestrator)
 ```
 
 ```yaml
@@ -983,7 +1006,8 @@ outputs:
   - plans/api-test-data-plan.md
   - plans/api-codegen-plan.md
   - plans/m3-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.api_plan.status = done
 ```
 
 ### Phase 3B — E2E Plan
@@ -1001,7 +1025,8 @@ outputs:
   - plans/e2e-test-data-plan.md
   - plans/e2e-codegen-plan.md
   - plans/m4-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.e2e_plan.status = done
 ```
 
 ### Phase 4A — API Plan Review
@@ -1015,7 +1040,8 @@ inputs:
 outputs:
   - review/api-plan-review.json
   - review/api-plan-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.api_plan_review.status = pass | fail
 gate:
   - decision == "pass"
   - codegen_readiness in ["ready", "ready_with_warnings"]
@@ -1032,7 +1058,8 @@ inputs:
 outputs:
   - review/plan-review.json
   - review/plan-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.e2e_plan_review.status = pass | fail
 gate:
   - decision == "pass"
   - codegen_readiness in ["ready", "ready_with_warnings"]
@@ -1053,41 +1080,44 @@ outputs:
   - files listed in api-codegen-plan.md Target Files only
     # helpers / fixtures / conftest are optional — only when plan + data-knowledge authorize
   - qa/changes/<change-id>/codegen/api-codegen-summary.md
-  - workflow-state.yaml (updated: review_gate_file, codegen_readiness, generated_tests.files, warnings_carried, known_product_issues)
+state_delta:
+  - phases.api_codegen: status, review_gate_file, codegen_readiness, generated_tests.files, warnings_carried, known_product_issues
 gate:
   - Codegen Hard Gates (API) — force_continue MUST NOT bypass
 ```
 
-### Phase 6A Inline Execution Rule
+### Phase 6A Phase-Local Execution Rule
 
-`aws-api-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+`aws-api-codegen` **MUST execute in the assigned phase executor**. In `execution_mode: inline`, that executor is the primary agent. In `execution_mode: subagent-dispatch`, that executor is the bounded `task` subagent created for Phase 6A.
+
+The executor must load and run `aws-api-codegen` itself. Loading the skill is not phase completion, and the executor must not delegate the codegen work to a nested subagent or background worker.
 
 **Forbidden:**
 
 ```text
-❌ delegate_task for aws-api-codegen
-❌ background API codegen agent
-❌ treating subagent or background task output as Phase 6A completion
+❌ nested delegate_task / task from inside the Phase 6A executor
+❌ background API codegen worker
+❌ treating nested subagent or background task output as Phase 6A completion
 ```
 
-If a subagent or background task is used to attempt API codegen — **regardless of whether skill loading succeeded** — STOP immediately:
+If a nested subagent or background task is used to attempt API codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 - Update `subagents`:
   - `used = true`
   - `purpose = [forbidden_codegen_attempt]`
-  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
-  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
-  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `loaded_skills = true` only if the unauthorized worker **successfully** loaded an AWS skill; otherwise keep `false`
+  - `unauthorized_skill_loading = true` if the nested/background worker attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a nested/background worker is spawned for codegen)
   - `affected_gates = false`
 - Do **not** proceed to any later phase.
-- Require the primary agent to re-run the affected codegen phase inline.
+- Require the assigned phase executor to re-run the affected codegen phase directly.
 
 **Phase 6A is complete only when all are true:**
 
-1. `aws-api-codegen` executed inline in the primary agent.
-2. No subagent or background task executed API codegen.
-3. All files listed in `api-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+1. `aws-api-codegen` executed directly in the assigned phase executor.
+2. No nested subagent or background task executed API codegen.
+3. All files listed in `api-codegen-plan.md` Target Files exist on disk (re-read by the orchestrator).
 4. `qa/changes/<change-id>/codegen/api-codegen-summary.md` exists on disk.
 5. `workflow-state.yaml` has `phases.api_codegen.status = done`.
 6. `workflow-state.yaml` lists `generated_tests.files`, `warnings_carried`, and `known_product_issues`.
@@ -1109,41 +1139,44 @@ outputs:
   - files listed in e2e-codegen-plan.md Target Files only
     # scripts / fixtures / conftest are optional — only when plan + data-knowledge authorize
   - qa/changes/<change-id>/codegen/e2e-codegen-summary.md
-  - workflow-state.yaml (updated: review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried, known_product_issues)
+state_delta:
+  - phases.e2e_codegen: status, review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried, known_product_issues
 gate:
   - Codegen Hard Gates (E2E) — force_continue MUST NOT bypass
 ```
 
-### Phase 6B Inline Execution Rule
+### Phase 6B Phase-Local Execution Rule
 
-`aws-e2e-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+`aws-e2e-codegen` **MUST execute in the assigned phase executor**. In `execution_mode: inline`, that executor is the primary agent. In `execution_mode: subagent-dispatch`, that executor is the bounded `task` subagent created for Phase 6B.
+
+The executor must load and run `aws-e2e-codegen` itself. Loading the skill is not phase completion, and the executor must not delegate the codegen work to a nested subagent or background worker.
 
 **Forbidden:**
 
 ```text
-❌ delegate_task for aws-e2e-codegen
-❌ background E2E codegen agent
-❌ treating subagent or background task output as Phase 6B completion
+❌ nested delegate_task / task from inside the Phase 6B executor
+❌ background E2E codegen worker
+❌ treating nested subagent or background task output as Phase 6B completion
 ```
 
-If a subagent or background task is used to attempt E2E codegen — **regardless of whether skill loading succeeded** — STOP immediately:
+If a nested subagent or background task is used to attempt E2E codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 - Update `subagents`:
   - `used = true`
   - `purpose = [forbidden_codegen_attempt]`
-  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
-  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
-  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `loaded_skills = true` only if the unauthorized worker **successfully** loaded an AWS skill; otherwise keep `false`
+  - `unauthorized_skill_loading = true` if the nested/background worker attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a nested/background worker is spawned for codegen)
   - `affected_gates = false`
 - Do **not** proceed to any later phase.
-- Require the primary agent to re-run the affected codegen phase inline.
+- Require the assigned phase executor to re-run the affected codegen phase directly.
 
 **Phase 6B is complete only when all are true:**
 
-1. `aws-e2e-codegen` executed inline in the primary agent.
-2. No subagent or background task executed E2E codegen.
-3. All files listed in `e2e-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+1. `aws-e2e-codegen` executed directly in the assigned phase executor.
+2. No nested subagent or background task executed E2E codegen.
+3. All files listed in `e2e-codegen-plan.md` Target Files exist on disk (re-read by the orchestrator).
 4. `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` exists on disk.
 5. `workflow-state.yaml` has `phases.e2e_codegen.status = done`.
 6. `workflow-state.yaml` lists `generated_tests.files`, `data_setup`, `fixtures`, `warnings_carried`, and `known_product_issues`.
@@ -1169,7 +1202,7 @@ outputs: [tests/fuzz/** (schemathesis tests), codegen/fuzz-codegen-summary.md]
 gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for fuzz tests
 ```
 
-- Fuzz codegen, like all codegen, **MUST execute inline in the primary agent** (same Inline Execution Rule as 6A/6B).
+- Fuzz codegen, like all codegen, **MUST execute directly in the assigned phase executor** (same Phase-Local Execution Rule as 6A/6B).
 - Fuzz tests run under `aws run` via pytest (`tests/fuzz/`) and produce `execution/fuzz-result.json`.
 - A fuzz failure is **never** auto-healed: `fuzz_stateful_failure` → `needs_review`; `fuzz_configuration_error` → fix the setup and re-run.
 
@@ -1192,7 +1225,7 @@ outputs: [tests/perf/** (locustfiles), codegen/performance-codegen-summary.md]
 gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for locustfiles
 ```
 
-- Performance codegen **MUST execute inline in the primary agent** (same Inline Execution Rule as 6A/6B).
+- Performance codegen **MUST execute directly in the assigned phase executor** (same Phase-Local Execution Rule as 6A/6B).
 - Performance tests run under `aws run` via Locust headless and produce `execution/performance-result.json`. Each scenario's verdict is derived deterministically from measured p95 / error_rate vs. the case's absolute thresholds.
 - If Locust is unavailable or the target produced no measurements, the performance dimension is `SKIPPED` (a warning, not a failure).
 - A performance failure is **never** auto-healed: `perf_threshold_exceeded` → `needs_review`; `perf_environment` → environment issue; `perf_script_error` → fix the locustfile and re-run.
@@ -1220,7 +1253,9 @@ outputs:
   - execution/summary.md         (latest pointer — always required in primary mode)
   - execution/execution-manifest.yaml  (latest pointer, always)
   - execution/known-product-issues.md  (snapshot from qa/changes/<change-id>/known-product-issues.md if present)
-  - workflow-state.yaml (updated: phases.execution.status = PASS|PASS_WITH_WARNINGS|FAIL|SKIPPED)
+state_delta:
+  - phases.execution.status = PASS|PASS_WITH_WARNINGS|FAIL|SKIPPED   # orchestrator reads final_status from the manifest
+  - phases.execution.batch_id
 rules:
   - Do not fail because an unselected target result file is absent.
 runner:
@@ -1252,7 +1287,8 @@ outputs:
   - execution/failure-analysis.json            # optional copy/pointer for downstream (primary mode)
   - execution/failure-summary.md               # optional copy/pointer for downstream
   - human-readable final report
-  - workflow-state.yaml (updated: phases.inspect.status, inspect_mode, classification_performed)
+state_delta:
+  - phases.inspect: status, inspect_mode, classification_performed
 status_update_rules:
   - primary mode: phases.inspect.status = done, inspect_mode = primary, classification_performed = true
   - partial mode: phases.inspect.status = partial, inspect_mode = partial, classification_performed = false
@@ -1278,7 +1314,8 @@ inputs:
 outputs:
   - healing/fix-proposal.md
   - healing/fix-proposal.json
-  - workflow-state.yaml (updated: phases.healing.status = proposal_created)
+state_delta:
+  - phases.healing.status = proposal_created
 gate:
   - only failures where fix_proposal_eligible == true
   - known_product_issue / coverage_gap / business_logic_failure are NOT eligible
@@ -1297,7 +1334,8 @@ outputs:
   - healing/api-apply-summary.json       (required)
   - healing/api-apply-summary.md         (required)
   - healing/api-fixer-error.json         (written only on hard error)
-  - workflow-state.yaml (updated: attempts[n].api_apply_status = applied | no_op | failed)
+state_delta:
+  - phases.healing.attempts[n].api_apply_status = applied | no_op | failed   # from api-apply-summary.json
 rules:
   - do NOT change product code (app/, web/, src/)
   - do NOT change assertion expected values
@@ -1322,7 +1360,8 @@ outputs:
   - healing/e2e-apply-summary.json       (required)
   - healing/e2e-apply-summary.md         (required)
   - healing/e2e-fixer-error.json         (written only on hard error)
-  - workflow-state.yaml (updated: attempts[n].e2e_apply_status = applied | no_op | failed)
+state_delta:
+  - phases.healing.attempts[n].e2e_apply_status = applied | no_op | failed   # from e2e-apply-summary.json
 rules:
   - same as Phase 10A (with e2e-specific allowed file patterns)
   - do NOT set phases.healing.status = applied (orchestrator's job)
@@ -1337,7 +1376,9 @@ inputs:
 outputs:
   - execution/runs/<new-batch-id>/   (full run archive)
   - execution/execution-manifest.yaml (updated, latest pointer)
-  - workflow-state.yaml (updated: phases.execution.status, phases.healing.attempts[n].rerun_batch_id)
+state_delta:
+  - phases.execution.status
+  - phases.healing.attempts[n].rerun_batch_id
 ```
 
 ### Phase 12 — Re-inspect *(healing)*
@@ -1351,8 +1392,10 @@ outputs:
   - inspect/failure-analysis.json   (updated, source of truth; must include source_batch_id)
   - inspect/failure-summary.md      (updated)
   - inspect/inspect-safety-check.json  (evidence file from Inspect Safety Gate)
-  - workflow-state.yaml (updated: phases.inspect.status, phases.healing.attempts[n].result,
-                         phases.healing.attempts[n].reinspect_batch_id)
+state_delta:
+  - phases.inspect.status
+  - phases.healing.attempts[n].result
+  - phases.healing.attempts[n].reinspect_batch_id
 gate:
   - inspect/failure-analysis.json.source_batch_id MUST equal phases.execution.batch_id
     (re-inspect must be based on the Phase 11 re-run batch, not a prior batch)
@@ -1376,7 +1419,9 @@ outputs:
   - report/quality-report.json    (CLI-written, deterministic quality_score)
   - report/quality-report.md
   - report/executive-summary.md
-  - workflow-state.yaml (updated: phases.report.status = done, phases.report.quality_score = <int>)
+state_delta:
+  - phases.report.status = done
+  - phases.report.quality_score = <int>   # from report/quality-report.json
 gate:
   - entry: phases.inspect.status == done AND inspect/quality-gate-result.json exists
            (after healing converges; if healing ran, use the converged re-inspect gate)
@@ -1413,11 +1458,11 @@ inputs:
   - execution/execution-manifest.yaml
   - execution/known-product-issues.md (if present)
   - inspect/known-product-issues.md (if present)
-outputs:
-  - workflow-state.yaml (updated: phases.archive.status = eligible | not_eligible | skipped,
-                         phases.archive.can_archive = true | false,
-                         phases.archive.recommendation,
-                         phases.archive.blockers[])
+state_delta:
+  - phases.archive.status = eligible | not_eligible | skipped
+  - phases.archive.can_archive = true | false
+  - phases.archive.recommendation
+  - phases.archive.blockers[]
 gate:
   - evaluate eligibility only; NEVER load `aws-archive` inside `aws-workflow`
   - `auto_archive` and `auto_archive_with_fallback` do not trigger archive execution
@@ -1481,7 +1526,7 @@ Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
   → STOP if any file is BLOCKED (contract mismatch requires user decision)
 
 Phase 1.1 — Skill Registry Check
-  → Verify aws-test-infra-bootstrap, aws-explore, aws-case-design, aws-case-reviewer, aws-case-fixer load
+  → Verify aws-test-infra-bootstrap, aws-explore, aws-case-design, aws-case-reviewer, aws-case-fixer, aws-fact-baseline load
   → Probe task tool; set execution_mode accordingly (inline if probe fails, subagent-dispatch if succeeds)
   → Write workflow-state.yaml
   → STOP if any required case skill missing
@@ -1510,8 +1555,9 @@ Phase 2.3 — Case Fix Loop (if gate requires it)
   → aws-case-fixer → aws-case-reviewer → re-apply gate until pass, reject, human_review_required, or exhausted
 
 Phase 2.4 — Fact Baseline (always after case review passes)
+  → Load aws-fact-baseline
   → Write facts/fact-baseline.json (or unavailable + warning)
-  → Update workflow-state.yaml: phases.fact_baseline.status = done
+  → Update workflow-state.yaml: phases.fact_baseline (status, source, file, warnings)
 
 Phase 2.5 — Layer Scan (inline)
   → Scan finalized cases/**/case*.yaml
@@ -1544,7 +1590,7 @@ If any required file is missing, **STOP** and list paths — do not invoke plan 
 
 **Phase sequence:**
 
-**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop. The loop drives codegen phases (6A–6D) and Phase 7 via `task` subagents. Codegen phases still carry the Inline Execution Rule (see §6A/6B) — the `task` prompt for codegen subagents must say "execute inline in this subagent".
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop. The loop drives codegen phases (6A–6D) via bounded `task` subagents; Phase 7 is a CLI phase and is executed **directly by the orchestrator** via `aws run` (never dispatched). Codegen phases still carry the Phase-Local Execution Rule (see §6A/6B): the codegen `task` prompt must say "load and execute the codegen skill directly in this phase subagent; do not spawn nested/background workers; do not run aws gate/status; do not modify workflow-state.yaml."
 
 **If `execution_mode == inline`:** execute all phases directly in the primary agent as described below.
 
@@ -1654,11 +1700,12 @@ Phase 2.3 — Case Fix Loop (if gate requires it)
       → If attempts exhausted → stop
 
 Phase 2.4 — Fact Baseline (always runs after Case Review passes)
+  → Load skill aws-fact-baseline in primary agent
   → Read seed/init sources: look for app/core/init_app.py, db/seed*.py, fixtures/, or equivalent
   → If live DB probe is configured (.aws/config.yaml has db_probe: true): run read-only probe
   → Capture: built-in role id/name, auth credentials, route prefix, token header mechanism
   → Write facts/fact-baseline.json
-  → Update workflow-state.yaml: phases.fact_baseline.status = done
+  → Update workflow-state.yaml: phases.fact_baseline (status, source, file, warnings)
 
 [API branch — run if test_types includes "api"]
 
@@ -2428,7 +2475,7 @@ Any decision not in this list is made by the workflow itself. Do not surface it 
 
 ## Document-driven Parallel Work Does Not Bypass the Gate
 
-This workflow uses inline orchestration — it does not launch skill-loading subagents. The only permitted form of parallel work is **document-driven**: a subagent receives a plan document as input and executes it directly, without loading skills.
+In `inline` mode, this workflow does not launch skill-loading subagents; the only permitted form of parallel work is **document-driven**: a subagent receives a plan document as input and executes it directly, without loading skills. In `subagent-dispatch` mode, the orchestrator's bounded phase subagents are the authorized executors and DO load their assigned phase skill — but every gate below still applies identically, because gate decisions (`aws gate check`) and `workflow-state.yaml` writes remain orchestrator-only.
 
 ### Conductor path (`aws conductor`)
 
@@ -2442,7 +2489,7 @@ aws conductor graph --change <id>                   # rebuild execution-graph.js
 
 Conductor reads phase skills / mapping config, writes `task-brief.json` + prompt under `qa/changes/<id>/orchestration/`, and (when `subagents.runtime: opencode-command`) spawns `opencode run` children that execute **only** the brief. After each dispatch, conductor validates outputs and may roll back out-of-bounds filesystem changes.
 
-**Policy unchanged:** subagents still must not load AWS skills, must not mutate `workflow-state.yaml`, must not run gate checks, and must not decide PASS/FAIL. Conductor adds runtime enforcement via agent permission files (`.opencode/agents/aws-*.md`) and the validator stack (required outputs → git-diff → self-report). Inline execution in the primary agent is still the default workflow; conductor is opt-in via `.aws/config.yaml`.
+**Policy unchanged for conductor children:** conductor-spawned workers execute only the materialized brief — they must not load AWS skills, must not mutate `workflow-state.yaml`, must not run gate checks, and must not decide PASS/FAIL. (This is stricter than Scheme E phase subagents, which are authorized to load their assigned phase skill.) Conductor adds runtime enforcement via agent permission files (`.opencode/agents/aws-*.md`) and the validator stack (required outputs → git-diff → self-report). Conductor is opt-in via `.aws/config.yaml`; without it, the workflow runs per `execution_mode` (Scheme E dispatch or inline).
 
 If optional document-driven parallel work fails or is unavailable, the workflow may continue inline only when the same required artifacts are produced:
 
@@ -2457,7 +2504,9 @@ Every gate listed in **Mandatory Review JSON Gate** applies identically whether 
 
 This section clarifies when subagent usage is **allowed** vs. **forbidden**, and how to record it unambiguously in `workflow-state.yaml`.
 
-### Allowed: exploration / document-driven subagents
+**Authorized vs. unauthorized:** in `subagent-dispatch` mode, the bounded phase subagents dispatched by the orchestration loop are the **authorized** executors — they load their assigned phase skill and write that phase's output files (including review JSON when the dispatched phase *is* a review phase). That is not a violation; it is the execution model. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
+
+### Allowed: exploration / document-driven subagents (both modes)
 
 ```text
 ✅ explore agent reads backend source files
@@ -2473,51 +2522,58 @@ subagents:
   purpose:
     - source_exploration_only        # if used for codebase exploration
     - document_driven_parallel       # if used for parallel document work
-  loaded_skills: false               # MUST remain false
-  attempted_skill_loading: false     # MUST remain false
-  attempted_phase_execution: false   # MUST remain false
-  affected_gates: false              # MUST remain false
+    - phase_dispatch                 # subagent-dispatch mode only: authorized bounded phase subagents
+  loaded_skills: false               # inline mode: MUST remain false.
+                                     # dispatch mode: true is expected for authorized phase subagents;
+                                     #   record which skills under loaded_skill_names.
+  unauthorized_skill_loading: false  # MUST remain false in both modes
+  attempted_phase_execution: false   # inline mode: MUST remain false.
+                                     # dispatch mode: authorized dispatches are recorded via purpose: phase_dispatch,
+                                     #   not via this flag.
+  affected_gates: false              # MUST remain false — gate decisions are orchestrator-only in both modes
 ```
 
-### Forbidden: skill-loading or gate-producing subagents
+### Forbidden: unauthorized skill-loading or gate-deciding subagents
 
 ```text
-❌ subagent is asked to load aws-case-design
-❌ subagent writes case-review.json
-❌ subagent writes api-plan-review.json
-❌ subagent produces any gate artifact substituting for an inline reviewer
+❌ (inline mode) any subagent is asked to load an aws-* skill
+❌ (inline mode) any subagent writes case-review.json / api-plan-review.json
+❌ (both modes) any subagent runs aws gate check / aws status, or decides pass/fail
+❌ (both modes) any subagent writes workflow-state.yaml
+❌ (dispatch mode) any subagent other than the dispatched phase subagent produces that phase's gate artifact
 ```
 
-If either of these occurs, set the corresponding flag and **STOP**:
+If any of these occurs, set the corresponding flag and **STOP**:
 
 ```yaml
 subagents:
   used: true
-  loaded_skills: true              # forbidden — subagent successfully loaded an AWS skill
-  attempted_skill_loading: true    # forbidden — subagent attempted skill loading
-  attempted_phase_execution: true  # forbidden — subagent was used to execute a phase
-  affected_gates: true             # forbidden — subagent produced or substituted a gate artifact
+  loaded_skills: true                # a subagent loaded an AWS skill without authorization
+  unauthorized_skill_loading: true   # subagent attempted/performed skill loading outside an authorized dispatch
+  attempted_phase_execution: true    # a subagent executed a phase without authorization
+  affected_gates: true               # a subagent produced a gate decision, substituted a gate artifact,
+                                     # or modified workflow-state.yaml
 ```
 
-### Forbidden: codegen subagents
+### Forbidden: nested / background codegen workers
 
-API/E2E codegen **MUST NOT** be delegated to subagents or background tasks.
+Codegen MUST execute directly in the **assigned phase executor** (primary agent in inline mode; the dispatched Phase 6A/6B/6C/6D subagent in dispatch mode). It must never be re-delegated.
 
 **Forbidden patterns:**
 
 ```text
-❌ delegate_task for aws-api-codegen
-❌ delegate_task for aws-e2e-codegen
-❌ background API codegen agent
-❌ background E2E codegen agent
-❌ treating subagent codegen output as Phase 6 completion
+❌ (inline mode) delegate_task / task for aws-api-codegen or aws-e2e-codegen
+❌ (dispatch mode) nested delegate_task / task spawned from inside the codegen phase subagent
+❌ background API codegen worker (either mode)
+❌ background E2E codegen worker (either mode)
+❌ treating nested/background codegen output as Phase 6 completion
 ```
 
-If a subagent or background task is used to attempt any AWS phase codegen — **regardless of whether the skill loading succeeded or failed**:
+If a nested subagent or background task is used to attempt any AWS phase codegen — **regardless of whether the skill loading succeeded or failed**:
 
 1. **STOP** the workflow immediately.
 2. Set `phases.api_codegen.status = stopped` or `phases.e2e_codegen.status = stopped` (whichever was affected).
-3. Set `stop_reason: "codegen delegated to background subagent; must execute inline in primary agent"`.
+3. Set `stop_reason: "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 4. Update `subagents`:
 
 ```yaml
@@ -2525,20 +2581,20 @@ subagents:
   used: true
   purpose:
     - forbidden_codegen_attempt
-  loaded_skills: false         # true only if subagent successfully loaded an AWS skill
-  attempted_skill_loading: true  # true if subagent attempted skill loading (success or failure)
-  attempted_phase_execution: true # true always when a codegen subagent was spawned
+  loaded_skills: false         # true only if the unauthorized worker successfully loaded an AWS skill
+  unauthorized_skill_loading: true  # the worker attempted skill loading outside an authorized dispatch
+  attempted_phase_execution: true # true always when an unauthorized codegen worker was spawned
   affected_gates: false
 ```
 
 5. Do **not** proceed to any later phase.
-6. Require the primary agent to re-run codegen inline from the point of failure.
+6. Require the assigned phase executor to re-run codegen directly from the point of failure.
 
 ### Conflict with analyze-mode / search-mode pre-exploration
 
 **Hard rule: search-mode and analyze-mode parallel agents are DISABLED by default during aws-workflow.**
 
-When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. The workflow's inline-execution requirement takes precedence.
+When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. This rule bans *additional* search/analyze agents; it does not change how AWS phases themselves execute — phases follow `execution_mode` (inline in the primary agent, or dispatched to bounded phase subagents by the Scheme E orchestration loop).
 
 **The only allowed exception** is source exploration *before Phase 2.1 begins*, and only when ALL of the following hold:
 
@@ -2546,7 +2602,7 @@ When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT la
 2. The explore agent reads source files only — no writes, no gate artifacts.
 3. No AWS skill is loaded by any explore agent.
 4. No gate artifact (`case-review.json`, `api-plan-review.json`, `plan-review.json`) is produced by an explore agent.
-5. All AWS phases (Phase 2.1–14) are then executed inline in the primary agent.
+5. All AWS phases (Phase 2.1–14) are then executed per `execution_mode` — inline in the primary agent, or via the orchestrator's bounded phase subagents (Scheme E). No further ad-hoc search/analyze agents are launched.
 
 If the exception applies, record it immediately in `workflow-state.yaml`:
 
@@ -2898,9 +2954,9 @@ Stop the workflow immediately when any of the following is true:
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A document-driven optional subagent returns an unrecoverable error (inline orchestration does not use skill-loading subagents)
 - **Codegen subagent violations (always stops — no bypass):**
-  - Any AWS phase skill (`aws-api-codegen`, `aws-e2e-codegen`, or any other phase skill) is delegated to a subagent or background task
-  - `aws-api-codegen` or `aws-e2e-codegen` executes in a background agent instead of inline in the primary agent
-  - Phase 6A or Phase 6B codegen skill is loaded but not executed inline (skill loaded ≠ phase complete)
+  - Any AWS phase skill is loaded/executed by an **unauthorized** subagent or background task (in inline mode, that is any subagent; in dispatch mode, anything other than the orchestrator's dispatched phase subagent)
+  - `aws-api-codegen` or `aws-e2e-codegen` executes in a nested/background worker instead of directly in the assigned phase executor
+  - Phase 6A or Phase 6B codegen skill is loaded but not executed by the assigned phase executor (skill loaded ≠ phase complete)
   - Phase 6A codegen summary (`codegen/api-codegen-summary.md`) is missing after codegen was claimed complete
   - Phase 6B codegen summary (`codegen/e2e-codegen-summary.md`) is missing after codegen was claimed complete
   - `workflow-state.yaml` does not show `phases.api_codegen.status = done` or `phases.e2e_codegen.status = done` when required
@@ -2990,8 +3046,8 @@ When context budget is insufficient:
 1. Read `qa/changes/<change-id>/workflow-state.yaml` (sole source of truth).
 2. Read `qa/changes/<change-id>/handoff.md` (this file).
 3. Find the first phase with `status: pending` in workflow-state.yaml.
-4. Execute the Skill Load Gate for that phase (Read its SKILL.md).
-5. Continue the workflow inline.
+4. Execute the Skill Load Gate for that phase (per execution_mode: primary reads the SKILL.md inline, or the dispatched phase subagent reads it).
+5. Continue the workflow per `execution_mode` recorded in workflow-state.yaml.
 ```
 
 3. **Update `workflow-state.yaml`** with a handoff marker:
@@ -3186,15 +3242,17 @@ Healing:
   applied_files: <list or —>
   latest_inspect_batch_id: <batch_id or —>   # must match phases.execution.batch_id before archive
 
-Execution mode: inline
-Subagent usage: <none | exploration_only>
+Execution mode: <inline | subagent-dispatch>
+Subagent usage: <none | exploration_only | phase_dispatch>
   used: <true | false>
-  purpose: <source_exploration_only | document_driven_parallel | none>
-  loaded_skills: <true | false>   # must be false
-  affected_gates: <true | false>  # must be false
+  purpose: <phase_dispatch | source_exploration_only | document_driven_parallel | none>
+  loaded_skills: <true | false>   # inline mode: must be false.
+                                  # subagent-dispatch mode: true is expected (authorized phase subagents).
+  unauthorized_skill_loading: <true | false>  # must be false in both modes
+  affected_gates: <true | false>  # must be false in both modes (gates are orchestrator-only)
 
 Agent Warnings:
-  - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
+  - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable (inline-fallback runs only).
   - AWS-HEALING-SKILLS-UNAVAILABLE: optional healing skills missing; healing loop unavailable on eligible failures.
 
 Warnings:
@@ -3210,7 +3268,7 @@ Do not claim the workflow succeeded if it stopped before Phase 9.
 
 If `run_tests == true`, do **not** report the workflow as `completed` or `completed_with_warnings` unless:
 
-- Phase 7 (`aws-run`) executed inline in the primary agent.
+- Phase 7 (`aws-run`) executed directly in the orchestrator (primary agent) — this holds in both modes, because CLI phases are never dispatched.
 - `execution/execution-manifest.yaml` exists on disk.
 - `final_status` was read from the manifest (not from chat or claim).
 
@@ -3226,7 +3284,7 @@ If `run_tests == true` but Phase 7 did not execute, report `Workflow status: sto
 | Workflow stops before execution due to missing inputs, invalid gates, `human_review_required`, missing `.aws/data-knowledge.yaml`, unavailable environment, or missing required skill | `stopped` |
 | `run_tests == true` but Phase 7 was not executed (codegen stopped, subagent violation, or Phase 6 gate failed) | `stopped` |
 | `run_tests == true`, Phase 7 executed, but `execution/execution-manifest.yaml` is missing | `stopped` |
-| Codegen delegated to subagent or background task (`forbidden_codegen_attempt`) | `stopped` |
+| Codegen delegated from the assigned phase executor to a nested subagent or background task (`forbidden_codegen_attempt`) | `stopped` |
 
 Do not use `completed` when execution is `PASS_WITH_WARNINGS` or known product issues are present — use `completed_with_warnings`.
 

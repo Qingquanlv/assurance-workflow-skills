@@ -32,20 +32,20 @@ Do not rely on prior conversation context.
    - `tests/e2e/conftest.py` — only if plan explicitly requires it (see **conftest.py Policy**)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` (create `codegen/` directory if missing)
-2. Update `workflow-state.yaml`:
-   - Set `phases.e2e_codegen.status = done`
-   - Set `phases.e2e_codegen.review_gate_file = review/plan-review.json`
-   - Set `phases.e2e_codegen.codegen_readiness` = value from review JSON
-   - List generated files under `phases.e2e_codegen.generated_tests.files`
-   - Set `phases.e2e_codegen.data_setup.scripts` = newly generated script paths
-   - Set `phases.e2e_codegen.data_setup.reused` = reused script/capability paths
-   - Set `phases.e2e_codegen.fixtures.generated` = newly generated fixture paths
-   - Set `phases.e2e_codegen.fixtures.reused` = reused fixture paths
-   - Set `phases.e2e_codegen.warnings_carried` = warning IDs or summaries from review JSON
-   - Set `phases.e2e_codegen.known_product_issues.present` = true|false
-   - Set `phases.e2e_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.e2e_codegen.status = done`
+   - `phases.e2e_codegen.review_gate_file = review/plan-review.json`
+   - `phases.e2e_codegen.codegen_readiness` = value from review JSON
+   - `phases.e2e_codegen.generated_tests.files` = list of generated files
+   - `phases.e2e_codegen.data_setup.scripts` = newly generated script paths
+   - `phases.e2e_codegen.data_setup.reused` = reused script/capability paths
+   - `phases.e2e_codegen.fixtures.generated` = newly generated fixture paths
+   - `phases.e2e_codegen.fixtures.reused` = reused fixture paths
+   - `phases.e2e_codegen.warnings_carried` = warning IDs or summaries from review JSON
+   - `phases.e2e_codegen.known_product_issues.present` = true|false
+   - `phases.e2e_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
 
-Example `workflow-state.yaml` fragment:
+Example `workflow-state.yaml` fragment (as applied by the state owner):
 
 ```yaml
 phases:

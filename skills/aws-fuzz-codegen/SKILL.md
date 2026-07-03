@@ -27,10 +27,10 @@ Do not rely on prior conversation context.
 1. Write generated fuzz test files per `fuzz-codegen-plan.md` Target Files:
    - `tests/fuzz/test_<module>_fuzz.py` (required path — runner discovers `tests/fuzz/`)
    - `qa/changes/<change-id>/codegen/fuzz-codegen-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.fuzz_codegen.status = done`
-   - Set `phases.fuzz_codegen.review_gate_file = review/fuzz-plan-review.json`
-   - List generated files under `phases.fuzz_codegen.generated_tests.files`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.fuzz_codegen.status = done`
+   - `phases.fuzz_codegen.review_gate_file = review/fuzz-plan-review.json`
+   - `phases.fuzz_codegen.generated_tests.files` = list of generated files
 
 ---
 

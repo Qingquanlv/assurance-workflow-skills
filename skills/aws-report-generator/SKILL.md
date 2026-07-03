@@ -21,7 +21,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/report/quality-report.json`
    - `qa/changes/<change-id>/report/quality-report.md`
    - `qa/changes/<change-id>/report/executive-summary.md`
-2. Update `workflow-state.yaml`:
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - `phases.report.status = done`
    - `phases.report.quality_score = <int from quality-report.json>`
 3. Reference `report/executive-summary.md` in the workflow's final summary.

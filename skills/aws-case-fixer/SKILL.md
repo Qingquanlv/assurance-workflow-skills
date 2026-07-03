@@ -29,7 +29,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/cases/<module>/case.yaml` (fixed version)
    - `qa/changes/<change-id>/proposal.md` (if fix requires proposal update)
    - `qa/changes/<change-id>/review/case-review-apply-summary.md`
-2. Update `workflow-state.yaml`:
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - Append to `phases.case_review.fix_attempts`: `{ attempt: N, files_modified: [...], timestamp: <now> }`
    - Do NOT change `phases.case_review.status` — only the reviewer can update the gate status
 
@@ -230,7 +230,7 @@ For `layering` findings specifically:
 5. Apply minimal edits to target files.
 6. Preserve existing style and ordering where possible.
 7. Write `case-review-apply-summary.md`.
-8. Update `workflow-state.yaml`:
+8. Report the state delta (applied to `workflow-state.yaml` per the Context Contract):
    - Append fix attempt record: `{ attempt: N, files_modified: [...] }`
    - Do NOT modify `phases.case_review.status` — gate status is reviewer-only.
 9. Tell the orchestrator to re-run `aws-case-reviewer`.
