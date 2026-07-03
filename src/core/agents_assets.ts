@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const RUNTIME_AGENTS = ['aws-reviewer', 'aws-author', 'aws-test-author'] as const;
+export const RUNTIME_AGENTS = ['aws-reviewer', 'aws-author', 'aws-test-author', 'aws-reporter', 'aws-archiver'] as const;
 export type RuntimeAgent = (typeof RUNTIME_AGENTS)[number];
 
 export interface CopyResult { created: string[]; skipped: string[]; }
@@ -23,7 +23,7 @@ export function copyAgentAssets(projectRoot: string, packageRoot: string): CopyR
   return { created, skipped };
 }
 
-/** Overwrite the 3 runtime agent permission files from the package (fixes stale risk-advisory → explore paths). */
+/** Overwrite the runtime agent permission files from the package (fixes stale permission floors). */
 export function syncAgentAssets(projectRoot: string, packageRoot: string): SyncResult {
   const created: string[] = [];
   const updated: string[] = [];

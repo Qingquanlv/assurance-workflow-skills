@@ -252,14 +252,18 @@ export function loadSchemaFromFile(filePath: string): Schema {
 /**
  * Locate the workflow schema file for a project.
  * Precedence: explicit override → `.aws/workflow-schema.yaml` (project-local) →
- * `docs/design/workflow-schema.yaml` (the draft shipped with the repo).
+ * project `docs/design/workflow-schema.yaml` → package-shipped
+ * `docs/design/workflow-schema.yaml`.
  */
 export function findSchemaFile(projectRoot: string, override?: string): string {
+  const packageRoot = path.resolve(__dirname, '..', '..');
+  const packageSchema = path.join(packageRoot, 'docs', 'design', 'workflow-schema.yaml');
   const candidates = override
     ? [path.isAbsolute(override) ? override : path.join(projectRoot, override)]
     : [
         path.join(projectRoot, '.aws', 'workflow-schema.yaml'),
         path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'),
+        packageSchema,
       ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
@@ -271,7 +275,7 @@ export function findSchemaFile(projectRoot: string, override?: string): string {
 
 // ─── Static validation ───────────────────────────────────────────────────────
 
-export const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer']);
+export const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer', 'aws-reporter', 'aws-archiver']);
 export const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
 
 /** Every predicate string in the schema, tagged with its source location. */

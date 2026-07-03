@@ -1,7 +1,10 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   parseSchema,
   loadSchemaFromFile,
+  findSchemaFile,
   validateSchema,
   assertValidSchema,
   deriveAlias,
@@ -231,6 +234,15 @@ gates:
 });
 
 describe('real workflow-schema.yaml', () => {
+  it('findSchemaFile falls back to the package-shipped schema for fresh projects', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-fresh-'));
+    try {
+      expect(findSchemaFile(projectRoot)).toBe(REAL_SCHEMA);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('loads and passes static validation', () => {
     const s = loadSchemaFromFile(REAL_SCHEMA);
     expect(s.name).toBe('aws-full');
@@ -241,6 +253,8 @@ describe('real workflow-schema.yaml', () => {
     // e2e-plan-review-gate inherits via merge key, overrides reads
     expect(s.gates['e2e-plan-review-gate'].reads[0].path).toBe('review/plan-review.json');
     expect(s.gates['e2e-plan-review-gate'].rules.map(r => r.verdict)).toContain('pass');
+    expect(s.phasesById.get('report')?.agent).toBe('aws-reporter');
+    expect(s.phasesById.get('archive')?.agent).toBe('aws-archiver');
 
     const result = validateSchema(s);
     if (!result.ok) {

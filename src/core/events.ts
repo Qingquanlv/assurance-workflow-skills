@@ -5,6 +5,7 @@ import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
 
 export type QaEventSource = 'status' | 'gate' | 'run';
+export type PhaseTransitionStatus = PhaseStatusKind | string;
 
 export interface QaEventBase {
   seq: number;
@@ -18,9 +19,17 @@ export interface PhaseTransitionEvent extends QaEventBase {
   source: 'status';
   type: 'phase_transition';
   phase: string;
-  from: PhaseStatusKind | null;
-  to: PhaseStatusKind;
+  from: PhaseTransitionStatus | null;
+  to: PhaseTransitionStatus;
   outputs: string[];
+  /**
+   * Approximate wall-clock ms since this phase last became `ready`, measured
+   * when the transition was observed (aws status / state apply call time).
+   * Includes orchestration and observation lag — not a precise execution
+   * duration (execution_end.duration_ms is the precise one for test runs).
+   * Absent when the phase has no prior `ready` transition on record.
+   */
+  duration_ms?: number;
 }
 
 export interface GateVerdictEvent extends QaEventBase {
@@ -93,7 +102,11 @@ export function appendEvents(projectRoot: string, changeId: string, events: QaEv
 
   try {
     const file = getEventsFile(projectRoot, changeId);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      console.error(`warning: events.jsonl skipped: change directory does not exist: ${dir}`);
+      return;
+    }
     let seq = nextSeq(projectRoot, changeId);
     const ts = new Date().toISOString();
     const lines = events.map((event) => JSON.stringify({
@@ -111,7 +124,7 @@ export function appendEvents(projectRoot: string, changeId: string, events: QaEv
 export function readPhaseSnapshot(projectRoot: string, changeId: string): Map<string, PhaseStatusKind> {
   const snapshot = new Map<string, PhaseStatusKind>();
   for (const event of readEvents(projectRoot, changeId)) {
-    if (event.type === 'phase_transition') {
+    if (event.type === 'phase_transition' && isPhaseStatusKind(event.to)) {
       snapshot.set(event.phase, event.to);
     }
   }
@@ -124,13 +137,22 @@ export function buildStatusTransitionEvents(
   report: StatusReport,
   schema: Schema
 ): QaEventInput[] {
-  const snapshot = readPhaseSnapshot(projectRoot, changeId);
+  const snapshot = new Map<string, PhaseStatusKind>();
+  const readyAt = new Map<string, string>();
+  for (const event of readEvents(projectRoot, changeId)) {
+    if (event.type !== 'phase_transition') continue;
+    if (isPhaseStatusKind(event.to)) snapshot.set(event.phase, event.to);
+    if (event.to === 'ready') readyAt.set(event.phase, event.ts);
+  }
 
   return report.phases.flatMap((phase) => {
     if (phase.status === 'pruned') return [];
     const from = snapshot.get(phase.id) ?? null;
     if (from === phase.status) return [];
     const outputs = existingOutputs(projectRoot, changeId, schema, phase.id);
+    const duration = phase.status === 'ready' || phase.status === 'blocked'
+      ? null
+      : approxDurationSince(readyAt.get(phase.id));
     return [{
       source: 'status',
       type: 'phase_transition',
@@ -138,8 +160,18 @@ export function buildStatusTransitionEvents(
       from,
       to: phase.status,
       outputs,
+      ...(duration !== null ? { duration_ms: duration } : {}),
     }];
   });
+}
+
+/** Best-effort elapsed ms since `ts`; null when ts is absent, unparseable, or in the future. */
+export function approxDurationSince(ts: string | undefined | null): number | null {
+  if (!ts) return null;
+  const started = Date.parse(ts);
+  if (Number.isNaN(started)) return null;
+  const elapsed = Date.now() - started;
+  return elapsed >= 0 ? elapsed : null;
 }
 
 export function buildGateVerdictEvent(
@@ -197,4 +229,8 @@ function resolveChangePath(projectRoot: string, changeId: string, p: string): st
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isPhaseStatusKind(value: string): value is PhaseStatusKind {
+  return ['pruned', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped'].includes(value);
 }

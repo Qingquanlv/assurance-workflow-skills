@@ -13,7 +13,7 @@ It is not a case design, review, or codegen skill. It coordinates the entire wor
 
 - Calling `aws status --change <id> --next --json` each iteration to get the deterministic dispatch list
 - Dispatching each ready phase to a bounded `task` subagent (the agent named by the schema) that loads the phase skill and writes only that phase's produces
-- After each dispatch: running `aws gate check` for gated phases and updating `workflow-state.yaml` (orchestrator-owned — subagents never touch it)
+- After each dispatch hash check passes: running `aws gate check` for gated phases and applying state deltas to `workflow-state.yaml` (orchestrator-owned — subagents and phase CLI commands never touch it during dispatch)
 - Running CLI phases (`execution`, `healing-rerun`) directly via `aws run`
 - Stopping on terminal conditions (gate `stop`/`reject`, `aws status` terminal flag, or max-iteration guard)
 - Producing a structured final summary via `aws report`
@@ -59,18 +59,22 @@ loop (max 50 iterations):
   H0 = sha256(workflow-state.yaml)         ← state corruption check
   for each entry in dispatch_list:
     if entry.kind == "cli":
-      bash: aws run --change <id>          ← execution / healing-rerun
+      bash: aws run --change <id>          ← execution / healing-rerun; writes artifacts/events only
     else:
       task(subagent = entry.agent,
            prompt  = "Call skill(name='<entry.skill>'). Produce only the
                       outputs for phase <entry.phase> as described in the
                       skill. Do NOT run aws gate/status. Do NOT modify
                       workflow-state.yaml.")
-  assert sha256(workflow-state.yaml) == H0  ← HALT if subagent touched state
+  assert sha256(workflow-state.yaml) == H0  ← HALT if any dispatch body touched state
   for each gated phase that just completed:
     aws gate check --phase <phase> --change <id> --json
-  update workflow-state.yaml               ← orchestrator-only write
-after terminal: aws report --change <id>; prompt user for archive
+  for each completed CLI phase:
+    aws state apply --change <id> --phase <phase>  ← execution / healing-rerun
+  for each completed CLI-backed agent phase:
+    aws state apply --change <id> --phase <phase>  ← inspect / report
+  apply subagent-reported state_delta to workflow-state.yaml
+after terminal: prompt user for archive
 ```
 
 Independent branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls within the same iteration. All others run sequentially.
@@ -420,14 +424,15 @@ The orchestrator does NOT hardcode a phase sequence. It calls `aws status --chan
 | e2e-codegen | agent | aws-e2e-codegen | aws-test-author |
 | execution | cli | — | — |
 | inspect | agent | aws-inspect | aws-reviewer |
+| report | agent | aws-report-generator | aws-reporter |
 | fix-proposal | agent | aws-fix-proposal | aws-author |
 | api-codegen-fix | agent | aws-api-codegen-fixer | aws-test-author |
 | e2e-codegen-fix | agent | aws-e2e-codegen-fixer | aws-test-author |
 | healing-rerun | cli | — | — |
 | healing-reinspect | agent | aws-inspect | aws-reviewer |
-| archive | agent | aws-archive | aws-reviewer |
+| archive | agent | aws-archive | aws-archiver |
 
-After each dispatch batch, the orchestrator updates `workflow-state.yaml` before calling `aws status` again.
+After each dispatch batch, the orchestrator first verifies the `workflow-state.yaml` hash is unchanged, then applies state deltas before calling `aws status` again. Dispatch-table CLI phases use `aws state apply --change <id> --phase execution|healing-rerun`; CLI-backed agent phases use `aws state apply --change <id> --phase inspect|report` after their artifacts are produced.
 
 ---
 
@@ -442,13 +447,13 @@ A phase is complete only when **all** of the following are true:
    - `subagent-dispatch` mode: the dispatched phase subagent reads the SKILL.md (the dispatch prompt names the skill) and MUST report the absolute SKILL.md path it read in its final message. The **orchestrator** then writes the same three fields into `workflow-state.yaml` on the subagent's behalf. The subagent never writes them itself. If the subagent's report does not confirm the skill was read, treat the phase as not executed and retry per the subagent retry rule.
    If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
    This gate exists because the executor can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
-1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode; the dispatched subagent in subagent-dispatch mode; for CLI phases, `aws run` completed successfully).
+1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode; the dispatched subagent in subagent-dispatch mode; for CLI phases, `aws run` / `aws report ...` completed successfully and wrote artifacts/events only).
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
-4. The orchestrator applied the phase's `state_delta` to `workflow-state.yaml` (status set to the correct terminal value). In dispatch mode this write happens **after** the state-hash check passes — never inside the subagent.
+4. The orchestrator applied the phase's `state_delta` to `workflow-state.yaml` (status set to the correct terminal value). In dispatch mode this write happens **after** the state-hash check passes — never inside the subagent or inside a phase CLI command. For `execution`, `healing-rerun`, `inspect`, and `report`, use `aws state apply --change <change-id> --phase <phase>` at this point.
 5. The next-phase gate was explicitly evaluated before advancing.
 6. **CLI status and gate check are authoritative** (not advisory):
-   - After writing each phase's outputs to disk and updating `workflow-state.yaml`, run `aws status --change <change-id> --next --json` to determine whether the phase is `done` and which phase(s) run next.
+   - After writing each phase's outputs to disk, verifying the dispatch hash, and applying the state delta to `workflow-state.yaml`, run `aws status --change <change-id> --next --json` to determine whether the phase is `done` and which phase(s) run next.
    - For gated phases, also run `aws gate check --change <change-id> --phase <phase-id> --json` and record the verdict in `workflow-state.yaml` before advancing.
    - The CLI output is the ground truth — never override it with prose reasoning.
    - If the CLI is unavailable (binary missing, schema validation fails), halt and report the error before proceeding.
@@ -536,7 +541,7 @@ The gate makes the "did I read the contract?" check **explicit and auditable** i
 
 Path: `qa/changes/<change-id>/workflow-state.yaml`
 
-This file is the **canonical cross-phase state source**. Every phase must read it at entry and update it at exit.
+This file is the **canonical cross-phase state source**. Every phase reads it at entry. At exit, phase executors report or materialize a state delta; only the orchestrator writes `workflow-state.yaml`, and in subagent-dispatch mode that write happens after the dispatch hash check passes.
 
 ```yaml
 schema_version: "1.0"
@@ -775,6 +780,9 @@ phases:
     skill_loaded_at: null
     batch_id: <YYYYMMDD-HHmmss>
     manifest: execution/execution-manifest.yaml
+    started_at: <ISO 8601 timestamp>       # from events.jsonl execution_start
+    completed_at: <ISO 8601 timestamp>     # from events.jsonl execution_end / phase_transition
+    duration_ms: 0                         # from events.jsonl execution_end
 
   inspect:
     status: pending | done | failed | partial   # partial = fallback mode without classification

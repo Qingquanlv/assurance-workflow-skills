@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   findSchemaFile,
   loadSchemaFromFile,
@@ -30,6 +32,12 @@ export function registerStatusCommand(program: Command): void {
     .action((options) => {
       const changeId: string = options.change;
       const projectRoot = process.cwd();
+      const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+      if (!fs.existsSync(changeDir)) {
+        logError(`change '${changeId}' not found (expected: ${changeDir}). Check the change id, or run from the project root.`);
+        process.exit(1);
+        return;
+      }
 
       let report;
       let schema: Schema;

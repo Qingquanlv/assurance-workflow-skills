@@ -375,4 +375,18 @@ describe('resolveNextDispatch', () => {
     expect(result[0].kind).toBe('agent');
     expect(result[1].kind).toBe('cli');
   });
+
+  it('dispatches the real report phase to aws-reporter', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['report'], realSchema)).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'report', kind: 'agent', skill: 'aws-report-generator', agent: 'aws-reporter' },
+    ]);
+  });
+
+  it('dispatches the real archive phase to aws-archiver', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['archive'], realSchema)).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'archive', kind: 'agent', skill: 'aws-archive', agent: 'aws-archiver' },
+    ]);
+  });
 });

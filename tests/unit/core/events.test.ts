@@ -38,6 +38,23 @@ describe('events.jsonl helpers', () => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
+  it('does not create the change directory for a nonexistent change', () => {
+    const ghostRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-events-ghost-'));
+    try {
+      appendEvents(ghostRoot, 'NO-SUCH-CHANGE', [{
+        source: 'status',
+        type: 'phase_transition',
+        phase: 'design',
+        from: null,
+        to: 'ready',
+        outputs: [],
+      }]);
+      expect(fs.existsSync(path.join(ghostRoot, 'qa', 'changes', 'NO-SUCH-CHANGE'))).toBe(false);
+    } finally {
+      fs.rmSync(ghostRoot, { recursive: true, force: true });
+    }
+  });
+
   it('appends events with monotonic seq, timestamp, source and change id', () => {
     appendEvents(projectRoot, changeId, [
       { source: 'status', type: 'phase_transition', phase: 'design', from: null, to: 'ready', outputs: [] },
@@ -61,6 +78,15 @@ describe('events.jsonl helpers', () => {
 
     expect(readEvents(projectRoot, changeId)).toHaveLength(2);
     expect(readPhaseSnapshot(projectRoot, changeId).get('design')).toBe('done');
+  });
+
+  it('ignores workflow-state terminal statuses when building orchestration snapshots', () => {
+    appendEvents(projectRoot, changeId, [
+      { source: 'status', type: 'phase_transition', phase: 'execution', from: null, to: 'ready', outputs: [] },
+      { source: 'status', type: 'phase_transition', phase: 'execution', from: 'ready', to: 'PASS_WITH_WARNINGS', outputs: [] },
+    ]);
+
+    expect(readPhaseSnapshot(projectRoot, changeId).get('execution')).toBe('ready');
   });
 
   it('builds status transition events only for changed non-pruned phases', () => {
@@ -89,8 +115,55 @@ gates: {}
     } as StatusReport;
 
     expect(buildStatusTransitionEvents(projectRoot, changeId, report, schema)).toEqual([
-      { source: 'status', type: 'phase_transition', phase: 'design', from: 'ready', to: 'done', outputs: ['design.json'] },
+      {
+        source: 'status',
+        type: 'phase_transition',
+        phase: 'design',
+        from: 'ready',
+        to: 'done',
+        outputs: ['design.json'],
+        duration_ms: expect.any(Number),
+      },
     ]);
+  });
+
+  it('attaches an approximate duration since the phase became ready', () => {
+    const readyTs = new Date(Date.now() - 90_000).toISOString();
+    fs.writeFileSync(getEventsFile(projectRoot, changeId), JSON.stringify({
+      seq: 1,
+      ts: readyTs,
+      change_id: changeId,
+      source: 'status',
+      type: 'phase_transition',
+      phase: 'design',
+      from: null,
+      to: 'ready',
+      outputs: [],
+    }) + '\n', 'utf-8');
+
+    const schema = parseSchema(`
+phases:
+  - id: design
+    requires: []
+    produces: [design.json]
+  - id: fresh
+    requires: []
+    produces: [fresh.json]
+gates: {}
+`);
+    const report = {
+      change_id: changeId,
+      phases: [
+        { id: 'design', status: 'done' },
+        { id: 'fresh', status: 'ready' },
+      ],
+    } as StatusReport;
+
+    const [done, fresh] = buildStatusTransitionEvents(projectRoot, changeId, report, schema) as Array<Record<string, unknown>>;
+    expect(done.duration_ms as number).toBeGreaterThanOrEqual(90_000);
+    expect(done.duration_ms as number).toBeLessThan(120_000);
+    // Transitions into ready (or with no prior ready on record) carry no duration.
+    expect(fresh.duration_ms).toBeUndefined();
   });
 
   it('counts BLOCK findings when building a gate verdict event', () => {

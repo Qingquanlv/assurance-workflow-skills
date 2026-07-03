@@ -9,6 +9,7 @@ import { registerStatusCommand } from './commands/status';
 import { registerGateCommand } from './commands/gate';
 import { registerSkillCommand } from './commands/skill';
 import { registerRiskCommand } from './commands/risk';
+import { registerStateCommand } from './commands/state';
 
 const program = new Command();
 
@@ -25,6 +26,7 @@ registerReportCommand(program);
 registerStatusCommand(program);
 registerGateCommand(program);
 registerRiskCommand(program);
+registerStateCommand(program);
 registerSkillCommand(program);
 
 program.parse(process.argv);
