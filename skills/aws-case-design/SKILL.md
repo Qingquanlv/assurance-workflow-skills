@@ -979,6 +979,16 @@ The case YAML contains **user-readable QA cases** optimized for Web display and 
 
 Case YAML describes what to test. API mapping belongs to `api-plan.md`. E2E locator mapping belongs to `e2e-plan.md` and `tests/e2e/`.
 
+**YAML scalar safety (mandatory):**
+
+- Natural-language list items under `preconditions`, `test_data`, `steps`, `assertions`, `postconditions`, and `edge_cases` MUST be YAML strings.
+- If a list item contains a colon followed by a space (for example `name: "qa_dept_dup"` or `部门 1: "x"`), quote the entire item:
+  - Good: `- '第一次 name: "qa_dept_dup"'`
+  - Good: `- '部门 1: "qa_dept_filter_match"'`
+  - Bad: `- 第一次 name: "qa_dept_dup"`
+- Do not rely on YAML parsing `- name: "x"` as an object inside natural-language fields. These fields are string arrays, not maps.
+- When in doubt, quote the entire scalar with single quotes and escape inner single quotes by doubling them.
+
 **Allowed:**
 
 ```yaml
@@ -1271,6 +1281,8 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 **YAML structure:**
 
 1. YAML is valid and parseable.
+   - Must be validated with a real YAML parser after writing, not only visually inspected.
+   - Pay special attention to natural-language list items containing `: `, quotes, parentheses, or HTTP/status fragments.
 2. `schema_version` exists.
 3. `added`, `modified`, and `removed` are arrays (not null).
 4. case.yaml does NOT contain a top-level `change:` block (belongs in `.qa.yaml`).

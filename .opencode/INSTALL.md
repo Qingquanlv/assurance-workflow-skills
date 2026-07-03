@@ -195,13 +195,13 @@ aws report inspect --change <change-id>
 
 ## Updating
 
-If skill updates do not appear after restart, refresh local OpenCode AWS package caches:
+If skill updates do not appear after restart, refresh OMO skills and clear stale plugin caches:
 
 ```bash
 aws skill refresh
 ```
 
-For a local development checkout, also refresh the linked CLI:
+For a local development checkout, also rebuild the linked CLI:
 
 ```bash
 aws skill refresh --build-link
@@ -213,6 +213,8 @@ If `advisory.json` writes are denied (stale `aws-author` still allows `risk-advi
 cd /path/to/your-qa-project
 aws skill refresh --sync-agents --build-link
 ```
+
+`aws skill refresh` symlinks skills into `~/.config/opencode/skills/` for oh-my-opencode (OMO). It also removes duplicate `skills.paths` entries from global/project `opencode.json` — keeping both causes every AWS skill to appear twice in the palette.
 
 Or run `aws init --repair` — repair mode now overwrites `.opencode/agents/aws-*.md` from the package.
 

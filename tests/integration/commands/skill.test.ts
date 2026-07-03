@@ -4,6 +4,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 
 const CLI = path.resolve(__dirname, '../../../dist/cli.js');
+const PACKAGE_ROOT = path.resolve(__dirname, '../../..');
 
 function run(cmd: string, cwd: string, env: NodeJS.ProcessEnv): string {
   return execSync(`node ${CLI} ${cmd}`, { cwd, env }).toString();
@@ -30,39 +31,45 @@ describe('aws skill refresh (integration)', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('dry-run reports AWS plugin caches without deleting them', () => {
-    const agentDir = path.join(configHome, '.opencode', 'agents');
+  it('dry-run reports caches and OMO link plan without modifying files', () => {
     const cacheDir = path.join(cacheHome, 'packages', 'assurance-workflow-skills@git+https:github.com');
-    fs.mkdirSync(agentDir, { recursive: true });
     fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'aws-api-codegen.md'), '# stale agent');
-    fs.writeFileSync(path.join(agentDir, 'other.md'), '# keep');
 
     const output = run('skill refresh --dry-run', tmpDir, env);
 
     expect(output).toContain('DRY RUN');
     expect(output).toContain('assurance-workflow-skills');
-    expect(fs.existsSync(path.join(agentDir, 'aws-api-codegen.md'))).toBe(true);
-    expect(fs.existsSync(path.join(agentDir, 'other.md'))).toBe(true);
+    expect(output).toContain('[dry-run] would link');
     expect(fs.existsSync(cacheDir)).toBe(true);
   });
 
-  it('removes AWS plugin caches but keeps unrelated files and stale agent wrappers', () => {
-    const agentDir = path.join(configHome, '.opencode', 'agents');
+  it('links OMO skills, clears plugin caches, and removes duplicate skills.paths', () => {
     const cacheDir = path.join(cacheHome, 'packages', 'assurance-workflow-skills@git+https:github.com');
     const otherCache = path.join(cacheHome, 'packages', 'other-plugin');
-    fs.mkdirSync(agentDir, { recursive: true });
+    const omoTarget = path.join(configHome, 'skills');
+    const globalJson = path.join(configHome, 'opencode.json');
+    const projectJson = path.join(tmpDir, 'opencode.json');
+    const skillsPath = path.join(PACKAGE_ROOT, 'skills');
+
     fs.mkdirSync(cacheDir, { recursive: true });
     fs.mkdirSync(otherCache, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'aws-api-codegen.md'), '# stale agent');
-    fs.writeFileSync(path.join(agentDir, 'other.md'), '# keep');
+    fs.mkdirSync(path.dirname(globalJson), { recursive: true });
+    fs.writeFileSync(globalJson, JSON.stringify({ skills: { paths: [skillsPath] } }, null, 2));
+    fs.writeFileSync(projectJson, JSON.stringify({ skills: { paths: [skillsPath, '/other/skills'] } }, null, 2));
 
     const output = run('skill refresh', tmpDir, env);
 
     expect(output).toContain('OpenCode AWS skill refresh complete');
-    expect(fs.existsSync(path.join(agentDir, 'aws-api-codegen.md'))).toBe(true);
-    expect(fs.existsSync(path.join(agentDir, 'other.md'))).toBe(true);
+    expect(output).toContain('[omo] linked');
     expect(fs.existsSync(cacheDir)).toBe(false);
     expect(fs.existsSync(otherCache)).toBe(true);
+    expect(fs.existsSync(path.join(omoTarget, 'aws-workflow'))).toBe(true);
+
+    const globalNext = JSON.parse(fs.readFileSync(globalJson, 'utf8')) as Record<string, unknown>;
+    const projectNext = JSON.parse(fs.readFileSync(projectJson, 'utf8')) as {
+      skills: { paths: string[] };
+    };
+    expect(globalNext.skills).toBeUndefined();
+    expect(projectNext.skills.paths).toEqual(['/other/skills']);
   });
 });

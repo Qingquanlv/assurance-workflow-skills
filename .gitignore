@@ -5,7 +5,7 @@ coverage/
 .aws/cache/
 .DS_Store
 **/.DS_Store
-docs/*
+docs/
 !docs/superpowers/
 !docs/superpowers/**
 !docs/design/

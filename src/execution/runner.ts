@@ -293,7 +293,7 @@ function removeIfExists(filePath: string): void {
 
 const ALL_TARGETS: SelectedTargets = { api: true, e2e: true, fuzz: true, performance: true };
 
-function resolveSelectedTargets(projectRoot: string, changeId: string): SelectedTargets {
+export function resolveSelectedTargets(projectRoot: string, changeId: string): SelectedTargets {
   const fromState = readSelectedTargetsFromWorkflowState(projectRoot, changeId);
   if (fromState) return fromState;
 

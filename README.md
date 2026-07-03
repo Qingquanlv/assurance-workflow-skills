@@ -80,6 +80,7 @@ AWS 在每个工作流阶段都输出具体文件，不依赖对话记忆：
 qa/changes/<change-id>/
 ├── proposal.md                              ← 需求分析 & 范围确认
 ├── workflow-state.yaml                      ← 阶段状态机 + selected_targets / layers
+├── events.jsonl                             ← append-only phase / gate / run 事件流
 ├── cases/<module>/case.yaml                 ← Case 增量（ADDED / MODIFIED / REMOVED）
 ├── plans/
 │   ├── api-plan.md                          ← API 测试设计
@@ -429,12 +430,14 @@ aws doctor --json    # 机器可读 JSON
 | `aws gate check --change <id> --phase <phase>` | 对指定阶段执行 gate 裁决（`pass` / `stop` / `needs_fix` 等） |
 | `aws gate check --change <id> --phase <phase> --json` | JSON 格式 gate 结果 |
 
+这些命令会以 best-effort 方式追加 `qa/changes/<id>/events.jsonl`：`aws status` 记录 phase 状态迁移，`aws gate check` 记录 gate 裁决与 BLOCK 数，`aws run` 记录测试执行 start/end、耗时和各目标结果。事件写入失败只输出 warning，不改变命令退出码或 JSON 输出。
+
 ### 开发维护
 
 | 命令 | 说明 |
 |---|---|
-| `aws skill refresh` | 清除 OpenCode 中 AWS skill 包缓存，重启后生效 |
-| `aws skill refresh --dry-run` | 预览待删除缓存，不实际执行 |
+| `aws skill refresh` | 刷新 OMO skill symlink（`~/.config/opencode/skills`）、清除插件缓存，并移除 `opencode.json` 里重复的 `skills.paths` |
+| `aws skill refresh --dry-run` | 预览待删除缓存 / symlink / paths 清理，不实际执行 |
 | `aws skill refresh --build-link` | 同时重新编译 CLI 并刷新 npm link（本地开发用） |
 | `aws skill refresh --sync-agents` | 将 `.opencode/agents/aws-*.md` 权限文件同步到当前 AWS 项目（修复 explore/ 路径 allow 未更新） |
 
@@ -545,6 +548,8 @@ Max plan fix attempts:
 **确定性编排（影子模式）：**
 
 `aws-workflow` 在每个阶段完成后调用 `aws status` 和 `aws gate check`，对比 CLI 确定性状态机与 LLM 决策的一致性。不一致时记录到 `workflow-state.yaml` 的 `agent_warnings[]`，不影响当前执行，但可用于后续分析和 Skill 迭代。
+
+运行参数（如 `run_mode`、`test_types`、`run_tests`）会在 Phase 1.1 落到 `workflow-state.yaml.params`，后续 `aws status` / `aws gate check` 以该块作为确定性运行参数来源。CLI 同时维护 `events.jsonl` 作为过程审计日志，供 UI 渲染 run 时间线，不作为 gate 状态源。
 
 底层基于 `docs/design/workflow-schema.yaml` 描述的 DAG 和 predicate mini-DSL，Gate 裁决完全由 CLI 确定性计算，不依赖 LLM 判断。
 

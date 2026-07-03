@@ -92,4 +92,24 @@ modified:
     expect(cases).toHaveLength(1);
     expect(cases[0].priority).toBe('P0');
   });
+
+  it('recovers case IDs from malformed YAML with unquoted colons in text lists', () => {
+    writeCaseYaml('qa/cases/dept/case.yaml', `
+added:
+  - case_id: TC_DEPT_009
+    module: dept
+    priority: P1
+    test_data:
+      - 第一次 name: "qa_dept_dup"
+      - 第二次 name: "qa_dept_dup"（重复）
+`);
+
+    const cases = loadCasesFromQa(tmpDir);
+
+    expect(cases).toContainEqual(expect.objectContaining({
+      case_id: 'TC_DEPT_009',
+      module: 'dept',
+      priority: 'P1',
+    }));
+  });
 });

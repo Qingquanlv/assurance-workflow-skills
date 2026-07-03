@@ -12,14 +12,28 @@ interface RefreshOptions {
   syncAgents?: boolean;
 }
 
-interface RefreshPlan {
+export interface PathPruneResult {
+  jsonPath: string;
+  removed: string[];
+}
+
+export interface PluginPruneResult {
+  jsonPath: string;
+  removed: string[];
+}
+
+export interface OmoProjectPruneResult {
+  skillsDir: string;
+  removed: string[];
+}
+
+export interface RefreshPlan {
   cacheDirs: string[];
-  skillsPathAlreadySet: boolean;
-  skillsPathAdded: boolean;
-  openCodeJsonPath: string | null;
-  projectJsonPath: string | null;
-  projectPathAlreadySet: boolean;
-  projectPathAdded: boolean;
+  omoTarget: string;
+  linkedCount: number;
+  pathPrunes: PathPruneResult[];
+  pluginPrunes: PluginPruneResult[];
+  omoProjectPrunes: OmoProjectPruneResult[];
 }
 
 function opencodeConfigHome(): string {
@@ -30,6 +44,10 @@ function opencodeConfigHome(): string {
 function opencodeCacheHome(): string {
   return process.env.AWS_OPENCODE_CACHE_HOME
     ?? path.join(os.homedir(), '.cache', 'opencode');
+}
+
+function omoSkillsTarget(): string {
+  return path.join(opencodeConfigHome(), 'skills');
 }
 
 function listAwsPackageCaches(configHome: string, cacheHome: string): string[] {
@@ -56,9 +74,9 @@ function expandHome(p: string): string {
 }
 
 /** Find the user-level opencode.json (global config, not project-level). */
-function findGlobalOpenCodeJson(): string | null {
+export function findGlobalOpenCodeJson(): string | null {
   const candidates = [
-    path.join(os.homedir(), '.config', 'opencode', 'opencode.json'),
+    path.join(opencodeConfigHome(), 'opencode.json'),
     path.join(os.homedir(), '.opencode', 'opencode.json'),
   ];
   for (const c of candidates) {
@@ -67,8 +85,8 @@ function findGlobalOpenCodeJson(): string | null {
   return null;
 }
 
-/** Find the project-level opencode.json starting from cwd, walking up. */
-function findProjectOpenCodeJson(startDir: string): string | null {
+/** Find the project-level opencode.json starting from cwd, walking up one level. */
+export function findProjectOpenCodeJson(startDir: string): string | null {
   const candidates = [
     path.join(startDir, 'opencode.json'),
     path.join(startDir, '.opencode', 'opencode.json'),
@@ -76,7 +94,6 @@ function findProjectOpenCodeJson(startDir: string): string | null {
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  // Walk one level up (common case: run from subdir of project root)
   const parent = path.dirname(startDir);
   if (parent === startDir) return null;
   const parentCandidates = [
@@ -90,17 +107,103 @@ function findProjectOpenCodeJson(startDir: string): string | null {
 }
 
 /**
- * Ensure `skillsDir` is listed in `skills.paths` of the given opencode.json file.
+ * Collect all opencode.json files found by walking from startDir up to (but not including) home dir.
+ * Each directory level contributes at most one file (prefer root-level over .opencode/ sub-dir).
  */
-function ensureSkillsPathInFile(skillsDir: string, jsonPath: string, dryRun: boolean): {
-  alreadySet: boolean;
-  added: boolean;
-} {
+export function collectProjectOpenCodeJsons(startDir: string): string[] {
+  const home = os.homedir();
+  const results: string[] = [];
+  let dir = startDir;
+  while (dir !== home && dir !== path.dirname(dir)) {
+    for (const candidate of [
+      path.join(dir, 'opencode.json'),
+      path.join(dir, '.opencode', 'opencode.json'),
+    ]) {
+      if (fs.existsSync(candidate)) {
+        results.push(candidate);
+        break;
+      }
+    }
+    dir = path.dirname(dir);
+  }
+  return results;
+}
+
+/** Remove assurance-workflow-skills@* entries from the plugin array in an opencode.json file. */
+export function removeAwsSkillsPluginFromFile(
+  jsonPath: string,
+  dryRun: boolean
+): PluginPruneResult {
   let config: Record<string, unknown>;
   try {
     config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
   } catch {
-    return { alreadySet: false, added: false };
+    return { jsonPath, removed: [] };
+  }
+
+  const existing: unknown[] = Array.isArray(config.plugin) ? (config.plugin as unknown[]) : [];
+  const kept: unknown[] = [];
+  const removed: string[] = [];
+
+  for (const entry of existing) {
+    if (typeof entry === 'string' && entry.startsWith('assurance-workflow-skills@')) {
+      removed.push(entry);
+    } else {
+      kept.push(entry);
+    }
+  }
+
+  if (removed.length === 0) return { jsonPath, removed: [] };
+
+  if (!dryRun) {
+    config.plugin = kept;
+    fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  }
+
+  return { jsonPath, removed };
+}
+
+/** Remove aws-* symlinks from a project's .opencode/skills/ dir (project-local OMO duplicates). */
+export function pruneProjectOmoSkillsDir(
+  cwd: string,
+  dryRun: boolean
+): OmoProjectPruneResult {
+  const skillsDir = path.join(cwd, '.opencode', 'skills');
+  const removed: string[] = [];
+
+  if (!fs.existsSync(skillsDir)) return { skillsDir, removed: [] };
+
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.name.startsWith('aws-')) continue;
+    const abs = path.join(skillsDir, entry.name);
+    try {
+      const stat = fs.lstatSync(abs);
+      if (!stat.isSymbolicLink()) continue;
+      removed.push(abs);
+      if (!dryRun) fs.rmSync(abs, { force: true });
+    } catch {
+      // ignore broken link inspection errors
+    }
+  }
+
+  return { skillsDir, removed };
+}
+
+function isAwsSkillsPath(candidate: string, skillsDir: string): boolean {
+  return path.resolve(expandHome(candidate)) === path.resolve(skillsDir);
+}
+
+/** Remove AWS package skills.paths entries that duplicate OMO symlinks. */
+export function removeAwsSkillsPathsFromFile(
+  skillsDir: string,
+  jsonPath: string,
+  dryRun: boolean
+): PathPruneResult {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  } catch {
+    return { jsonPath, removed: [] };
   }
 
   const skillsConfig = (config.skills ?? {}) as Record<string, unknown>;
@@ -108,81 +211,159 @@ function ensureSkillsPathInFile(skillsDir: string, jsonPath: string, dryRun: boo
     ? skillsConfig.paths as string[]
     : [];
 
-  const resolvedTarget = path.resolve(skillsDir);
-  const alreadySet = existingPaths.some(
-    p => path.resolve(expandHome(p)) === resolvedTarget
-  );
+  const kept: string[] = [];
+  const removed: string[] = [];
+  for (const entry of existingPaths) {
+    if (typeof entry === 'string' && isAwsSkillsPath(entry, skillsDir)) {
+      removed.push(entry);
+    } else {
+      kept.push(entry);
+    }
+  }
 
-  if (alreadySet) return { alreadySet: true, added: false };
+  if (removed.length === 0) return { jsonPath, removed: [] };
 
   if (!dryRun) {
-    config.skills = { ...skillsConfig, paths: [...existingPaths, skillsDir] };
+    if (kept.length === 0) {
+      const nextSkills = { ...skillsConfig };
+      delete nextSkills.paths;
+      if (Object.keys(nextSkills).length === 0) delete config.skills;
+      else config.skills = nextSkills;
+    } else {
+      config.skills = { ...skillsConfig, paths: kept };
+    }
     fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
   }
 
-  return { alreadySet: false, added: true };
+  return { jsonPath, removed };
 }
 
-/**
- * Ensure `skillsDir` is listed in global opencode.json `skills.paths`.
- * Returns what happened and where the file is.
- */
-function ensureSkillsPath(skillsDir: string, dryRun: boolean): {
-  alreadySet: boolean;
-  added: boolean;
-  openCodeJsonPath: string | null;
-} {
-  const jsonPath = findGlobalOpenCodeJson();
-  if (!jsonPath) {
-    return { alreadySet: false, added: false, openCodeJsonPath: null };
+function countLinkableSkills(skillsDir: string): number {
+  if (!fs.existsSync(skillsDir)) return 0;
+  return fs.readdirSync(skillsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('aws-'))
+    .filter((entry) => fs.existsSync(path.join(skillsDir, entry.name, 'SKILL.md')))
+    .length;
+}
+
+/** Symlink aws-* skills into the OMO scan directory (~/.config/opencode/skills). */
+export function linkOmoSkills(packageRoot: string, dryRun: boolean): { target: string; count: number } {
+  const skillsDir = path.join(packageRoot, 'skills');
+  const target = omoSkillsTarget();
+  const count = countLinkableSkills(skillsDir);
+
+  if (dryRun) return { target, count };
+
+  if (!fs.existsSync(skillsDir)) {
+    throw new Error(`Source skills dir not found: ${skillsDir}`);
   }
-  const result = ensureSkillsPathInFile(skillsDir, jsonPath, dryRun);
-  return { ...result, openCodeJsonPath: jsonPath };
+
+  fs.mkdirSync(target, { recursive: true });
+
+  for (const linkPath of fs.readdirSync(target)) {
+    if (!linkPath.startsWith('aws-')) continue;
+    const abs = path.join(target, linkPath);
+    try {
+      const stat = fs.lstatSync(abs);
+      if (!stat.isSymbolicLink()) continue;
+      const dest = fs.readlinkSync(abs);
+      if (dest.startsWith(`${skillsDir}${path.sep}`) && !fs.existsSync(abs)) {
+        fs.rmSync(abs, { force: true });
+      }
+    } catch {
+      // ignore broken link inspection errors
+    }
+  }
+
+  let linked = 0;
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith('aws-')) continue;
+    const src = path.join(skillsDir, entry.name);
+    if (!fs.existsSync(path.join(src, 'SKILL.md'))) continue;
+    const linkDest = path.join(target, entry.name);
+    fs.rmSync(linkDest, { recursive: true, force: true });
+    fs.symlinkSync(src, linkDest, 'dir');
+    linked += 1;
+  }
+
+  return { target, count: linked };
 }
 
-/**
- * Find and update project-level opencode.json if it exists in or near cwd.
- */
-function ensureSkillsPathInProject(skillsDir: string, cwd: string, dryRun: boolean): {
-  alreadySet: boolean;
-  added: boolean;
-  projectJsonPath: string | null;
-} {
-  const jsonPath = findProjectOpenCodeJson(cwd);
-  if (!jsonPath) return { alreadySet: false, added: false, projectJsonPath: null };
-  const result = ensureSkillsPathInFile(skillsDir, jsonPath, dryRun);
-  return { ...result, projectJsonPath: jsonPath };
+function pruneDuplicateSkillsPaths(
+  packageRoot: string,
+  cwd: string,
+  dryRun: boolean
+): PathPruneResult[] {
+  const skillsDir = path.join(packageRoot, 'skills');
+  const results: PathPruneResult[] = [];
+
+  const globalJson = findGlobalOpenCodeJson();
+  if (globalJson) results.push(removeAwsSkillsPathsFromFile(skillsDir, globalJson, dryRun));
+
+  const seen = new Set<string>(globalJson ? [globalJson] : []);
+  for (const projectJson of collectProjectOpenCodeJsons(cwd)) {
+    if (!seen.has(projectJson)) {
+      seen.add(projectJson);
+      results.push(removeAwsSkillsPathsFromFile(skillsDir, projectJson, dryRun));
+    }
+  }
+
+  return results;
+}
+
+function prunePluginEntries(cwd: string, dryRun: boolean): PluginPruneResult[] {
+  const results: PluginPruneResult[] = [];
+
+  const globalJson = findGlobalOpenCodeJson();
+  if (globalJson) results.push(removeAwsSkillsPluginFromFile(globalJson, dryRun));
+
+  const seen = new Set<string>(globalJson ? [globalJson] : []);
+  for (const projectJson of collectProjectOpenCodeJsons(cwd)) {
+    if (!seen.has(projectJson)) {
+      seen.add(projectJson);
+      results.push(removeAwsSkillsPluginFromFile(projectJson, dryRun));
+    }
+  }
+
+  return results;
+}
+
+function pruneOmoProjectDirs(cwd: string, dryRun: boolean): OmoProjectPruneResult[] {
+  const results: OmoProjectPruneResult[] = [];
+  const home = os.homedir();
+  let dir = cwd;
+  while (dir !== home && dir !== path.dirname(dir)) {
+    const skillsDir = path.join(dir, '.opencode', 'skills');
+    if (fs.existsSync(skillsDir)) {
+      const result = pruneProjectOmoSkillsDir(dir, dryRun);
+      if (result.removed.length > 0) results.push(result);
+    }
+    dir = path.dirname(dir);
+  }
+  return results;
 }
 
 export function planSkillRefresh(packageRoot: string): RefreshPlan {
   const configHome = opencodeConfigHome();
   const cacheHome = opencodeCacheHome();
-  const skillsDir = path.join(packageRoot, 'skills');
   const cwd = process.cwd();
-
-  const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, /* dryRun */ true);
-  const { alreadySet: pSet, added: pAdded, projectJsonPath } =
-    ensureSkillsPathInProject(skillsDir, cwd, /* dryRun */ true);
 
   return {
     cacheDirs: listAwsPackageCaches(configHome, cacheHome),
-    skillsPathAlreadySet: alreadySet,
-    skillsPathAdded: added,
-    openCodeJsonPath,
-    projectJsonPath,
-    projectPathAlreadySet: pSet,
-    projectPathAdded: pAdded,
+    omoTarget: omoSkillsTarget(),
+    linkedCount: countLinkableSkills(path.join(packageRoot, 'skills')),
+    pathPrunes: pruneDuplicateSkillsPaths(packageRoot, cwd, /* dryRun */ true),
+    pluginPrunes: prunePluginEntries(cwd, /* dryRun */ true),
+    omoProjectPrunes: pruneOmoProjectDirs(cwd, /* dryRun */ true),
   };
 }
 
 export function refreshOpenCodeSkills(packageRoot: string, options: RefreshOptions = {}): RefreshPlan {
   const configHome = opencodeConfigHome();
   const cacheHome = opencodeCacheHome();
-  const skillsDir = path.join(packageRoot, 'skills');
   const cwd = process.cwd();
   const dryRun = options.dryRun === true;
 
-  // 1. Clear plugin package caches (for original OpenCode CLI users)
   const cacheDirs = listAwsPackageCaches(configHome, cacheHome);
   if (!dryRun) {
     for (const dir of cacheDirs) {
@@ -190,21 +371,18 @@ export function refreshOpenCodeSkills(packageRoot: string, options: RefreshOptio
     }
   }
 
-  // 2. Ensure skills.paths in global opencode.json (for OpenChamber / web server)
-  const { alreadySet, added, openCodeJsonPath } = ensureSkillsPath(skillsDir, dryRun);
-
-  // 3. Also ensure skills.paths in project-level opencode.json (if any) so project context works
-  const { alreadySet: pSet, added: pAdded, projectJsonPath } =
-    ensureSkillsPathInProject(skillsDir, cwd, dryRun);
+  const { target, count } = linkOmoSkills(packageRoot, dryRun);
+  const pathPrunes = pruneDuplicateSkillsPaths(packageRoot, cwd, dryRun);
+  const pluginPrunes = prunePluginEntries(cwd, dryRun);
+  const omoProjectPrunes = pruneOmoProjectDirs(cwd, dryRun);
 
   return {
     cacheDirs,
-    skillsPathAlreadySet: alreadySet,
-    skillsPathAdded: added,
-    openCodeJsonPath,
-    projectJsonPath,
-    projectPathAlreadySet: pSet,
-    projectPathAdded: pAdded,
+    omoTarget: target,
+    linkedCount: count,
+    pathPrunes,
+    pluginPrunes,
+    omoProjectPrunes,
   };
 }
 
@@ -216,11 +394,11 @@ export function registerSkillCommand(program: Command): void {
   skill
     .command('refresh')
     .description(
-      'Refresh OpenCode AWS skills: clears plugin caches and ensures skills.paths in opencode.json'
+      'Refresh OMO AWS skills: symlink into ~/.config/opencode/skills, clear plugin caches, and remove duplicate skills.paths entries'
     )
     .option('--dry-run', 'Show what would change without modifying anything')
     .option('--build-link', 'Also run npm run build && npm link from the AWS package root')
-    .option('--sync-agents', 'Sync .opencode/agents/aws-*.md permission files into the AWS project (fixes stale risk-advisory ? explore paths)')
+    .option('--sync-agents', 'Sync .opencode/agents/aws-*.md permission files into the AWS project (fixes stale risk-advisory → explore paths)')
     .action((options: RefreshOptions) => {
       const packageRoot = path.resolve(__dirname, '../../');
       const dryRun = options.dryRun === true;
@@ -228,7 +406,6 @@ export function registerSkillCommand(program: Command): void {
       logHeader(`aws skill refresh${dryRun ? ' (DRY RUN)' : ''}`);
       logBlank();
 
-      // Optional: rebuild + relink
       if (options.buildLink) {
         const cmd = 'npm run build && npm link';
         if (dryRun) {
@@ -242,9 +419,8 @@ export function registerSkillCommand(program: Command): void {
 
       const plan = refreshOpenCodeSkills(packageRoot, { dryRun });
 
-      // Report: package cache removal
       if (plan.cacheDirs.length === 0) {
-        logInfo('No AWS OpenCode package caches found.');
+        logInfo('No AWS OpenCode plugin caches found.');
       } else {
         for (const dir of plan.cacheDirs) {
           if (dryRun) logInfo(`[dry-run] would remove cache: ${dir}`);
@@ -254,38 +430,64 @@ export function registerSkillCommand(program: Command): void {
 
       logBlank();
 
-      // Report: skills.paths in global opencode.json
-      if (plan.openCodeJsonPath === null) {
-        logWarn('Global opencode.json not found � skills.paths not configured automatically.');
-        logWarn('  Add manually: { "skills": { "paths": ["' + path.join(packageRoot, 'skills') + '"] } }');
-      } else if (plan.skillsPathAlreadySet) {
-        logOk(`[global] skills.paths already set in ${plan.openCodeJsonPath}`);
-      } else if (plan.skillsPathAdded) {
-        logOk(`[global] added skills.paths entry to ${plan.openCodeJsonPath}`);
-        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      if (dryRun) {
+        logInfo(`[dry-run] would link ${plan.linkedCount} skill(s) into ${plan.omoTarget}`);
       } else {
-        logInfo(`[dry-run] would add skills.paths to ${plan.openCodeJsonPath}`);
-        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+        logOk(`[omo] linked ${plan.linkedCount} skill(s) into ${plan.omoTarget}`);
       }
 
-      // Report: skills.paths in project-level opencode.json
-      if (plan.projectJsonPath === null) {
-        logInfo('[project] no project-level opencode.json found near cwd � skipping');
-      } else if (plan.projectPathAlreadySet) {
-        logOk(`[project] skills.paths already set in ${plan.projectJsonPath}`);
-      } else if (plan.projectPathAdded) {
-        logOk(`[project] added skills.paths entry to ${plan.projectJsonPath}`);
-        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+      logBlank();
+
+      const pruned = plan.pathPrunes.filter((entry) => entry.removed.length > 0);
+      if (pruned.length === 0) {
+        logInfo('[paths] no duplicate skills.paths entries found in opencode.json');
       } else {
-        logInfo(`[dry-run] would add skills.paths to ${plan.projectJsonPath}`);
-        logInfo(`  path: ${path.join(packageRoot, 'skills')}`);
+        for (const entry of pruned) {
+          if (dryRun) {
+            logInfo(`[dry-run] would remove skills.paths from ${entry.jsonPath}:`);
+          } else {
+            logOk(`[paths] removed duplicate skills.paths from ${entry.jsonPath}:`);
+          }
+          for (const removed of entry.removed) logInfo(`  - ${removed}`);
+        }
       }
 
-      // Optional: sync runtime agent permission files into AWS project
+      logBlank();
+
+      const prunedPlugins = plan.pluginPrunes.filter((entry) => entry.removed.length > 0);
+      if (prunedPlugins.length === 0) {
+        logInfo('[plugin] no assurance-workflow-skills plugin entries found in opencode.json');
+      } else {
+        for (const entry of prunedPlugins) {
+          if (dryRun) {
+            logInfo(`[dry-run] would remove plugin entries from ${entry.jsonPath}:`);
+          } else {
+            logOk(`[plugin] removed plugin entries from ${entry.jsonPath}:`);
+          }
+          for (const removed of entry.removed) logInfo(`  - ${removed}`);
+        }
+      }
+
+      logBlank();
+
+      const prunedOmo = plan.omoProjectPrunes;
+      if (prunedOmo.length === 0) {
+        logInfo('[omo-project] no project-local .opencode/skills/ aws-* symlinks found');
+      } else {
+        for (const entry of prunedOmo) {
+          if (dryRun) {
+            logInfo(`[dry-run] would remove ${entry.removed.length} symlink(s) from ${entry.skillsDir}:`);
+          } else {
+            logOk(`[omo-project] removed ${entry.removed.length} symlink(s) from ${entry.skillsDir}:`);
+          }
+          for (const removed of entry.removed) logInfo(`  - ${path.basename(removed)}`);
+        }
+      }
+
       if (options.syncAgents) {
         const projectRoot = findAwsProjectRoot(process.cwd());
         if (projectRoot === null) {
-          logWarn('[agents] no AWS project root found near cwd (.aws/config.yaml or qa/) � skipping agent sync');
+          logWarn('[agents] no AWS project root found near cwd (.aws/config.yaml or qa/) — skipping agent sync');
         } else if (dryRun) {
           logInfo(`[dry-run] would sync .opencode/agents/aws-*.md into ${projectRoot}`);
         } else {
@@ -294,7 +496,7 @@ export function registerSkillCommand(program: Command): void {
           for (const f of agentSync.updated) logOk(`[agents] updated: ${f}`);
           for (const f of agentSync.unchanged) logInfo(`[agents] unchanged: ${f}`);
           if (agentSync.updated.length > 0) {
-            logWarn('[agents] permission files updated � restart OpenCode so aws-author picks up explore/** allow rules');
+            logWarn('[agents] permission files updated — restart OpenCode so aws-author picks up explore/** allow rules');
           }
         }
         logBlank();
@@ -305,7 +507,7 @@ export function registerSkillCommand(program: Command): void {
         logWarn('DRY RUN only. Re-run without --dry-run to apply changes.');
       } else {
         logOk('OpenCode AWS skill refresh complete.');
-        logWarn('Restart OpenCode so it re-scans AWS skills from the latest config.');
+        logWarn('Restart OpenCode so OMO re-scans skills from ~/.config/opencode/skills/.');
       }
     });
 }

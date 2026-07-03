@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { run } from '../execution/runner';
+import { resolveSelectedTargets, run, RunnerResult } from '../execution/runner';
+import { appendEvents } from '../core/events';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerRunCommand(program: Command): void {
@@ -19,7 +20,21 @@ export function registerRunCommand(program: Command): void {
       logBlank();
 
       try {
-        const result = run({ changeId, projectRoot });
+        const selectedTargets = resolveSelectedTargets(projectRoot, changeId);
+        const startedAt = Date.now();
+        appendEvents(projectRoot, changeId, [{
+          source: 'run',
+          type: 'execution_start',
+          targets: { ...selectedTargets },
+        }]);
+
+        const result = run({ changeId, projectRoot, selectedTargets });
+        appendEvents(projectRoot, changeId, [{
+          source: 'run',
+          type: 'execution_end',
+          duration_ms: Date.now() - startedAt,
+          per_target: toPerTarget(result),
+        }]);
 
         logBlank();
         logHeader('Execution Results');
@@ -94,4 +109,37 @@ export function registerRunCommand(program: Command): void {
         process.exit(1);
       }
     });
+}
+
+function toPerTarget(result: RunnerResult): Record<string, unknown> {
+  return {
+    api: result.api
+      ? pickExecutionResult(result.api)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    e2e: result.e2e
+      ? pickExecutionResult(result.e2e)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    fuzz: result.fuzz
+      ? pickExecutionResult(result.fuzz)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    performance: result.performance
+      ? { status: result.performance.status, scenarios: result.performance.scenarios.length }
+      : { status: 'unselected', scenarios: 0 },
+  };
+}
+
+function pickExecutionResult(result: {
+  status: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+}): Record<string, unknown> {
+  return {
+    status: result.status,
+    total: result.total,
+    passed: result.passed,
+    failed: result.failed,
+    skipped: result.skipped,
+  };
 }

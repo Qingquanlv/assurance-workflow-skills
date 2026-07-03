@@ -123,7 +123,7 @@ false
 | `e2e_framework` | `python-playwright` | Runtime parameter — E2E stack selection (`python-playwright` only; TS Playwright not supported). Maps to `phases.e2e_codegen.generated_tests.framework: pytest-playwright` in workflow-state. |
 
 
-Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above.
+Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above. After resolving overrides, write the final values to `workflow-state.yaml.params`; all later `aws status` and `aws gate check` calls use that block as the deterministic runtime parameter source.
 
 ---
 
@@ -283,7 +283,7 @@ The probe response content is irrelevant — only whether the call itself succee
   status: acknowledged
 ```
 
-After completing skill verification and detection, **write the initial `workflow-state.yaml`** with `execution_mode` and `phases.skill_registry_check.status = pass`.
+After completing skill verification and detection, **write the initial `workflow-state.yaml`** with resolved runtime `params`, `execution_mode`, and `phases.skill_registry_check.status = pass`.
 
 ---
 
@@ -296,6 +296,14 @@ Runs **after Phase 1.1** and **before Phase 2.1** (`aws-case-design`) when `run_
 ### workflow-state (initial fields)
 
 ```yaml
+params:
+  run_mode: full
+  test_types: [api, e2e]
+  run_tests: true
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 2
+
 phases:
   explore:
     status: pending | done | skipped | unavailable | failed
@@ -528,6 +536,14 @@ This file is the **canonical cross-phase state source**. Every phase must read i
 schema_version: "1.0"
 change_id: <change-id>
 module: <module>
+
+params:                      # resolved runtime parameters (defaults + user overrides)
+  run_mode: full
+  test_types: [api, e2e]
+  run_tests: true
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 2
 
 execution_mode: subagent-dispatch | inline   # set by Phase 1.1 task-tool detection
 

@@ -7,6 +7,7 @@ import {
   Schema,
 } from '../orchestration/schema';
 import { computeStatus, resolveNextDispatch, PhaseStatusKind } from '../orchestration/engine';
+import { appendEvents, buildStatusTransitionEvents } from '../core/events';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {
@@ -42,6 +43,7 @@ export function registerStatusCommand(program: Command): void {
           process.exit(1);
         }
         report = computeStatus({ schema, projectRoot, changeId });
+        appendEvents(projectRoot, changeId, buildStatusTransitionEvents(projectRoot, changeId, report, schema));
       } catch (err) {
         logError(`status failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
