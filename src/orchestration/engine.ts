@@ -31,11 +31,13 @@ import { Schema, PhaseDef, GateDef, deriveAlias } from './schema';
 
 export type PhaseStatusKind =
   | 'pruned'
+  | 'out_of_scope'
   | 'blocked'
   | 'ready'
   | 'awaiting_gate'
   | 'done'
-  | 'stopped';
+  | 'stopped'
+  | 'tampered';
 
 export interface PhaseStatus {
   id: string;
@@ -53,11 +55,27 @@ export interface Terminal {
   phase?: string;
 }
 
+export interface RunContextReport {
+  orchestrator_skill?: string;
+  interaction_mode?: string;
+  active_scope?: string;
+  stamped_at?: string;
+}
+
+export interface OpenQuestionSummary {
+  total: number;
+  answered: number;
+  deferred: number;
+  unanswered: number;
+}
+
 export interface StatusReport {
   schema_version: string;
   schema: string;
   change_id: string;
   params: Record<string, DslValue>;
+  run_context: RunContextReport | null;
+  intake?: { open_questions: OpenQuestionSummary };
   phases: PhaseStatus[];
   next: string[];
   healing: { attempts_used: number; max: number; status: string };
@@ -120,6 +138,7 @@ export class Engine {
 
   readonly params: Record<string, DslValue>;
   private stateDoc: DslValue;
+  private activeScope: string | null;
 
   constructor(opts: EngineOptions) {
     this.schema = opts.schema;
@@ -136,6 +155,10 @@ export class Engine {
 
     const state = this.loadDoc('workflow-state.yaml').value;
     this.stateDoc = isObject(state) ? state : {};
+    const runContext = isObject((this.stateDoc as Record<string, DslValue>).run_context)
+      ? (this.stateDoc as Record<string, DslValue>).run_context as Record<string, DslValue>
+      : {};
+    this.activeScope = typeof runContext.active_scope === 'string' ? runContext.active_scope : null;
 
     this.params = {};
     for (const [k, spec] of Object.entries(this.schema.params)) {
@@ -375,9 +398,14 @@ export class Engine {
         reason: `gate '${stopped.gate}' verdict '${stopped.gate_verdict}'`,
       };
     } else {
-      const active = phases.filter(p => p.status !== 'pruned');
+      const active = phases.filter(p => p.status !== 'pruned' && this.phaseInActiveScope(p.id));
       if (active.length > 0 && active.every(p => p.status === 'done')) {
-        terminal = { kind: 'completed', reason: 'all active phases done' };
+        terminal = {
+          kind: 'completed',
+          reason: this.activeScope && this.activeScope !== 'full'
+            ? 'all in-scope phases done'
+            : 'all active phases done',
+        };
       }
     }
 
@@ -386,6 +414,8 @@ export class Engine {
       schema: this.schema.name,
       change_id: this.changeId,
       params: this.params,
+      run_context: this.runContextReport(),
+      intake: this.intakeSummary(),
       phases,
       next,
       healing: this.healingSummary(),
@@ -430,6 +460,18 @@ export class Engine {
       return { id: phase.id, status: 'pruned', gate, reason: 'all dependencies pruned' };
     }
 
+    const producesPresent = phase.produces.every(p => this.fileExists(p));
+
+    if (!producesPresent && !this.phaseInActiveScope(phase.id)) {
+      return {
+        id: phase.id,
+        status: 'out_of_scope',
+        gate,
+        produces_present: false,
+        reason: `outside active_scope '${this.activeScope}'`,
+      };
+    }
+
     const isDone = (d: string) => statusMap.get(d)?.status === 'done';
     const doneDeps = activeDeps.filter(isDone);
     const missingDeps = activeDeps.filter(d => !isDone(d));
@@ -442,8 +484,6 @@ export class Engine {
     if (blocked) {
       return { id: phase.id, status: 'blocked', gate, missingDeps };
     }
-
-    const producesPresent = phase.produces.every(p => this.fileExists(p));
 
     if (!producesPresent) {
       return { id: phase.id, status: 'ready', gate, produces_present: false };
@@ -465,6 +505,51 @@ export class Engine {
       gate,
       produces_present: true,
       gate_verdict: verdict,
+    };
+  }
+
+  private phaseInActiveScope(phaseId: string): boolean {
+    if (!this.activeScope || this.activeScope === 'full') return true;
+    const phase = this.schema.phasesById.get(phaseId);
+    if (!phase?.owned_by?.length) return true;
+    return phase.owned_by.includes(this.activeScope);
+  }
+
+  private runContextReport(): RunContextReport | null {
+    const runContext = (this.stateDoc as Record<string, DslValue>).run_context;
+    if (!isObject(runContext)) return null;
+    const report: RunContextReport = {};
+    for (const key of ['orchestrator_skill', 'interaction_mode', 'active_scope', 'stamped_at'] as const) {
+      const value = runContext[key];
+      if (typeof value === 'string') report[key] = value;
+    }
+    return Object.keys(report).length > 0 ? report : null;
+  }
+
+  private intakeSummary(): { open_questions: OpenQuestionSummary } | undefined {
+    const advisory = this.docValue('explore/advisory.json');
+    if (!isObject(advisory)) return undefined;
+    const raw = advisory.open_questions_for_case_design;
+    if (!Array.isArray(raw)) return undefined;
+
+    let answered = 0;
+    let deferred = 0;
+    for (const item of raw) {
+      if (!isObject(item)) continue;
+      if (item.status === 'answered' || (item.status === undefined && item.answer != null && item.answered_via === 'explore')) {
+        answered += 1;
+      } else if (item.status === 'deferred') {
+        deferred += 1;
+      }
+    }
+    const total = raw.length;
+    return {
+      open_questions: {
+        total,
+        answered,
+        deferred,
+        unanswered: Math.max(0, total - answered - deferred),
+      },
     };
   }
 

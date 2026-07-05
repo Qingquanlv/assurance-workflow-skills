@@ -206,6 +206,9 @@ gates:
       verdict: 'needs_fix',
       blocks: 2,
       evidence: { decision: 'needs_fix' },
+      reads_sha256: expect.objectContaining({
+        'review/case-review.json': expect.any(String),
+      }),
     });
   });
 });

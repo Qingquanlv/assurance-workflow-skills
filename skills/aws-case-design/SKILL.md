@@ -9,7 +9,9 @@ Do not rely on prior conversation context.
 
 **Before doing any work:**
 
-1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
+1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists, including top-level `run_context`.
+   - `run_context.interaction_mode == autonomous` (default when absent under `aws-workflow`) → do not run planned clarification dialogue or require user approval; generate from Explore `test_strategy` + resolved `open_questions`, then hand off to `aws-case-reviewer`.
+   - `run_context.interaction_mode == interactive` → keep the existing clarification dialogue and explicit user approval before writing files.
 2. **Explore gate (Phase 1.1):** If `phases.explore` exists (written by `aws-explore`), apply gate logic from this repo's `aws-explore/SKILL.md` (Context Contract + Phase 1 gate):
    - `status == pending` → **STOP**
    - `status == done` → read `explore/advisory.json`; missing file → **STOP**
@@ -57,19 +59,29 @@ Do not rely on prior conversation context.
 
 # Brainstorming Requirements Into QA Coverage
 
-Help turn requirements and change descriptions into a well-scoped QA coverage plan through collaborative dialogue — then generate the proposal and semantic case delta YAML directly in this skill.
+Help turn requirements and change descriptions into a well-scoped QA coverage plan. In `interactive` mode, do this through collaborative dialogue. In `autonomous` mode, derive the plan from file evidence, Explore `test_strategy`, and resolved `open_questions`, then generate the proposal and semantic case delta YAML directly in this skill.
 
-Start by deriving the change ID and exploring the existing QA context. Ask clarifying questions **one at a time**. Once you understand the scope, propose 2–3 coverage approaches and get user approval. After approval, write `proposal.md`, then write the semantic case delta YAML and self-review it before handing off to aws-case-reviewer.
+Start by deriving the change ID and exploring the existing QA context. Branch by `run_context.interaction_mode`:
+
+- `interactive`: ask clarifying questions **one at a time**. Once you understand the scope, propose 2–3 coverage approaches and get user approval. After approval, write `proposal.md`, then write the semantic case delta YAML and self-review it before handing off to aws-case-reviewer.
+- `autonomous`: do not ask planned clarification questions and do not wait for user approval. Use Explore `test_strategy` as the macro plan proposal, consume `open_questions` with `status=answered` / `answered_via=auto_default`, use neutral wording for `deferred` or `undecided`, write `proposal.md` with `generation_mode: autonomous`, then write case delta YAML and self-review it before handing off to aws-case-reviewer.
 
 <HARD-GATE>
-Do NOT generate case delta, plan, test code, execution result, review result, or archive output until:
+Do NOT generate case delta, plan, test code, execution result, review result, or archive output until the mode-specific gate below is satisfied.
 
+`interactive` gate:
 1. QA context has been explored,
 2. clarifying questions have been answered,
 3. 2–3 QA coverage approaches have been proposed,
 4. the user has approved the QA coverage approach.
 
-After approval, this skill MUST:
+`autonomous` gate:
+1. QA context has been explored,
+2. Explore advisory (when present) has no `status=unanswered` open question,
+3. `test_strategy` / propagated `assertion_intent` / available QA context have been reconciled into an internal coverage decision,
+4. `proposal.md` records `generation_mode: autonomous` and describes which defaults were used.
+
+After the mode-specific gate passes, this skill MUST:
 1. Write `qa/changes/<change-id>/proposal.md`
 2. Write `qa/changes/<change-id>/cases/<module>/case.yaml`
 
@@ -80,25 +92,40 @@ Do NOT invoke aws-api-plan, aws-e2e-plan, aws-api-codegen, aws-e2e-codegen, or a
 
 ## Anti-Pattern: "This Is Too Simple To Need Brainstorming"
 
-Every QA change goes through this process. A one-line fix, a small new field, a configuration toggle — all of them. Unexamined assumptions about what to test, what data to set up, and what constitutes a pass are where most QA effort is wasted. The brainstorm can be short for simple changes, but you MUST complete it and get approval before generating any file.
+Every `interactive` QA change goes through this process. A one-line fix, a small new field, a configuration toggle — all of them. Unexamined assumptions about what to test, what data to set up, and what constitutes a pass are where most QA effort is wasted. The brainstorm can be short for simple changes, but in `interactive` mode you MUST complete it and get approval before generating any file. In `autonomous` mode, the explicit approval is replaced by transparent defaults plus the mandatory `aws-case-reviewer` gate.
 
 ## Checklist
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
-0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[].answer` — items with `answer != null` resolve the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in Step 4), but do **not** mark the whole category satisfied — still cover the broader category, citing resolved pitfalls as established context; **also read propagated `assertion_intent` on `case_design_guidance.priority_hints[]`, `watchlist[]`, and `suggested_scenarios[]`** — when present, treat the hint/scenario text as the authoritative test directive (do not reinterpret neutral pitfall wording); also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach — this skill still owns asking and confirming those categories, but presents `test_strategy` as a starting recommendation instead of asking from a blank slate
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[]`:
+   - `status=answered` (or legacy `answer != null`) resolves the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in interactive mode), but do **not** mark the whole category satisfied.
+   - `status=deferred` or `assertion_intent=undecided` means use neutral wording and do not assert the pitfall as known-accepted behavior.
+   - `status=unanswered` is allowed only in `interactive` mode before Step 4; in `autonomous` mode it is a STOP because Explore should have applied `auto_default`.
+   Also read propagated `assertion_intent` on `case_design_guidance.priority_hints[]`, `watchlist[]`, and `suggested_scenarios[]` — when present, treat the hint/scenario text as the authoritative test directive (do not reinterpret neutral pitfall wording); also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach.
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
    - If `phases.explore.status == done`: after module confirm, show **3–5 bullet Explore 摘要** (confidence tags; path to `advisory.json`; no full dump)
-4. **Ask clarifying questions one at a time** — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; lead macro categories with the `test_strategy` proposal (confirm/override) when present; treat advisory `open_questions` with `answer != null` as already-resolved for that specific pitfall (do not re-ask the same pitfall, but still cover the category); surface `answer == null` open_questions as part of their category's question
-5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; gap-only follow-up max 1–2 questions
-6. **Propose 2–3 QA coverage approaches** — each must cite adopted / override / gap from Reconcile
-7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`
-9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
-10. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
-11. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
+4. **Mode branch**:
+   - `interactive`: ask clarifying questions one at a time — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; lead macro categories with the `test_strategy` proposal (confirm/override) when present; treat advisory answered OQs as already-resolved for that specific pitfall; surface unresolved OQs as part of their category's question.
+   - `autonomous`: skip planned user questions. Adopt `test_strategy` where supported by evidence, choose conservative defaults for missing macro categories, and keep `deferred` / `undecided` pitfalls neutral.
+5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; in `interactive` mode, gap-only follow-up max 1–2 questions; in `autonomous` mode, record unresolved gaps in `proposal.md` instead of asking.
+6. **Propose 2–3 QA coverage approaches** — `interactive` only; each must cite adopted / override / gap from Reconcile.
+7. **Get user approval** — `interactive` only; wait for explicit confirmation. `autonomous` skips this step and relies on `aws-case-reviewer` as the gate artifact.
+8. **Write `.qa.yaml` approval metadata** — in `interactive` mode, persist the approved coverage approach before writing cases:
+   ```yaml
+   approval:
+     mode: interactive
+     approved_by: user
+     approved_approach: <stable-option-id>
+     approved_at: <ISO timestamp>
+   ```
+   `aws status` enforces this through `case-design-gate`; `cases/` existing on disk is not enough for case-design to be `done`.
+9. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`; include `generation_mode: autonomous` when no user approval was requested.
+10. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
+11. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
+12. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
 
 ### case.yaml boundary (Explore)
 
@@ -132,8 +159,9 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 
 Before starting Step 4, partition `open_questions_for_case_design[]` from the advisory:
 
-- `answered` = items where `answer != null` and `answered_via = "explore"` → treat as already-established context for that specific `pitfall_ref`; do not re-ask that exact pitfall. **Do NOT mark the whole category pre-satisfied** — each item only resolves the assertion intent for one pitfall, not the entire `success_assertions` / `exception_scenarios` / `out_of_scope` category. Still ask the category's broader question in Step 4, citing the already-resolved pitfalls as established context rather than re-deciding them.
-- `pending` = items where `answer == null` → merge these into the category queue; ask them when their category comes up, using the original question text and options from the advisory item.
+- `answered` = items where `status = "answered"` (legacy: `answer != null` and `answered_via = "explore"`) → treat as already-established context for that specific `pitfall_ref`; do not re-ask that exact pitfall. **Do NOT mark the whole category pre-satisfied** — each item only resolves the assertion intent for one pitfall, not the entire `success_assertions` / `exception_scenarios` / `out_of_scope` category. In `interactive` mode, still ask the category's broader question in Step 4, citing the already-resolved pitfalls as established context rather than re-deciding them.
+- `deferred` = items where `status = "deferred"` → do not assert this pitfall as accepted behavior; use neutral language and list it as unresolved in `proposal.md`.
+- `pending` = items where `status = "unanswered"` or legacy `answer == null` → in `interactive` mode, merge these into the category queue and ask them when their category comes up; in `autonomous` mode, STOP because `aws-explore` should have resolved them via `auto_default`.
 
 Do NOT repeat an advisory question (same `pitfall_ref`) that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context when covering the broader category.
 
@@ -416,9 +444,11 @@ If they agree, read: `skills/aws-case-design/visual-companion.md`
 
 ---
 
-### Step 7: Propose 2–3 QA Coverage Approaches
+### Step 7: Propose 2–3 QA Coverage Approaches (`interactive` only)
 
 Present 2–3 options with trade-offs and your recommendation. Lead with your recommendation. Wait for explicit approval before writing any file.
+
+In `autonomous` mode, skip this section: select one conservative approach from `test_strategy` + evidence, record the rationale and `generation_mode: autonomous` in `proposal.md`, and continue directly to writing outputs.
 
 **Example:**
 
@@ -1474,7 +1504,7 @@ Stop and address these before continuing:
 - Do NOT generate or modify `tests/api` or `tests/e2e` in this skill.
 - Do NOT write review or execution result in this skill.
 - Do NOT archive anything in this skill.
-- If the user says "skip brainstorm", do **NOT** skip the hard gate. Instead, offer a shortened brainstorm mode:
+- If the user says "skip brainstorm" while `interaction_mode == interactive`, do **NOT** skip the hard gate. Instead, offer a shortened brainstorm mode:
   > "You've asked to skip brainstorming. I cannot skip the hard gate — QA scope must be confirmed before writing any file. I can run a shortened mode: I'll confirm module, change type, test types, data needs, success assertions, exception scope, automation target, and out-of-scope in fewer questions. Shall I proceed with the shortened mode?"
   In shortened mode, still cover all 8 clarifying categories. Still propose 2–3 coverage approaches. Still require user approval before writing any file.
 
@@ -1487,7 +1517,8 @@ Stop and address these before continuing:
 - **YAGNI ruthlessly** — Remove out-of-scope cases from all coverage proposals
 - **Explore before proposing** — Always check existing `qa/cases/` and `tests/` before recommending coverage
 - **Propose alternatives** — Always offer 2–3 coverage approaches before settling
-- **Approve before writing** — Get coverage approach approval before generating any file
+- **Approve before writing (`interactive`)** — Get coverage approach approval before generating any file
+- **Transparent defaults (`autonomous`)** — When approval is skipped, mark `proposal.md` with `generation_mode: autonomous` and list defaults / unresolved gaps
 - **proposal.md first** — Write the proposal before writing cases
 - **Natural language cases** — Describe what to test in plain language; leave method/path/auth/code to aws-api-plan; include objective, postconditions, edge_cases, related_cases, automation.status, regression
 - **Delta operations are explicit** — Decide added/modified/removed at write time, not at archive time

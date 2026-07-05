@@ -8,17 +8,26 @@ import {
   validateSchema,
   Schema,
 } from '../orchestration/schema';
-import { computeStatus, resolveNextDispatch, PhaseStatusKind } from '../orchestration/engine';
+import {
+  computeStatus,
+  resolveNextDispatch,
+  PhaseStatusKind,
+  RunContextReport,
+  OpenQuestionSummary,
+} from '../orchestration/engine';
 import { appendEvents, buildStatusTransitionEvents } from '../core/events';
+import { runStatusAudits, applyAuditsToReport } from '../core/audit';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {
   pruned: chalk.gray,
+  out_of_scope: chalk.gray,
   blocked: chalk.gray,
   ready: chalk.cyan,
   awaiting_gate: chalk.yellow,
   done: chalk.green,
   stopped: chalk.red,
+  tampered: chalk.red,
 };
 
 export function registerStatusCommand(program: Command): void {
@@ -41,6 +50,7 @@ export function registerStatusCommand(program: Command): void {
 
       let report;
       let schema: Schema;
+      let auditIssues: ReturnType<typeof runStatusAudits>['issues'] = [];
       try {
         const schemaFile = findSchemaFile(projectRoot, options.schemaFile);
         schema = loadSchemaFromFile(schemaFile);
@@ -51,6 +61,9 @@ export function registerStatusCommand(program: Command): void {
           process.exit(1);
         }
         report = computeStatus({ schema, projectRoot, changeId });
+        const audit = runStatusAudits(projectRoot, changeId, report, schema);
+        auditIssues = audit.issues;
+        report = applyAuditsToReport(report, audit);
         appendEvents(projectRoot, changeId, buildStatusTransitionEvents(projectRoot, changeId, report, schema));
       } catch (err) {
         logError(`status failed: ${(err as Error).message}`);
@@ -73,7 +86,7 @@ export function registerStatusCommand(program: Command): void {
       }
 
       if (options.json) {
-        console.log(JSON.stringify(report, null, 2));
+        console.log(JSON.stringify({ ...report, audit_issues: auditIssues }, null, 2));
         process.exit(exitCodeFor(report.terminal));
         return;
       }
@@ -93,6 +106,12 @@ export function registerStatusCommand(program: Command): void {
         console.log(`  ${color(p.status.padEnd(14))} ${p.id}${detail}`);
       }
       logBlank();
+      if (report.run_context) {
+        console.log(`  ${chalk.bold('Run')}      : ${formatRunContext(report.run_context)}`);
+      }
+      if (report.intake?.open_questions) {
+        console.log(`  ${chalk.bold('Questions')}: ${formatOpenQuestions(report.intake.open_questions)}`);
+      }
       console.log(`  ${chalk.bold('Next')}     : ${report.next.length ? report.next.join(', ') : '(none)'}`);
       console.log(
         `  ${chalk.bold('Healing')}  : ${report.healing.status} (${report.healing.attempts_used}/${report.healing.max})`
@@ -101,9 +120,23 @@ export function registerStatusCommand(program: Command): void {
         const c = report.terminal.kind === 'completed' ? chalk.green : chalk.red;
         console.log(`  ${chalk.bold('Terminal')} : ${c(report.terminal.kind)} — ${report.terminal.reason}`);
       }
+      for (const issue of auditIssues) {
+        console.log(`  ${chalk.bold('Audit')}    : ${chalk.red(issue.message)}`);
+      }
       logBlank();
       process.exit(exitCodeFor(report.terminal));
     });
+}
+
+export function formatRunContext(runContext: RunContextReport): string {
+  const orchestrator = runContext.orchestrator_skill ?? 'unknown';
+  const mode = runContext.interaction_mode ?? 'unknown';
+  const scope = runContext.active_scope ?? 'unknown';
+  return `${orchestrator} / ${mode} / ${scope}`;
+}
+
+export function formatOpenQuestions(summary: OpenQuestionSummary): string {
+  return `${summary.total} total, ${summary.answered} answered, ${summary.deferred} deferred, ${summary.unanswered} unanswered`;
 }
 
 function exitCodeFor(terminal: { kind: string } | null): number {

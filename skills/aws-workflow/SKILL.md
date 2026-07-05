@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow. Phase 1.1 detects whether the task tool is available: if yes, uses subagent-dispatch (Scheme E) — each phase is delegated to a bounded task subagent; if no, falls back to inline execution in the primary agent. Orchestrator always owns aws status / aws gate check / workflow-state.yaml."
+description: "Run the full AWS QA workflow. Phase 1.1 detects whether the task tool is available: if yes, uses subagent-dispatch (Scheme E) — each phase is delegated to a bounded task subagent except aws-explore (always inline in the primary agent); if no, falls back to inline execution in the primary agent. Orchestrator always owns aws status / aws gate check / workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -8,6 +8,8 @@ description: "Run the full AWS QA workflow. Phase 1.1 detects whether the task t
 ## Purpose
 
 This is the **orchestrator entry skill** for running the full AWS QA workflow inside an OpenCode client.
+
+**Mode binding:** `aws-workflow` is the **full / autonomous** entrypoint. It runs the existing end-to-end workflow without planned Explore / case-design clarification dialogue. If the user wants design-time questions, use `aws-intake` first and then `aws-execute`.
 
 It is not a case design, review, or codegen skill. It coordinates the entire workflow by:
 
@@ -28,7 +30,7 @@ This workflow supports two execution modes. **Phase 1.1 probes the `task` tool**
 
 | `execution_mode` | Condition | Behaviour |
 |---|---|---|
-| `subagent-dispatch` | `task` tool call succeeded in Phase 1.1 probe | Each phase is delegated to a bounded `task` subagent (Scheme E) |
+| `subagent-dispatch` | `task` tool call succeeded in Phase 1.1 probe | Scheme E: each phase delegated to a bounded `task` subagent **except `explore`** (see below) |
 | `inline` | `task` tool unavailable or probe failed | All phases execute directly in the primary agent |
 
 Regardless of mode, the **orchestrator always owns** `aws status --next --json`, `aws gate check`, and `workflow-state.yaml`. Subagents (in dispatch mode) never touch these.
@@ -37,7 +39,19 @@ Regardless of mode, the **orchestrator always owns** `aws status --next --json`,
 
 ## Execution Mode — Scheme E (subagent-dispatch)
 
-Used when `execution_mode == subagent-dispatch`. The primary agent is the orchestrator; it never does phase work itself. Each phase is dispatched to a bounded `task` subagent.
+Used when `execution_mode == subagent-dispatch`. The primary agent is the orchestrator; it never does phase work itself **except Phase 1.2 (`aws-explore`)**, which always runs **inline in the primary agent** (see Explore inline-only rule below). All other ready phases are dispatched to bounded `task` subagents.
+
+### Explore inline-only rule (mandatory)
+
+`aws-explore` **MUST NOT** be dispatched to `aws-author` (or any subagent), regardless of `execution_mode`.
+
+| Reason | Detail |
+|---|---|
+| Bash required | Explore Steps 1 and 6 call `aws risk context` / `aws risk validate-advisory` |
+| Subagent runtime | OpenCode `task` subagents typically receive **no Bash tool**; `permission.bash` cannot create one |
+| Authorized executor | Primary agent only — full `aws-explore` skill (Steps 1–7), including CLI + source read + `advisory.json` |
+
+When `aws status --next --json` returns `explore`, the orchestrator executes it inline, then applies `phases.explore` state delta to `workflow-state.yaml` before continuing the loop. Do **not** call `task(agent=aws-author, skill=aws-explore)`.
 
 ### Determinism boundary (invariant)
 
@@ -47,6 +61,7 @@ Used when `execution_mode == subagent-dispatch`. The primary agent is the orches
 | `aws gate check` (may it advance) | Produce only that phase's `produces` files |
 | Write `workflow-state.yaml` | Nothing else |
 | `aws run` for CLI phases | — |
+| **`aws-explore` (Phase 1.2) — full inline execution** | — |
 
 The subagent never runs `aws gate`, `aws status`, or any other gate-decision command, and never modifies `workflow-state.yaml`. These constraints are enforced by `.opencode/agents/*.md` permission floors (bash deny + explicit `workflow-state.yaml: deny`) and verified by the orchestrator's state-hash check (see Phase 0).
 
@@ -58,7 +73,15 @@ loop (max 50 iterations):
   if terminal: break
   H0 = sha256(workflow-state.yaml)         ← state corruption check
   for each entry in dispatch_list:
-    if entry.kind == "cli":
+    if entry.phase == "explore":
+      # INLINE-ONLY — never dispatch; subagents lack Bash for aws risk CLI
+      Read aws-explore/SKILL.md from disk; set phases.explore.skill_loaded = true
+      Execute aws-explore inline in primary agent (Steps 1–7: risk context, source read, advisory.json, validate-advisory)
+      Verify explore/context.json and explore/advisory.json on disk
+      Apply phases.explore state delta to workflow-state.yaml
+      aws gate check --phase explore --change <id> --json   (only when schema gate applies)
+      H0 = sha256(workflow-state.yaml)     ← re-snapshot after orchestrator-owned explore state delta
+    else if entry.kind == "cli":
       bash: aws run --change <id>          ← execution / healing-rerun; writes artifacts/events only
     else:
       task(subagent = entry.agent,
@@ -66,7 +89,7 @@ loop (max 50 iterations):
                       outputs for phase <entry.phase> as described in the
                       skill. Do NOT run aws gate/status. Do NOT modify
                       workflow-state.yaml.")
-  assert sha256(workflow-state.yaml) == H0  ← HALT if any dispatch body touched state
+  assert sha256(workflow-state.yaml) == H0  ← HALT if any subagent dispatch body touched state
   for each gated phase that just completed:
     aws gate check --phase <phase> --change <id> --json
   for each completed CLI phase:
@@ -128,6 +151,50 @@ false
 
 
 Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above. After resolving overrides, write the final values to `workflow-state.yaml.params`; all later `aws status` and `aws gate check` calls use that block as the deterministic runtime parameter source.
+
+After `workflow-state.yaml.params` exists, stamp this derived run context before any phase dispatch:
+
+```bash
+aws state stamp-run-context --change <change-id> --orchestrator aws-workflow
+```
+
+This writes `run_context.orchestrator_skill = aws-workflow`, `interaction_mode = autonomous`, and `active_scope = full`. Do not hand-write `run_context`; use the CLI so run_mode/scope consistency checks run.
+
+### State machine enforcement (CLI-authoritative)
+
+These fields are **CLI-only** — do not hand-write them in `workflow-state.yaml`:
+
+| Field | Command |
+|---|---|
+| `phases.healing.status` / `phases.healing.attempts` | `aws state heal --change <id> --to <status>` |
+| `phases.<review>.human_override` | `aws gate override --change <id> --phase <review-phase> --action <action> --reason "..."` |
+
+**Healing status transitions** (orchestrator calls after each step):
+
+```bash
+# After aws-fix-proposal writes fix-proposal.json
+aws state heal --change <id> --to proposal_created
+
+# After fixers + fixer-safety-gate pass
+aws state heal --change <id> --to applied
+
+# Before healing-rerun (aws run pre-check requires applied)
+aws run --change <id>
+aws state apply --change <id> --phase healing-rerun
+
+# After healing-reinspect shows no eligible failures
+aws state heal --change <id> --to resolved
+```
+
+**Human review STOP recovery** — never hand-write `review/*.json` to `decision: pass`:
+
+```bash
+aws gate override --change <id> --phase e2e-plan-review \
+  --action fix_and_proceed --reason "<user decision>"
+# Then run fixer (human_approved mode) → reviewer re-review → aws gate check
+```
+
+`aws status` audits gate hash drift (`tampered`), illegal verdict migrations, and healing consistency on every call.
 
 ---
 
@@ -289,7 +356,13 @@ The probe response content is irrelevant — only whether the call itself succee
   status: acknowledged
 ```
 
-After completing skill verification and detection, **write the initial `workflow-state.yaml`** with resolved runtime `params`, `execution_mode`, and `phases.skill_registry_check.status = pass`.
+After completing skill verification and detection, **write the initial `workflow-state.yaml`** with resolved runtime `params`, `execution_mode`, and `phases.skill_registry_check.status = pass`. Then immediately stamp the derived run context:
+
+```bash
+aws state stamp-run-context --change <change-id> --orchestrator aws-workflow
+```
+
+This marks the run as `interaction_mode: autonomous` and `active_scope: full`; downstream phase skills (`aws-explore`, `aws-case-design`) must read it before deciding whether to ask planned clarification questions.
 
 ---
 
@@ -324,15 +397,17 @@ phases:
 
 ### Steps
 
+**Executor:** primary agent **always** (inline), including when `execution_mode == subagent-dispatch`. Never dispatch to `aws-author`.
+
 ```
-Load aws-explore
+Load aws-explore in primary agent
   The skill owns the full pipeline internally:
-    - runs aws risk context (CLI)
+    - runs aws risk context (CLI) — requires Bash; reason explore is inline-only
     - applies weak_data_treat_as branch
-    - writes advisory.json only
-    - runs aws risk validate-advisory
-    - reports the phases.explore state delta; the orchestrator applies it to workflow-state.yaml
-      (in inline mode the executor is the orchestrator and applies it directly)
+    - shallow-reads source code structure
+    - writes explore/advisory.json only
+    - runs aws risk validate-advisory (CLI)
+    - reports an orchestrator-owned state delta for phases.explore (status, counts, validation_errors, skill_loaded)
 ```
 
 See `aws-explore` SKILL.md for the step-by-step.
@@ -406,10 +481,10 @@ If any **healing_skills** fail to load:
 
 The orchestrator does NOT hardcode a phase sequence. It calls `aws status --change <id> --next --json` each iteration and dispatches exactly what the schema engine returns. The table below shows the static mapping baked into `workflow-schema.yaml`; it is shown here for reference only.
 
-| Schema phase id | kind | skill | agent |
+| Schema phase id | kind | skill | agent / executor |
 |---|---|---|---|
 | skill-registry-check | orchestrator-internal | — | — |
-| explore | agent | aws-explore | aws-author |
+| explore | **inline-only** | aws-explore | **primary agent** (never `task` / `aws-author`) |
 | case-design | agent | aws-case-design | aws-author |
 | case-review | agent | aws-case-reviewer | aws-reviewer |
 | case-fix | agent | aws-case-fixer | aws-author |
@@ -443,11 +518,11 @@ Loading a skill is **never** enough to mark a phase complete.
 A phase is complete only when **all** of the following are true:
 
 0. **Skill Load Gate (mandatory, mode-aware)** — before any phase work executes, the phase's SKILL.md MUST be read from disk by the **phase executor** (not from memory, not from a prior conversation turn):
-   - `inline` mode: the primary agent reads the SKILL.md itself, then sets `phases.<phase_name>.skill_loaded = true`, `skill_md_path = <absolute path read>`, `skill_loaded_at = <ISO 8601 timestamp>` in `workflow-state.yaml`.
-   - `subagent-dispatch` mode: the dispatched phase subagent reads the SKILL.md (the dispatch prompt names the skill) and MUST report the absolute SKILL.md path it read in its final message. The **orchestrator** then writes the same three fields into `workflow-state.yaml` on the subagent's behalf. The subagent never writes them itself. If the subagent's report does not confirm the skill was read, treat the phase as not executed and retry per the subagent retry rule.
+   - `inline` mode **or `explore` phase**: the primary agent reads the SKILL.md itself, then sets `phases.<phase_name>.skill_loaded = true`, `skill_md_path = <absolute path read>`, `skill_loaded_at = <ISO 8601 timestamp>` in `workflow-state.yaml`.
+   - `subagent-dispatch` mode (all phases **except `explore`**): the dispatched phase subagent reads the SKILL.md (the dispatch prompt names the skill) and MUST report the absolute SKILL.md path it read in its final message. The **orchestrator** then writes the same three fields into `workflow-state.yaml` on the subagent's behalf. The subagent never writes them itself. If the subagent's report does not confirm the skill was read, treat the phase as not executed and retry per the subagent retry rule.
    If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
    This gate exists because the executor can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
-1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode; the dispatched subagent in subagent-dispatch mode; for CLI phases, `aws run` / `aws report ...` completed successfully and wrote artifacts/events only).
+1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode **and for `explore` in subagent-dispatch mode**; the dispatched subagent in subagent-dispatch mode for all other agent phases; for CLI phases, `aws run` / `aws report ...` completed successfully and wrote artifacts/events only).
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
 4. The orchestrator applied the phase's `state_delta` to `workflow-state.yaml` (status set to the correct terminal value). In dispatch mode this write happens **after** the state-hash check passes — never inside the subagent or inside a phase CLI command. For `execution`, `healing-rerun`, `inspect`, and `report`, use `aws state apply --change <change-id> --phase <phase>` at this point.
@@ -477,13 +552,13 @@ Before executing **any** phase work (reading inputs, generating outputs, writing
 
 1. Identify the skill name for the phase from the table below.
 2. The **phase executor** reads the SKILL.md file from disk — not from conversation memory, not from a prior turn's context:
-   - `inline` mode: the primary agent reads it with the `Read` tool.
-   - `subagent-dispatch` mode: the dispatched subagent reads it (via `skill(...)` or `Read`) and reports the absolute path read in its final message.
+   - `inline` mode **or `explore` phase**: the primary agent reads it with the `Read` tool.
+   - `subagent-dispatch` mode (phases **other than `explore`**): the dispatched subagent reads it (via `skill(...)` or `Read`) and reports the absolute path read in its final message.
 3. The **orchestrator** (primary agent) updates `workflow-state.yaml` `phases.<phase_name>` with:
    - `skill_loaded: true`
    - `skill_md_path: <absolute path to SKILL.md>`
    - `skill_loaded_at: <ISO 8601 timestamp>`
-   In inline mode the orchestrator writes this before starting the phase work. In dispatch mode it writes this together with the phase's `state_delta`, after the subagent returns and the state-hash check passes — the subagent never writes `workflow-state.yaml`.
+   In inline mode **and for `explore` in subagent-dispatch mode**, the orchestrator writes this before starting the phase work. In dispatch mode for other phases, it writes this together with the phase's `state_delta`, after the subagent returns and the state-hash check passes — the subagent never writes `workflow-state.yaml`.
 
 If the orchestrator attempts to set `phases.<phase_name>.status` to a terminal value (`done` / `pass` / `fail` / `skipped`) while `skill_loaded != true`, the workflow MUST STOP and report:
 
@@ -618,6 +693,7 @@ phases:
     skill_loaded: false       # → true after Read(aws-case-design/SKILL.md)
     skill_md_path: null
     skill_loaded_at: null
+    gate_file: .qa.yaml       # case-design-gate checks .qa.yaml.approval in interactive intake
     outputs:
       - .qa.yaml
       - proposal.md
@@ -1433,6 +1509,13 @@ state_delta:
 gate:
   - entry: phases.inspect.status == done AND inspect/quality-gate-result.json exists
            (after healing converges; if healing ran, use the converged re-inspect gate)
+  - PRECONDITION — healing decision must be recorded first:
+      phases.healing.status MUST be a terminal resting state
+      (not_needed | skipped | resolved | exhausted | failed) BEFORE running Report.
+      If it is still pending / applied / proposal_created, the healing entry decision
+      was skipped — go back to Phase 8 (or the healing loop); do NOT generate the report.
+      `aws status` enforces this: inspect done + report/terminal reached while
+      healing.status is pending/applied/proposal_created ⇒ HEAL-STATE-INCONSISTENT ⇒ stopped.
   - this phase is a TERMINAL ARTIFACT and does NOT make gate decisions —
     the release gate remains inspect/quality-gate-result.json.
   - report generation does NOT block Phase 14 archive eligibility recommendation; a report-generation
@@ -1522,7 +1605,7 @@ notes:
 
 **Phase sequence:**
 
-**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop (see "Execution Mode — Scheme E" section above). The loop calls `aws status --next --json` each iteration and dispatches every phase to a bounded `task` subagent — do not describe each phase step-by-step here; the loop and the per-phase SKILL.md files are the authoritative source.
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop (see "Execution Mode — Scheme E" section above). The loop calls `aws status --next --json` each iteration and dispatches ready phases to bounded `task` subagents — **except `explore`**, which always runs inline in the primary agent.
 
 **If `execution_mode == inline`:** execute each phase sequentially in the primary agent as described below.
 
@@ -1549,6 +1632,7 @@ Phase 2.1 — Case Design
   → Load aws-case-design
   → Execute inline (writes cases/<module>/case.yaml; .qa.yaml and proposal.md may be pre-seeded or co-written)
   → Verify Phase 2.1 outputs on disk: .qa.yaml, proposal.md, cases/<module>/case.yaml
+  → Apply case-design-gate (interactive intake requires .qa.yaml.approval.approved_by/approved_approach/approved_at)
   → Update workflow-state.yaml: phases.case_design.status = done
 
 Phase 2.2 — Case Review (initial)
@@ -1658,7 +1742,7 @@ If run_tests == true:
 
 ## Full Workflow (run_mode = full)
 
-**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop above. Each phase is dispatched to a bounded `task` subagent; parallel branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls in the same iteration.
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop above. Each ready phase is dispatched to a bounded `task` subagent **except `explore` (inline in primary agent)**; parallel branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls in the same iteration.
 
 **If `execution_mode == inline`:** all phases execute sequentially in the primary agent as described below. No subagents or tasks are used. Parallel branches run sequentially.
 
@@ -2512,7 +2596,7 @@ Every gate listed in **Mandatory Review JSON Gate** applies identically whether 
 
 This section clarifies when subagent usage is **allowed** vs. **forbidden**, and how to record it unambiguously in `workflow-state.yaml`.
 
-**Authorized vs. unauthorized:** in `subagent-dispatch` mode, the bounded phase subagents dispatched by the orchestration loop are the **authorized** executors — they load their assigned phase skill and write that phase's output files (including review JSON when the dispatched phase *is* a review phase). That is not a violation; it is the execution model. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
+**Authorized vs. unauthorized:** in `subagent-dispatch` mode, bounded phase subagents dispatched by the orchestration loop are **authorized** executors for their assigned phases — **except `explore`**, which always runs inline in the primary agent (never `task(agent=aws-author)`). Authorized subagents load their assigned phase skill and write that phase's output files. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
 
 ### Allowed: exploration / document-driven subagents (both modes)
 
@@ -2602,7 +2686,7 @@ subagents:
 
 **Hard rule: search-mode and analyze-mode parallel agents are DISABLED by default during aws-workflow.**
 
-When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. This rule bans *additional* search/analyze agents; it does not change how AWS phases themselves execute — phases follow `execution_mode` (inline in the primary agent, or dispatched to bounded phase subagents by the Scheme E orchestration loop).
+When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. This rule bans *additional* search/analyze agents; it does not change how AWS phases themselves execute — phases follow `execution_mode` (`explore` always inline in the primary agent; other phases inline or dispatched per Scheme E).
 
 **The only allowed exception** is source exploration *before Phase 2.1 begins*, and only when ALL of the following hold:
 
@@ -2751,6 +2835,8 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
   IF phases.execution.status in [PASS, PASS_WITH_WARNINGS] → proceed to Phase 14 archive eligibility recommendation
 ```
 
+**`pending` is not a resting state.** `phases.healing.status = pending` means "should be decided but not yet started". Once inspect has classified failures, the orchestrator MUST move healing.status off `pending` at this decision point — either by entering the loop or by recording `not_needed` / `skipped` (all via `aws state heal`). Never advance to Report/Phase 14 while healing.status is still `pending` (or mid-loop `applied` / `proposal_created`). `aws status` audits this as `HEAL-STATE-INCONSISTENT` and forces terminal `stopped`.
+
 **Healing hard rules:**
 
 - **Never** change assertion expected values automatically.
@@ -2763,6 +2849,7 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
 - **Never** allow `phases.execution.status` to change from `FAIL` to `PASS` unless Phase 11 `aws-run` produced a new batch with `final_status == PASS`.
 - **Never** allow healing to modify product code (`app/`, `web/`, `src/`).
 - **Never** allow healing to modify unrelated tests outside the current change scope.
+- **Never** modify test files between official `aws run` batches outside the healing loop. `aws run` records `tests_tree_sha256` in `execution-manifest.yaml` and refuses changed tests unless `phases.healing.status == applied` (or the user explicitly records `--allow-test-changes --reason`). `--rerun-reason` is only for code-unchanged environment retries.
 - If the healing skills (`aws-fix-proposal`, `aws-api-codegen-fixer`, `aws-e2e-codegen-fixer`) are not installed (`gates.healing_available == false`):
   - Set `phases.healing.status = skipped`.
   - If `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist in `inspect/failure-analysis.json`: **STOP** — report missing healing skills; do not archive a failed execution.
@@ -3345,5 +3432,4 @@ completed_with_warnings        (workflow-level status)
 PASS_WITH_WARNINGS             (execution final_status)
 archive eligible with warnings (Phase 14 recommendation, not an executed archive status)
 ```
-
 

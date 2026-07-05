@@ -27,6 +27,7 @@ phases:
     skill: null
     requires: []
     produces: [workflow-state.yaml]
+    owned_by: [full, intake, execute]
     gate: registry-gate
 
   - id: explore
@@ -34,6 +35,7 @@ phases:
     agent: aws-author
     requires: [skill-registry-check]
     produces: [explore/advisory.json]
+    owned_by: [full, intake]
     when: "params.run_mode in ['full', 'case-only']"
 
   - id: case-design
@@ -41,6 +43,8 @@ phases:
     agent: aws-author
     requires: [explore]
     produces: [.qa.yaml, proposal.md, cases/]
+    owned_by: [full, intake]
+    gate: case-design-gate
     when: "params.run_mode in ['full', 'case-only']"
 
   - id: case-review
@@ -48,6 +52,7 @@ phases:
     agent: aws-reviewer
     requires: [case-design]
     produces: [review/case-review.json]
+    owned_by: [full, intake]
     gate: case-review-gate
 
   - id: case-fix
@@ -55,6 +60,7 @@ phases:
     agent: aws-author
     requires: [case-review]
     produces: [review/case-review.json]
+    owned_by: [full, intake]
     when: "gate('case-review-gate').verdict == 'needs_fix'"
     repair_of: case-review
     max_attempts_param: max_case_fix_attempts
@@ -64,6 +70,7 @@ phases:
     agent: aws-author
     requires: [case-review]
     produces: [facts/fact-baseline.json]
+    owned_by: [full, execute]
     when: "params.run_mode in ['full', 'case-only', 'api-only', 'e2e-only', 'plan-only', 'review-plan']"
 
   # ---- API branch -----------------------------------------------------------
@@ -72,6 +79,7 @@ phases:
     agent: aws-author
     requires: [fact-baseline]
     produces: [plans/api-plan.md, plans/api-test-data-plan.md, plans/api-codegen-plan.md, plans/m3-review-summary.md]
+    owned_by: [full, execute]
     when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'plan-only', 'review-plan']"
 
   - id: api-plan-review
@@ -79,6 +87,7 @@ phases:
     agent: aws-reviewer
     requires: [api-plan]
     produces: [review/api-plan-review.json]
+    owned_by: [full, execute]
     gate: api-plan-review-gate
     when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'plan-only', 'review-plan', 'codegen-only']"
 
@@ -87,6 +96,7 @@ phases:
     agent: aws-author
     requires: [api-plan-review]
     produces: [review/api-plan-review.json]
+    owned_by: [full, execute]
     when: "'api' in params.test_types and gate('api-plan-review-gate').verdict == 'needs_fix'"
     repair_of: api-plan-review
     max_attempts_param: max_plan_fix_attempts
@@ -96,6 +106,7 @@ phases:
     agent: aws-test-author
     requires: [api-plan-review]
     produces: [codegen/api-codegen-summary.md]
+    owned_by: [full, execute]
     gate: api-codegen-precondition-gate
     when: "'api' in params.test_types and params.run_mode in ['full', 'api-only', 'codegen-only']"
 
@@ -105,6 +116,7 @@ phases:
     agent: aws-author
     requires: [fact-baseline]
     produces: [plans/e2e-plan.md, plans/e2e-test-data-plan.md, plans/e2e-codegen-plan.md, plans/m4-review-summary.md]
+    owned_by: [full, execute]
     when: "'e2e' in params.test_types and params.run_mode in ['full', 'e2e-only', 'plan-only', 'review-plan']"
 
   - id: e2e-plan-review
@@ -112,6 +124,7 @@ phases:
     agent: aws-reviewer
     requires: [e2e-plan]
     produces: [review/plan-review.json]
+    owned_by: [full, execute]
     gate: e2e-plan-review-gate
     when: "'e2e' in params.test_types and params.run_mode in ['full', 'e2e-only', 'plan-only', 'review-plan', 'codegen-only']"
 
@@ -120,6 +133,7 @@ phases:
     agent: aws-author
     requires: [e2e-plan-review]
     produces: [review/plan-review.json]
+    owned_by: [full, execute]
     when: "'e2e' in params.test_types and gate('e2e-plan-review-gate').verdict == 'needs_fix'"
     repair_of: e2e-plan-review
     max_attempts_param: max_plan_fix_attempts
@@ -129,6 +143,7 @@ phases:
     agent: aws-test-author
     requires: [e2e-plan-review]
     produces: [codegen/e2e-codegen-summary.md]
+    owned_by: [full, execute]
     gate: e2e-codegen-precondition-gate
     when: "'e2e' in params.test_types and params.run_mode in ['full', 'e2e-only', 'codegen-only']"
 
@@ -138,6 +153,7 @@ phases:
     agent: aws-author
     requires: [fact-baseline]
     produces: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md, plans/fuzz-review-summary.md]
+    owned_by: [full, execute]
     when: "'fuzz' in params.test_types and params.run_mode in ['full', 'plan-only', 'review-plan']"
 
   - id: fuzz-plan-review
@@ -145,6 +161,7 @@ phases:
     agent: aws-reviewer
     requires: [fuzz-plan]
     produces: [review/fuzz-plan-review.json]
+    owned_by: [full, execute]
     gate: fuzz-plan-review-gate
     when: "'fuzz' in params.test_types"
 
@@ -153,6 +170,7 @@ phases:
     agent: aws-test-author
     requires: [fuzz-plan-review]
     produces: [codegen/fuzz-codegen-summary.md]
+    owned_by: [full, execute]
     gate: fuzz-codegen-precondition-gate
     when: "'fuzz' in params.test_types and params.run_mode in ['full', 'codegen-only']"
 
@@ -162,6 +180,7 @@ phases:
     agent: aws-author
     requires: [fact-baseline]
     produces: [plans/performance-plan.md, plans/performance-codegen-plan.md, plans/performance-review-summary.md]
+    owned_by: [full, execute]
     when: "'performance' in params.test_types and params.run_mode in ['full', 'plan-only', 'review-plan']"
 
   - id: performance-plan-review
@@ -169,6 +188,7 @@ phases:
     agent: aws-reviewer
     requires: [performance-plan]
     produces: [review/performance-plan-review.json]
+    owned_by: [full, execute]
     gate: performance-plan-review-gate
     when: "'performance' in params.test_types"
 
@@ -177,6 +197,7 @@ phases:
     agent: aws-test-author
     requires: [performance-plan-review]
     produces: [codegen/performance-codegen-summary.md]
+    owned_by: [full, execute]
     gate: performance-codegen-precondition-gate
     when: "'performance' in params.test_types and params.run_mode in ['full', 'codegen-only']"
 
@@ -186,6 +207,7 @@ phases:
     requires: [api-codegen, e2e-codegen, fuzz-codegen, performance-codegen]
     requires_mode: any_active
     produces: [execution/execution-manifest.yaml]
+    owned_by: [full, execute]
     when: "params.run_tests == true and params.run_mode in ['full', 'api-only', 'e2e-only', 'codegen-only']"
 
   - id: inspect
@@ -193,12 +215,14 @@ phases:
     agent: aws-reviewer
     requires: [execution]
     produces: [inspect/failure-analysis.json, inspect/quality-gate-result.json]
+    owned_by: [full, execute]
 
   - id: report
     skill: aws-report-generator
     agent: aws-reporter
     requires: [inspect]
     produces: [report/quality-report.json, report/quality-report.md, report/executive-summary.md]
+    owned_by: [full, execute]
 
   # ---- Healing loop ---------------------------------------------------------
   - id: fix-proposal
@@ -206,6 +230,7 @@ phases:
     agent: aws-author
     requires: [inspect]
     produces: [healing/fix-proposal.json]
+    owned_by: [full, execute]
     when: "gate('healing-entry-gate').verdict == 'enter'"
     loop: healing
 
@@ -214,6 +239,7 @@ phases:
     agent: aws-test-author
     requires: [fix-proposal]
     produces: [healing/api-apply-summary.json]
+    owned_by: [full, execute]
     when: "any(fix_proposal.proposals, target == 'api' and eligible == true)"
     loop: healing
 
@@ -222,6 +248,7 @@ phases:
     agent: aws-test-author
     requires: [fix-proposal]
     produces: [healing/e2e-apply-summary.json]
+    owned_by: [full, execute]
     when: "any(fix_proposal.proposals, target == 'e2e' and eligible == true)"
     loop: healing
 
@@ -230,6 +257,7 @@ phases:
     requires: [api-codegen-fix, e2e-codegen-fix]
     requires_mode: any_active
     produces: [execution/execution-manifest.yaml]
+    owned_by: [full, execute]
     gate: fixer-safety-gate
     loop: healing
 
@@ -238,6 +266,7 @@ phases:
     agent: aws-reviewer
     requires: [healing-rerun]
     produces: [inspect/failure-analysis.json, inspect/quality-gate-result.json]
+    owned_by: [full, execute]
     loop: healing
 
   # ---- Archive eligibility/execution ---------------------------------------
@@ -246,6 +275,7 @@ phases:
     agent: aws-archiver
     requires: [report]
     produces: ["qa/archive/<change-id>/"]
+    owned_by: [full, execute]
     gate: archive-gate
     when: "params.auto_archive == true"
 
@@ -271,6 +301,22 @@ gates:
     needs_fix_when: "decision == 'needs_fix' and auto_fix_allowed == true"
     needs_human_review_when: "decision == 'needs_human_review' or human_review_required == true"
     reject_when: "decision == 'reject'"
+
+  case-design-gate:
+    reads:
+      - workflow-state.yaml
+      - { path: .qa.yaml, as: qa }
+    invalid_json: stop
+    missing_field_is: stop
+    pass_when: >
+      state.run_context.interaction_mode == 'autonomous'
+      or (
+        state.run_context.orchestrator_skill == 'aws-intake'
+        and state.run_context.interaction_mode == 'interactive'
+        and qa.approval.approved_by == 'user'
+        and qa.approval.approved_approach != null
+        and qa.approval.approved_at != null
+      )
 
   api-plan-review-gate: &plan-review-gate
     reads: [review/api-plan-review.json]

@@ -122,6 +122,12 @@
             "type": "array",
             "items": { "type": "string" }
           },
+          "status": {
+            "description": "Open-question lifecycle status. Legacy advisories may omit this; new advisories should set it explicitly.",
+            "type": "string",
+            "enum": ["unanswered", "answered", "deferred"],
+            "default": "unanswered"
+          },
           "assertion_intent": {
             "description": "Structured decision captured from the user's answer. null until answered.",
             "oneOf": [
@@ -131,7 +137,15 @@
             "default": null
           },
           "answer": {
-            "description": "User's answer collected during aws-explore Step 5. null means not yet answered.",
+            "description": "Legacy answer field. Prefer answer_text for newly answered questions.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "null" }
+            ],
+            "default": null
+          },
+          "answer_text": {
+            "description": "Human answer text for interactive answers. auto_default answers may omit this.",
             "oneOf": [
               { "type": "string" },
               { "type": "null" }
@@ -139,9 +153,17 @@
             "default": null
           },
           "answered_via": {
-            "description": "Which phase collected the answer. null if not yet answered.",
+            "description": "Which phase or mechanism resolved the question. null if not yet answered.",
             "oneOf": [
-              { "type": "string", "enum": ["explore"] },
+              { "type": "string", "enum": ["explore", "auto_default", "aws-intake"] },
+              { "type": "null" }
+            ],
+            "default": null
+          },
+          "deferred_reason": {
+            "description": "Required when status is deferred.",
+            "oneOf": [
+              { "type": "string" },
               { "type": "null" }
             ],
             "default": null

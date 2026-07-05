@@ -48,6 +48,37 @@ gates:
     stop_when: "gate('review-gate').verdict == 'reject'"
 `;
 
+const SCOPE_MINI = `
+schema_version: "test-scope"
+name: scope-mini
+params:
+  run_mode: { type: enum, values: [full], default: full }
+  test_types: { type: list, default: [api] }
+  max_healing_attempts: { type: int, default: 0 }
+phases:
+  - id: explore
+    requires: []
+    produces: [explore/advisory.json]
+    owned_by: [full, intake]
+  - id: case-review
+    requires: [explore]
+    produces: [review/case-review.json]
+    gate: case-review-gate
+    owned_by: [full, intake]
+  - id: fact-baseline
+    requires: [case-review]
+    produces: [facts/fact-baseline.json]
+    owned_by: [full, execute]
+  - id: api-plan
+    requires: [fact-baseline]
+    produces: [plans/api-plan.md]
+    owned_by: [full, execute]
+gates:
+  case-review-gate:
+    reads: [review/case-review.json]
+    pass_when: "decision == 'pass'"
+`;
+
 let projectRoot: string;
 const changeId = 'REQ-ENG-001';
 let schema: Schema;
@@ -155,6 +186,93 @@ describe('pruning via when', () => {
     expect(statusOf('build')!.status).toBe('pruned');
     // exec requires [build(pruned), codegen(done)] any_active → not blocked
     expect(statusOf('exec')!.status).toBe('ready');
+  });
+});
+
+describe('active_scope from run_context', () => {
+  let scopedSchema: Schema;
+
+  beforeEach(() => {
+    scopedSchema = parseSchema(SCOPE_MINI);
+  });
+
+  it('excludes ready phases outside the current scope from next dispatch', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'intake' } }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { ok: true });
+    writeJson('review/case-review.json', { decision: 'pass' });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    const fact = r.phases.find(p => p.id === 'fact-baseline')!;
+    expect(fact.status).toBe('out_of_scope');
+    expect(r.next).not.toContain('fact-baseline');
+    expect(r.terminal).toEqual({ kind: 'completed', reason: 'all in-scope phases done' });
+  });
+
+  it('marks phases outside the current scope out_of_scope before dependency blocking', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'intake' } }),
+      'utf-8'
+    );
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.phases.find(p => p.id === 'fact-baseline')!.status).toBe('out_of_scope');
+    expect(r.next).toEqual(['explore']);
+  });
+
+  it('allows execute-scope phases to use completed intake dependencies', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'execute' } }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { ok: true });
+    writeJson('review/case-review.json', { decision: 'pass' });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.phases.find(p => p.id === 'case-review')!.status).toBe('done');
+    expect(r.phases.find(p => p.id === 'fact-baseline')!.status).toBe('ready');
+    expect(r.next).toEqual(['fact-baseline']);
+  });
+
+  it('includes run_context and open question summary in the status report', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+          stamped_at: '2026-07-04T00:00:00.000Z',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', {
+      open_questions_for_case_design: [
+        { id: 'OQ-001', status: 'answered' },
+        { id: 'OQ-002', status: 'deferred' },
+        { id: 'OQ-003', status: 'unanswered' },
+        { id: 'OQ-004', answer: 'legacy answer', answered_via: 'explore' },
+      ],
+    });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.run_context).toMatchObject({
+      orchestrator_skill: 'aws-intake',
+      interaction_mode: 'interactive',
+      active_scope: 'intake',
+    });
+    expect(r.intake?.open_questions).toEqual({
+      total: 4,
+      answered: 2,
+      deferred: 1,
+      unanswered: 1,
+    });
   });
 });
 
@@ -316,8 +434,67 @@ describe('real workflow-schema.yaml smoke', () => {
     expect(r.phases.length).toBe(real.phases.length);
     expect(r.params.run_mode).toBe('full');
     // every phase has a valid status kind
-    const kinds = new Set(['pruned', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
+    const kinds = new Set(['pruned', 'out_of_scope', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
     expect(r.phases.every(p => kinds.has(p.status))).toBe(true);
+  });
+
+  it('stops interactive intake case-design when user approval metadata is missing', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        params: { run_mode: 'case-only', test_types: ['api', 'e2e'] },
+        phases: { skill_registry_check: { status: 'pass' } },
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { open_questions_for_case_design: [] });
+    writeChangeFile('.qa.yaml', yaml.dump({ change: { change_id: changeId } }));
+    writeChangeFile('proposal.md', '# proposal\n');
+    writeChangeFile('cases/role/case.yaml', 'schema_version: "1.0"\nadded: []\n');
+
+    const r = computeStatus({ schema: real, projectRoot, changeId });
+    const phase = r.phases.find(p => p.id === 'case-design')!;
+    expect(phase.status).toBe('stopped');
+    expect(phase.gate_verdict).toBe('stop');
+    expect(r.terminal).toMatchObject({ kind: 'stopped', phase: 'case-design' });
+  });
+
+  it('passes interactive intake case-design when approval metadata is present', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        params: { run_mode: 'case-only', test_types: ['api', 'e2e'] },
+        phases: { skill_registry_check: { status: 'pass' } },
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { open_questions_for_case_design: [] });
+    writeChangeFile('.qa.yaml', yaml.dump({
+      approval: {
+        approved_by: 'user',
+        approved_approach: 'api_e2e_core',
+        approved_at: '2026-07-04T07:00:00.000Z',
+      },
+    }));
+    writeChangeFile('proposal.md', '# proposal\n');
+    writeChangeFile('cases/role/case.yaml', 'schema_version: "1.0"\nadded: []\n');
+
+    const r = computeStatus({ schema: real, projectRoot, changeId });
+    const phase = r.phases.find(p => p.id === 'case-design')!;
+    expect(phase.status).toBe('done');
+    expect(phase.gate_verdict).toBe('pass');
   });
 });
 

@@ -70,6 +70,68 @@ function capRank(c: string): number {
   return 1;
 }
 
+const OQ_STATUSES = new Set(['unanswered', 'answered', 'deferred']);
+const ASSERTION_INTENTS = new Set(['assert_ideal', 'assert_known_bug', 'ignore', 'undecided']);
+const ANSWERED_VIA = new Set(['explore', 'auto_default', 'aws-intake']);
+const PROPAGATION_ANSWERED_VIA = new Set(['explore', 'auto_default', 'aws-intake']);
+
+function isAnsweredOq(row: Record<string, unknown>): boolean {
+  if (row.status === 'answered') return true;
+  return row.status === undefined && row.answer != null && row.answered_via === 'explore';
+}
+
+function checkOpenQuestionLifecycle(advisory: AdvisoryJson, errors: string[]): void {
+  const oqs = advisory.open_questions_for_case_design;
+  if (!Array.isArray(oqs)) return;
+
+  for (const oq of oqs) {
+    if (!oq || typeof oq !== 'object') continue;
+    const row = oq as Record<string, unknown>;
+    const oqId = typeof row.id === 'string' ? row.id : '(unknown OQ)';
+    const status = row.status;
+    const intent = row.assertion_intent;
+    const answeredVia = row.answered_via;
+
+    if (status !== undefined && !OQ_STATUSES.has(String(status))) {
+      errors.push(`${oqId}: status must be one of unanswered, answered, deferred`);
+    }
+    if (intent != null && !ASSERTION_INTENTS.has(String(intent))) {
+      errors.push(`${oqId}: assertion_intent must be one of assert_ideal, assert_known_bug, ignore, undecided`);
+    }
+    if (answeredVia != null && !ANSWERED_VIA.has(String(answeredVia))) {
+      errors.push(`${oqId}: answered_via must be one of explore, auto_default, aws-intake`);
+    }
+
+    if (status === 'answered') {
+      if (intent == null) {
+        errors.push(`${oqId}: status answered requires assertion_intent`);
+      }
+      if (answeredVia == null) {
+        errors.push(`${oqId}: status answered requires answered_via`);
+      }
+      if (answeredVia !== 'auto_default' && row.answer == null && row.answer_text == null) {
+        errors.push(`${oqId}: status answered requires answer or answer_text`);
+      }
+    }
+    if (status === 'unanswered') {
+      if (intent != null) {
+        errors.push(`${oqId}: status unanswered must not set assertion_intent`);
+      }
+      if (answeredVia != null) {
+        errors.push(`${oqId}: status unanswered must not set answered_via`);
+      }
+    }
+    if (status === 'deferred') {
+      if (typeof row.deferred_reason !== 'string' || row.deferred_reason.trim() === '') {
+        errors.push(`${oqId}: status deferred requires deferred_reason`);
+      }
+      if (intent != null) {
+        errors.push(`${oqId}: status deferred must not set assertion_intent`);
+      }
+    }
+  }
+}
+
 function checkAssertionPropagation(advisory: AdvisoryJson, errors: string[]): void {
   const oqs = advisory.open_questions_for_case_design;
   if (!Array.isArray(oqs)) return;
@@ -94,7 +156,7 @@ function checkAssertionPropagation(advisory: AdvisoryJson, errors: string[]): vo
   for (const oq of oqs) {
     if (!oq || typeof oq !== 'object') continue;
     const row = oq as Record<string, unknown>;
-    if (row.answer == null || row.answered_via !== 'explore') continue;
+    if (!isAnsweredOq(row) || !PROPAGATION_ANSWERED_VIA.has(String(row.answered_via))) continue;
 
     const intent = row.assertion_intent;
     const oqId = typeof row.id === 'string' ? row.id : '(unknown OQ)';
@@ -148,10 +210,98 @@ function checkAssertionPropagation(advisory: AdvisoryJson, errors: string[]): vo
   }
 }
 
+function hasAssertionDirection(text: unknown): boolean {
+  if (typeof text !== 'string') return false;
+  return /断言(理想|当前|已知)|assert[_ -]?(ideal|current|known)|known bug/i.test(text);
+}
+
+function checkModeConsistency(
+  advisory: AdvisoryJson,
+  options: ValidateAdvisoryOptions | undefined,
+  errors: string[],
+): void {
+  const interactionMode = options?.interaction_mode;
+  if (interactionMode !== 'autonomous') return;
+  const oqs = advisory.open_questions_for_case_design;
+  if (!Array.isArray(oqs)) return;
+
+  for (const oq of oqs) {
+    if (!oq || typeof oq !== 'object') continue;
+    const row = oq as Record<string, unknown>;
+    const via = row.answered_via;
+    if (via === 'explore' || via === 'aws-intake') {
+      const oqId = typeof row.id === 'string' ? row.id : '(unknown OQ)';
+      errors.push(`${oqId}: autonomous run forbids answered_via ${String(via)}`);
+    }
+  }
+}
+
+function hasUserConfirmation(row: Record<string, unknown>): boolean {
+  if (row.user_confirmed === true) return true;
+  return row.confirmed_by === 'user' && typeof row.confirmed_at === 'string' && row.confirmed_at.trim() !== '';
+}
+
+function checkInteractiveIntakeConfirmation(
+  advisory: AdvisoryJson,
+  options: ValidateAdvisoryOptions | undefined,
+  errors: string[],
+): void {
+  if (options?.orchestrator_skill !== 'aws-intake' || options?.interaction_mode !== 'interactive') return;
+  const oqs = advisory.open_questions_for_case_design;
+  if (!Array.isArray(oqs)) return;
+
+  for (const oq of oqs) {
+    if (!oq || typeof oq !== 'object') continue;
+    const row = oq as Record<string, unknown>;
+    const oqId = typeof row.id === 'string' ? row.id : '(unknown OQ)';
+    if (row.status === 'unanswered') {
+      errors.push(`${oqId}: aws-intake interactive run requires user resolution before validate-advisory`);
+      continue;
+    }
+    if (!isAnsweredOq(row)) continue;
+    if (row.answered_via !== 'aws-intake') {
+      errors.push(`${oqId}: aws-intake interactive answer must use answered_via aws-intake, got ${String(row.answered_via)}`);
+    }
+    if (!hasUserConfirmation(row)) {
+      errors.push(`${oqId}: aws-intake interactive answer requires user confirmation metadata`);
+    }
+  }
+}
+
+function checkLowConfidenceAssertionQuestions(advisory: AdvisoryJson, errors: string[]): void {
+  const guidance = getCaseDesignGuidance(advisory);
+  const hints = Array.isArray(guidance?.priority_hints) ? guidance.priority_hints : [];
+  const oqs = Array.isArray(advisory.open_questions_for_case_design)
+    ? advisory.open_questions_for_case_design
+    : [];
+  const linkedPitfalls = new Set<string>();
+  for (const oq of oqs) {
+    if (!oq || typeof oq !== 'object') continue;
+    const pitfallRef = (oq as Record<string, unknown>).pitfall_ref;
+    if (typeof pitfallRef === 'string') linkedPitfalls.add(pitfallRef);
+  }
+
+  for (const hint of hints) {
+    if (!hint || typeof hint !== 'object') continue;
+    const row = hint as Record<string, unknown>;
+    const id = row.id;
+    if (typeof id !== 'string') continue;
+    if ((row.confidence === 'low' || row.confidence === 'medium') && hasAssertionDirection(row.hint) && !linkedPitfalls.has(id)) {
+      errors.push(`case_design_guidance.priority_hints ${id}: confidence ${String(row.confidence)} assertion direction requires linked open_question`);
+    }
+  }
+}
+
+export interface ValidateAdvisoryOptions {
+  interaction_mode?: 'autonomous' | 'interactive';
+  orchestrator_skill?: string;
+}
+
 export function validateAdvisory(
   context: RiskContext,
   advisory: AdvisoryJson,
   knownCaseIds: string[],
+  options?: ValidateAdvisoryOptions,
 ): AdvisoryValidationResult {
   const errors: string[] = [];
   const evidenceById = new Map(context.evidence.map((e) => [e.id, e] as const));
@@ -235,7 +385,11 @@ export function validateAdvisory(
   checkConfidenceItems(advisory.watchlist, 'watchlist');
   checkConfidenceItems(getCaseDesignGuidance(advisory)?.priority_hints, 'case_design_guidance.priority_hints');
 
+  checkOpenQuestionLifecycle(advisory, errors);
   checkAssertionPropagation(advisory, errors);
+  checkLowConfidenceAssertionQuestions(advisory, errors);
+  checkModeConsistency(advisory, options, errors);
+  checkInteractiveIntakeConfirmation(advisory, options, errors);
 
   // Structured issue references only (no fragile substring scan).
   for (const issueId of collectIssueRefs(advisory)) {

@@ -17,6 +17,14 @@ export interface PhaseCompletionOptions {
 }
 
 export type ApplyPhase = 'execution' | 'healing-rerun' | 'inspect' | 'report';
+export type OrchestratorSkill = 'aws-workflow' | 'aws-intake' | 'aws-execute';
+
+interface RunContext {
+  orchestrator_skill: OrchestratorSkill;
+  interaction_mode: 'autonomous' | 'interactive';
+  active_scope: 'full' | 'intake' | 'execute';
+  stamped_at: string;
+}
 
 export function getWorkflowStateFile(projectRoot: string, changeId: string): string {
   return path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
@@ -32,6 +40,28 @@ export function applyPhaseState(projectRoot: string, changeId: string, phase: Ap
     return;
   }
   applyReportState(projectRoot, changeId);
+}
+
+export function stampRunContext(
+  projectRoot: string,
+  changeId: string,
+  orchestratorSkill: OrchestratorSkill,
+  stampedAt = new Date().toISOString()
+): void {
+  const file = getWorkflowStateFile(projectRoot, changeId);
+  const state = readWorkflowState(file);
+  const root = isRecord(state) ? state : {};
+  const params = isRecord(root.params) ? root.params as Record<string, unknown> : {};
+  const runMode = typeof params.run_mode === 'string' ? params.run_mode : undefined;
+  assertRunModeAllowed(orchestratorSkill, runMode);
+
+  root.run_context = {
+    ...runContextFor(orchestratorSkill),
+    stamped_at: stampedAt,
+  };
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
 }
 
 export function recordPhaseCompletion(
@@ -59,6 +89,40 @@ export function recordPhaseCompletion(
   }
 
   syncPhaseTimingFromEvents(projectRoot, changeId, options.phase, phaseKey);
+}
+
+function runContextFor(orchestratorSkill: OrchestratorSkill): Omit<RunContext, 'stamped_at'> {
+  if (orchestratorSkill === 'aws-intake') {
+    return {
+      orchestrator_skill: orchestratorSkill,
+      interaction_mode: 'interactive',
+      active_scope: 'intake',
+    };
+  }
+  if (orchestratorSkill === 'aws-execute') {
+    return {
+      orchestrator_skill: orchestratorSkill,
+      interaction_mode: 'autonomous',
+      active_scope: 'execute',
+    };
+  }
+  return {
+    orchestrator_skill: orchestratorSkill,
+    interaction_mode: 'autonomous',
+    active_scope: 'full',
+  };
+}
+
+function assertRunModeAllowed(orchestratorSkill: OrchestratorSkill, runMode: string | undefined): void {
+  if (!runMode) return;
+  const allowed: Record<OrchestratorSkill, Set<string>> = {
+    'aws-workflow': new Set(['full', 'case-only', 'api-only', 'e2e-only', 'plan-only', 'codegen-only', 'review-case', 'review-plan']),
+    'aws-intake': new Set(['full', 'case-only', 'review-case']),
+    'aws-execute': new Set(['full', 'api-only', 'e2e-only', 'plan-only', 'codegen-only', 'review-plan']),
+  };
+  if (!allowed[orchestratorSkill].has(runMode)) {
+    throw new Error(`${orchestratorSkill} cannot run with run_mode ${runMode}`);
+  }
 }
 
 /** Mirror human-readable timing from events.jsonl into one workflow-state phase. */

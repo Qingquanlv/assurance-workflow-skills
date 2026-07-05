@@ -136,6 +136,66 @@ describe('validateAdvisory — assertion_intent propagation (OQ → guidance)', 
     expect(result.valid).toBe(true);
   });
 
+  it('validates auto_default answered OQ propagation like interactive answers', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [propagatedHint] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          status: 'answered',
+          pitfall_ref: 'PH-001',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'auto_default',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects auto_default answered OQ when propagation is missing', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: {
+        priority_hints: [
+          { id: 'PH-001', hint: 'superuser bypass risk', confidence: 'medium', evidence_ids: ['SC-RBAC-001'] },
+        ],
+      },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          status: 'answered',
+          pitfall_ref: 'PH-001',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'auto_default',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('OQ-001') && e.includes('priority_hint PH-001'))).toBe(true);
+  });
+
+  it('rejects inconsistent OQ terminal status fields', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-004',
+          status: 'deferred',
+          pitfall_ref: 'PH-004',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'aws-intake',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('OQ-004') && e.includes('deferred_reason'))).toBe(true);
+  });
+
   it('rejects when priority_hint contradicts OQ assert_ideal', () => {
     const advisory = {
       watchlist: [],
@@ -213,6 +273,96 @@ describe('validateAdvisory — assertion_intent propagation (OQ → guidance)', 
       ],
     };
     const result = validateAdvisory(baseContext(), advisory, []);
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects autonomous mode when OQ answered_via is aws-intake', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-AUTO-1',
+          pitfall_ref: 'PH-001',
+          status: 'answered',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'aws-intake',
+          answer_text: 'user said yes',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, [], { interaction_mode: 'autonomous' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.includes('autonomous run forbids answered_via aws-intake'))).toBe(true);
+  });
+
+  it('rejects aws-intake interactive answers not recorded via aws-intake', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [propagatedHint] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          status: 'answered',
+          pitfall_ref: 'PH-001',
+          answer_text: 'user said ideal',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'explore',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, [], {
+      orchestrator_skill: 'aws-intake',
+      interaction_mode: 'interactive',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.includes('must use answered_via aws-intake'))).toBe(true);
+  });
+
+  it('rejects aws-intake interactive answers without user confirmation metadata', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [propagatedHint] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          status: 'answered',
+          pitfall_ref: 'PH-001',
+          answer_text: 'user said ideal',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'aws-intake',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, [], {
+      orchestrator_skill: 'aws-intake',
+      interaction_mode: 'interactive',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.includes('requires user confirmation metadata'))).toBe(true);
+  });
+
+  it('passes aws-intake interactive answers with user confirmation metadata', () => {
+    const advisory = {
+      watchlist: [],
+      case_design_guidance: { priority_hints: [propagatedHint] },
+      open_questions_for_case_design: [
+        {
+          id: 'OQ-001',
+          status: 'answered',
+          pitfall_ref: 'PH-001',
+          answer_text: 'user said ideal',
+          assertion_intent: 'assert_ideal',
+          answered_via: 'aws-intake',
+          confirmed_by: 'user',
+          confirmed_at: '2026-07-04T07:00:00.000Z',
+        },
+      ],
+    };
+    const result = validateAdvisory(baseContext(), advisory, [], {
+      orchestrator_skill: 'aws-intake',
+      interaction_mode: 'interactive',
+    });
     expect(result.valid).toBe(true);
   });
 });

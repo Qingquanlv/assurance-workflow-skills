@@ -40,6 +40,7 @@ export interface PhaseDef {
   requires: string[];
   requires_mode: RequiresMode;
   produces: string[];
+  owned_by?: string[];
   gate?: string;
   when?: string;
   loop?: string;
@@ -173,6 +174,7 @@ function normalizePhase(raw: Record<string, unknown>): PhaseDef {
     requires: Array.isArray(raw.requires) ? (raw.requires as string[]) : [],
     requires_mode: raw.requires_mode === 'any_active' ? 'any_active' : 'all',
     produces: Array.isArray(raw.produces) ? (raw.produces as string[]) : [],
+    owned_by: Array.isArray(raw.owned_by) ? (raw.owned_by as string[]) : undefined,
     gate: typeof raw.gate === 'string' ? raw.gate : undefined,
     when: typeof raw.when === 'string' ? raw.when.trim() : undefined,
     loop: typeof raw.loop === 'string' ? raw.loop : undefined,
@@ -277,6 +279,7 @@ export function findSchemaFile(projectRoot: string, override?: string): string {
 
 export const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer', 'aws-reporter', 'aws-archiver']);
 export const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
+export const ALLOWED_OWNED_BY_SCOPES = new Set(['full', 'intake', 'execute']);
 
 /** Every predicate string in the schema, tagged with its source location. */
 function allPredicates(schema: Schema): { loc: string; expr: string }[] {
@@ -363,6 +366,13 @@ export function validateSchema(schema: Schema): ValidationResult {
     }
     if (p.loop && !schema.loops[p.loop]) {
       errors.push(`Phase '${p.id}' references unknown loop '${p.loop}'`);
+    }
+    for (const scope of p.owned_by ?? []) {
+      if (!ALLOWED_OWNED_BY_SCOPES.has(scope)) {
+        errors.push(
+          `Phase '${p.id}' owned_by scope '${scope}' is not in the allowed set: ${[...ALLOWED_OWNED_BY_SCOPES].join(', ')}`
+        );
+      }
     }
   }
 

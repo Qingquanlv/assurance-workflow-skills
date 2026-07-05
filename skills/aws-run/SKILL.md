@@ -98,6 +98,23 @@ This skill **does not synthesize normalised result files itself**. It invokes th
 - Set `final_status = FAIL` (or apply fallback per **Runner Mode**)
 - **Never fabricate** `api-result.json` or `e2e-result.json`
 
+## Rerun Integrity
+
+`aws run` records a SHA256 snapshot of the full `tests/` tree in every `execution-manifest.yaml`:
+
+- `tests_tree_sha256` — aggregate hash of all test files.
+- `test_files_sha256` — per-file hashes for diagnostics.
+
+After a formal run exists, `--rerun-reason` is only for **code-unchanged** retries such as environment flake, SUT restart, transient timeout, or infrastructure validation. It is **not** permission to modify tests and rerun.
+
+If test files changed since the previous batch:
+
+- `aws run` hard-fails with `TESTS-CHANGED-WITHOUT-HEALING` unless `phases.healing.status == applied`.
+- The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
+- If a human explicitly decides to modify tests outside healing, record that decision with `aws run --change <id> --allow-test-changes --reason "<user decision>"`.
+
+Do not use `--allow-test-changes` autonomously. It is a human override path only, and the CLI records a `human_override(action=allow_test_changes)` event.
+
 ## AWS CLI Identity Check
 
 This skill calls the **Assurance Workflow Skills CLI** (`aws`) — **not** the Amazon Web Services CLI.

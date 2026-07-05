@@ -9,7 +9,9 @@ Do not rely on prior conversation context.
 
 **Before doing any work:**
 
-1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists → `phases.explore`.
+1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists → `phases.explore` and top-level `run_context`.
+   - `run_context.interaction_mode == autonomous` (default when absent) → do not ask planned clarification questions; resolve OQs with transparent `auto_default` decisions.
+   - `run_context.interaction_mode == interactive` → enable Step 5's one-question-at-a-time pitfall dialogue.
 2. Derive `<project-root>` (directory containing `.aws/config.yaml`; default = cwd).
 3. Read requirement text (user message, file path, or PRD text provided in context).
 4. Optional: read `.aws/data-knowledge.yaml`.
@@ -38,6 +40,8 @@ Do not rely on prior conversation context.
 Produce the **Explore** artifacts (Phase 0.5) from deterministic historical facts + requirement text, before `aws-case-design` begins. The Skill owns the full Explore pipeline internally.
 
 **Does not** write `case.yaml`, modify `context.json`, or simulate `aws-case-design`.
+
+**Workflow binding:** When invoked from `aws-workflow`, this skill **always** runs **inline in the primary agent** — even when `execution_mode == subagent-dispatch`. It is never dispatched to `aws-author` (subagents lack Bash for `aws risk` CLI).
 
 ---
 
@@ -160,8 +164,9 @@ Read `context.json`, requirement text, **and source code evidence collected in S
     Duplicating the same content across channels is a violation.
 10a. **`priority_hints` vs `watchlist` (deciding which channel):** use `watchlist` when the risk item maps cleanly to one of the 8 case-design clarifying categories (`maps_to_clarifying_categories`) AND you want `aws-case-reviewer`'s downstream gate to enforce disposition (high-confidence watchlist items must appear in `proposal.md` as `adopted`/`override`). Use `priority_hints` for everything else — general risk-area signals, code-structure-only findings, or items that don't need a hard reviewer gate. When in doubt, prefer `priority_hints` (lighter-weight, no enforced gate).
 11. When producing items backed exclusively by `source: "source_code"` evidence (SC-* IDs), add `"source_basis": "code_structure_only"` to each such `case_design_guidance` item, and note in `executive_summary` that results are derived from code structure analysis with no historical execution data.
-12. `open_questions_for_case_design` items are advisory draft only — leave `answer`, `assertion_intent`, and `answered_via` as `null`; they are populated in Step 5.
+12. `open_questions_for_case_design` items are advisory draft only in Step 4. Set `status: "unanswered"` and leave `answer`, `answer_text`, `assertion_intent`, `answered_via`, and `deferred_reason` as `null`; they are resolved in Step 5 according to `run_context.interaction_mode`.
 13. Every `open_questions_for_case_design` item MUST set `pitfall_ref` to the guidance id it resolves (`PH-*` or `WL-*` preferred; `SC-*` only when no PH/WL exists yet). Each item asks: should we ignore the assertion for this discovered pitfall, or what should it assert (known-bug behavior vs ideal behavior). Do **not** generate open_questions about module confirmation, change type, test types, data needs, or target selection/depth — those macro decisions belong exclusively in `test_strategy` for `aws-case-design` to resolve. After Step 5, the answer MUST be propagated into the linked `priority_hint` / `watchlist` / `suggested_scenario` per the reconciliation table — an answered OQ must never contradict its linked guidance item.
+14. If a `confidence: low` or `confidence: medium` guidance item already contains an assertion direction, it MUST have a linked `open_question` and must not bypass Step 5 resolution. `aws risk validate-advisory` enforces this.
 
 ### advisory.json schema (MVP)
 
@@ -310,12 +315,26 @@ Generate from the **module's domain shape** (CRUD operations + tree/hierarchy if
 
 ---
 
-## Step 5 — Collect open_questions answers (逐坑断言取舍，一次一问交互)
+## Step 5 — Resolve open_questions (mode-aware)
 
 After writing the advisory draft, check `open_questions_for_case_design[]`:
 
 - If empty → skip this step, proceed to Step 6.
-- If non-empty → ask the user one question at a time, in array order. Each question is about exactly one discovered pitfall (`pitfall_ref`) and asks only: ignore it, or assert which behavior.
+- If non-empty and `run_context.interaction_mode == autonomous` or `run_context` is absent → apply **auto_default** resolution (no user questions), then reconcile guidance and proceed to Step 6.
+- If non-empty and `run_context.interaction_mode == interactive` → ask the user one question at a time, in array order. Each question is about exactly one discovered pitfall (`pitfall_ref`) and asks only: ignore it, or assert which behavior.
+
+### Autonomous branch (`auto_default`)
+
+For every `status: "unanswered"` OQ:
+
+- If the linked pitfall is an ideal-behavior / product-correctness / security / permission / validation issue → set `assertion_intent = "assert_ideal"`.
+- If the correct direction cannot be inferred → set `assertion_intent = "undecided"`; downstream case-design must use neutral wording and avoid asserting the pitfall as accepted behavior.
+- Set `status = "answered"` and `answered_via = "auto_default"`.
+- Leave `answer` / `answer_text` empty unless a short default rationale is useful.
+
+Then run Step 5 reconciliation exactly like interactive answers. Auto decisions are allowed in `autonomous` mode, but they must be visible in `advisory.json`; never rewrite a low-confidence assertion as if a human confirmed it.
+
+### Interactive branch
 
 **Question format:**
 
@@ -336,9 +355,11 @@ Do NOT ask about test scope, layer, data needs, or target selection in this step
 
 - User provides answer →
   - write the free-text answer to `open_questions_for_case_design[i].answer`
+  - write the same text to `open_questions_for_case_design[i].answer_text` for the new lifecycle schema
   - map the choice to `open_questions_for_case_design[i].assertion_intent`: A → `assert_known_bug`, B → `assert_ideal`, C → `ignore` (open-ended answers that don't fit A/B/C → `undecided`, with the raw text kept in `answer`)
-  - set `answered_via = "explore"`
-- User inputs "跳过" (or equivalent) → leave `answer = null`, `assertion_intent = null`, `answered_via = null`.
+  - set `status = "answered"` and `answered_via = "aws-intake"` when called from `aws-intake`; otherwise `answered_via = "explore"` for standalone legacy interactive use.
+  - when `answered_via = "aws-intake"`, also set `confirmed_by = "user"` and `confirmed_at = <ISO timestamp>` (or `user_confirmed = true`). `aws risk validate-advisory` reads `workflow-state.yaml.run_context` and fails interactive intake if answers are auto-filled without this user confirmation metadata.
+- User inputs "跳过" (or equivalent) → set `status = "deferred"`, leave `assertion_intent = null` / `answered_via = null`, and set `deferred_reason` (for example, `user skipped during intake`).
 - After all questions are asked (or user skips ≥3 in a row), **reconcile `case_design_guidance` with the collected answers** (mandatory — do not proceed to Step 6 until done), then output:
   `"已记录回答，继续生成最终 advisory。"` and proceed to Step 6.
 
@@ -346,7 +367,7 @@ Answers are persisted into `advisory.json` — `aws-case-design` reads the propa
 
 ### Step 5 reconciliation — propagate assertion decisions into guidance
 
-For each `open_questions_for_case_design[]` item with `answer != null` and `answered_via = "explore"`, find the linked guidance item(s) by `pitfall_ref`:
+For each `open_questions_for_case_design[]` item with `status = "answered"` and `answered_via in ["explore", "auto_default", "aws-intake"]` (legacy: `answer != null` and `answered_via = "explore"`), find the linked guidance item(s) by `pitfall_ref`:
 
 | `pitfall_ref` pattern | Linked guidance |
 |---|---|

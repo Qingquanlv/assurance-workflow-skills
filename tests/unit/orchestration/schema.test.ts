@@ -113,6 +113,19 @@ gates:
     const s = parseSchema(yaml);
     expect(s.gates.g.reads[0].alias).toBe('fa');
   });
+
+  it('parses phase owned_by metadata for orchestration scopes', () => {
+    const yaml = `
+phases:
+  - id: explore
+    requires: []
+    produces: [explore/advisory.json]
+    owned_by: [full, intake]
+gates: {}
+`;
+    const s = parseSchema(yaml);
+    expect(s.phasesById.get('explore')?.owned_by).toEqual(['full', 'intake']);
+  });
 });
 
 describe('validateSchema', () => {
@@ -148,6 +161,20 @@ phases:
 gates: {}
 `);
     expect(validateSchema(s).errors.some(e => e.includes("unknown gate 'nope-gate'"))).toBe(true);
+  });
+
+  it('flags owned_by scopes outside the known orchestrator scopes', () => {
+    const s = parseSchema(`
+phases:
+  - id: a
+    requires: []
+    produces: [a.json]
+    owned_by: [full, typo-scope]
+gates: {}
+`);
+    const r = validateSchema(s);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => e.includes("owned_by scope 'typo-scope'"))).toBe(true);
   });
 
   it('flags unknown builtin and wrong arity', () => {

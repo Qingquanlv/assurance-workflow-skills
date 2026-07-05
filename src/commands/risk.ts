@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import {
   buildRiskContext,
   serializeContext,
@@ -19,6 +20,20 @@ import {
 import { validateAdvisory, validateContextShape } from '../risk/validate_advisory';
 import { RiskContext } from '../risk/types';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
+
+function readRunContext(projectRoot: string, changeId: string): { orchestrator_skill?: string; interaction_mode?: 'autonomous' | 'interactive' } {
+  const file = path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
+  if (!fs.existsSync(file)) return {};
+  const parsed = yaml.load(fs.readFileSync(file, 'utf-8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const runContext = (parsed as Record<string, unknown>).run_context;
+  if (!runContext || typeof runContext !== 'object' || Array.isArray(runContext)) return {};
+  const rawMode = (runContext as Record<string, unknown>).interaction_mode;
+  const interaction_mode = rawMode === 'interactive' || rawMode === 'autonomous' ? rawMode : undefined;
+  const rawOrchestrator = (runContext as Record<string, unknown>).orchestrator_skill;
+  const orchestrator_skill = typeof rawOrchestrator === 'string' ? rawOrchestrator : undefined;
+  return { orchestrator_skill, interaction_mode };
+}
 
 function parsePositiveInt(value: string, flag: string): number {
   const n = Number(value);
@@ -145,7 +160,7 @@ export function registerRiskCommand(program: Command): void {
         const context = JSON.parse(fs.readFileSync(ctxPath, 'utf-8')) as RiskContext;
         const advisory = JSON.parse(fs.readFileSync(advPath, 'utf-8')) as Record<string, unknown>;
         const knownCases = loadCasesFromQa(projectRoot).map((c) => c.case_id);
-        const result = validateAdvisory(context, advisory, knownCases);
+        const result = validateAdvisory(context, advisory, knownCases, readRunContext(projectRoot, changeId));
 
         if (result.valid) {
           logOk('advisory.json validation passed');

@@ -17,9 +17,14 @@ Do not rely on prior conversation context.
    - `change_id == <change-id>` — if mismatch, stop as reviewer contract error.
    - `decision == "needs_fix"` — if not, stop.
    - `next_action == "run_e2e_plan_fixer"` — if not, stop as reviewer contract error.
-   - `human_review_required == false` — if not, stop.
+   - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true` — if not, stop.
    - `auto_fix_plan` exists and is non-empty — if missing or empty, stop as reviewer contract error.
+
+**human_approved exception** (only when default `human_review_required == false` check would STOP):
+
+> If `phases.e2e_plan_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches the SHA256 of the current `review/plan-review.json` on disk, allow fixing blocker / high severity items from `findings[]` per `suggested_fix`. Record each item in `plan-review-apply-summary.md` under `human_approved_fixes[]`. **Still never write review JSON or change gate status** — re-run `aws-e2e-plan-reviewer` after fixes.
+
 5. For **every** `auto_fix_plan` item, resolve and validate before applying any fix (see **Fix Source Rule**). If any item fails validation, **STOP** as reviewer contract error — do not skip and continue.
 6. Use files as the sole source of truth.
 

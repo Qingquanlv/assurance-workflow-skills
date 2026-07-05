@@ -16,11 +16,14 @@ Do not rely on prior conversation context.
    - `review_type == "case"`.
    - `change_id` matches the current `<change-id>`.
    - `decision == "needs_fix"`.
-   - `human_review_required == false`.
+   - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true`.
    - `auto_fix_plan` is non-empty.
    - `next_action == "run_case_fixer"`.
-   - No `auto_fix_plan` item references a `high` or `critical` severity finding.
+   - No `auto_fix_plan` item references a `high` or `critical` severity finding **unless** human_approved exception applies.
+
+**human_approved exception**: If `phases.case_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches current `review/case-review.json` SHA256, allow fixing blocker/high severity findings; record in apply-summary `human_approved_fixes[]`. Never write review JSON.
+
 5. Use files as the sole source of truth.
 
 **After completing work:**

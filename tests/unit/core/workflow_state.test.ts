@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { readEvents } from '../../../src/core/events';
-import { applyPhaseState, recordPhaseCompletion } from '../../../src/core/workflow_state';
+import { applyPhaseState, recordPhaseCompletion, stampRunContext } from '../../../src/core/workflow_state';
 
 const changeId = 'REQ-WORKFLOW-STATE-001';
 
@@ -242,5 +242,46 @@ describe('workflow-state phase completion helper', () => {
     ]);
     expect(transitions[0].duration_ms).toBeGreaterThanOrEqual(60_000);
     expect(transitions[1].duration_ms).toBeUndefined();
+  });
+});
+
+describe('workflow-state run_context stamping', () => {
+  let projectRoot: string;
+
+  beforeEach(() => {
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-run-context-'));
+    fs.mkdirSync(changeDir(projectRoot), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  it('stamps derived run_context without clobbering params or phases', () => {
+    writeWorkflowState(projectRoot, {
+      params: { run_mode: 'full' },
+      phases: { explore: { status: 'done' } },
+    });
+
+    stampRunContext(projectRoot, changeId, 'aws-intake');
+
+    expect(readWorkflowState(projectRoot)).toMatchObject({
+      params: { run_mode: 'full' },
+      phases: { explore: { status: 'done' } },
+      run_context: {
+        orchestrator_skill: 'aws-intake',
+        interaction_mode: 'interactive',
+        active_scope: 'intake',
+      },
+    });
+    expect(typeof readWorkflowState(projectRoot).run_context.stamped_at).toBe('string');
+  });
+
+  it('rejects illegal orchestrator/run_mode combinations', () => {
+    writeWorkflowState(projectRoot, { params: { run_mode: 'case-only' } });
+
+    expect(() => stampRunContext(projectRoot, changeId, 'aws-execute')).toThrow(
+      'aws-execute cannot run with run_mode case-only'
+    );
   });
 });

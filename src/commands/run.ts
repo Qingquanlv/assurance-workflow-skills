@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { resolveSelectedTargets, run, RunnerResult } from '../execution/runner';
 import { appendEvents } from '../core/events';
+import { assertHealingRunAllowed, assertRerunReasonIfNeeded, assertTestTreeUnchangedOrHealing } from '../core/healing_state';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerRunCommand(program: Command): void {
@@ -9,8 +10,14 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Execute API and E2E tests for a change and write normalized execution results')
     .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
+    .option('--rerun-reason <text>', 'Required when re-running after execution is already done')
+    .option('--allow-test-changes', 'Allow test tree changes outside healing after explicit human decision')
+    .option('--reason <text>', 'Human decision reason for --allow-test-changes')
     .action((options) => {
       const changeId: string = options.change;
+      const rerunReason: string | undefined = options.rerunReason;
+      const allowTestChanges: boolean = options.allowTestChanges === true;
+      const overrideReason: string | undefined = options.reason;
       const projectRoot = process.cwd();
 
       logHeader(`aws run — change: ${changeId}`);
@@ -20,12 +27,31 @@ export function registerRunCommand(program: Command): void {
       logBlank();
 
       try {
+        if (allowTestChanges && !overrideReason?.trim()) {
+          throw new Error('ALLOW-TEST-CHANGES-REASON-REQUIRED: --allow-test-changes requires --reason "<user decision>"');
+        }
+        assertHealingRunAllowed(projectRoot, changeId);
+        assertRerunReasonIfNeeded(projectRoot, changeId, rerunReason);
+        const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, allowTestChanges);
+
         const selectedTargets = resolveSelectedTargets(projectRoot, changeId);
         const startedAt = Date.now();
+        if (allowTestChanges && integrity.testsChanged) {
+          appendEvents(projectRoot, changeId, [{
+            source: 'run',
+            type: 'human_override',
+            phase: 'execution',
+            action: 'allow_test_changes',
+            reason: overrideReason!.trim(),
+            review_sha256: integrity.current.aggregate,
+          }]);
+        }
         appendEvents(projectRoot, changeId, [{
           source: 'run',
           type: 'execution_start',
           targets: { ...selectedTargets },
+          ...(rerunReason ? { rerun_reason: rerunReason } : {}),
+          tests_changed: integrity.testsChanged,
         }]);
 
         const result = run({ changeId, projectRoot, selectedTargets });

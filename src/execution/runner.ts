@@ -19,6 +19,7 @@ import { loadCoverageConfig, parseCoverage } from './coverage_parser';
 import { runPerformance } from './locust_runner';
 import { buildQualityGate } from '../report/quality_gate';
 import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FuzzResult, PerformanceResult, QualityGateResult, SelectedTargets } from '../core/types';
+import { hashTestTree } from '../core/hash';
 
 export interface RunnerOptions {
   changeId: string;
@@ -65,6 +66,7 @@ export function run(opts: RunnerOptions): RunnerResult {
   const batchId = generateBatchId();
   const batchDir = path.join(executionDir, 'runs', batchId);
   const selectedTargets = opts.selectedTargets ?? resolveSelectedTargets(projectRoot, changeId);
+  const testTreeHash = hashTestTree(projectRoot);
 
   // Create per-batch subdirectories
   ensureDir(batchDir);
@@ -216,6 +218,8 @@ export function run(opts: RunnerOptions): RunnerResult {
     batch_id: batchId,
     selected_targets: selectedTargets,
     result_files: resultFiles,
+    tests_tree_sha256: testTreeHash.aggregate,
+    test_files_sha256: testTreeHash.files,
     final_status: qualityGate.final_status,
   };
   const batchManifestPath = path.join(batchDir, 'execution-manifest.yaml');

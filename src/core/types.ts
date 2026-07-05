@@ -89,6 +89,10 @@ export interface ExecutionManifest {
   batch_id: string;
   selected_targets: SelectedTargets;
   result_files: Partial<Record<keyof SelectedTargets | 'coverage' | 'summary', string>>;
+  /** Aggregate hash of the full tests/ tree at aws-run start. */
+  tests_tree_sha256?: string;
+  /** Per-file hashes for test tree drift diagnostics. */
+  test_files_sha256?: Record<string, string>;
   /** Quality gate outcome for this batch — written by `aws run` (CLI primary mode). */
   final_status?: GateStatus;
 }

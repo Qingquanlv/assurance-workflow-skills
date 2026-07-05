@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { sha256File } from './hash';
 import type { GateReport, PhaseStatusKind, StatusReport } from '../orchestration/engine';
 import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
@@ -40,12 +41,31 @@ export interface GateVerdictEvent extends QaEventBase {
   verdict: string;
   blocks: number | null;
   evidence: Record<string, DslValue>;
+  reads_sha256?: Record<string, string>;
+}
+
+export interface HealTransitionEvent extends QaEventBase {
+  source: 'status';
+  type: 'heal_transition';
+  from: string;
+  to: string;
+}
+
+export interface HumanOverrideEvent extends QaEventBase {
+  source: 'gate' | 'run';
+  type: 'human_override';
+  phase: string;
+  action: string;
+  reason: string;
+  review_sha256: string;
 }
 
 export interface ExecutionStartEvent extends QaEventBase {
   source: 'run';
   type: 'execution_start';
   targets: Record<string, boolean>;
+  rerun_reason?: string;
+  tests_changed?: boolean;
 }
 
 export interface ExecutionEndEvent extends QaEventBase {
@@ -58,12 +78,16 @@ export interface ExecutionEndEvent extends QaEventBase {
 export type QaEvent =
   | PhaseTransitionEvent
   | GateVerdictEvent
+  | HealTransitionEvent
+  | HumanOverrideEvent
   | ExecutionStartEvent
   | ExecutionEndEvent;
 
 export type QaEventInput =
   | Omit<PhaseTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<GateVerdictEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HumanOverrideEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionEndEvent, 'seq' | 'ts' | 'change_id'>;
 
@@ -188,7 +212,27 @@ export function buildGateVerdictEvent(
     verdict: report.verdict,
     blocks: countGateBlocks(projectRoot, changeId, report.gate, schema),
     evidence: report.evidence,
+    reads_sha256: computeReadsSha256(projectRoot, changeId, report.gate, schema),
   };
+}
+
+function computeReadsSha256(
+  projectRoot: string,
+  changeId: string,
+  gateId: string,
+  schema: Schema,
+): Record<string, string> | undefined {
+  const gate = schema.gates[gateId];
+  if (!gate) return undefined;
+
+  const hashes: Record<string, string> = {};
+  for (const read of gate.reads) {
+    if (!read.path.startsWith('review/') || !read.path.endsWith('.json')) continue;
+    const abs = resolveChangePath(projectRoot, changeId, read.path);
+    const hash = sha256File(abs);
+    if (hash) hashes[read.path] = hash;
+  }
+  return Object.keys(hashes).length > 0 ? hashes : undefined;
 }
 
 function existingOutputs(projectRoot: string, changeId: string, schema: Schema, phaseId: string): string[] {
@@ -232,5 +276,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isPhaseStatusKind(value: string): value is PhaseStatusKind {
-  return ['pruned', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped'].includes(value);
+  return ['pruned', 'out_of_scope', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped', 'tampered'].includes(value);
 }
