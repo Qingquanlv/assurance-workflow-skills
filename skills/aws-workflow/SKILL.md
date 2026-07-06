@@ -43,7 +43,7 @@ Used when `execution_mode == subagent-dispatch`. The primary agent is the orches
 
 ### Explore inline-only rule (mandatory)
 
-`aws-explore` **MUST NOT** be dispatched to `aws-author` (or any subagent), regardless of `execution_mode`.
+`aws-explore` **MUST NOT** be dispatched to `aws-doc-author` (or any subagent), regardless of `execution_mode`.
 
 | Reason | Detail |
 |---|---|
@@ -51,7 +51,7 @@ Used when `execution_mode == subagent-dispatch`. The primary agent is the orches
 | Subagent runtime | OpenCode `task` subagents typically receive **no Bash tool**; `permission.bash` cannot create one |
 | Authorized executor | Primary agent only — full `aws-explore` skill (Steps 1–7), including CLI + source read + `advisory.json` |
 
-When `aws status --next --json` returns `explore`, the orchestrator executes it inline, then applies `phases.explore` state delta to `workflow-state.yaml` before continuing the loop. Do **not** call `task(agent=aws-author, skill=aws-explore)`.
+When `aws status --next --json` returns `explore`, the orchestrator executes it inline, then applies `phases.explore` state delta to `workflow-state.yaml` before continuing the loop. Do **not** call `task(agent=aws-doc-author, skill=aws-explore)`.
 
 ### Determinism boundary (invariant)
 
@@ -330,7 +330,7 @@ After skill loading, probe whether the `task` tool is callable:
 Task Tool Detection:
   → Attempt to call the task tool with a minimal no-op:
       task(prompt  = "Reply with the single word: task-tool-available. Do nothing else.",
-           agent   = "aws-author")   ← use a known bounded agent with minimal permissions
+           agent   = "aws-doc-author")   ← use a known bounded agent with minimal permissions
   → If the call returns successfully (any response received):
       task_tool_available = true
       execution_mode = subagent-dispatch
@@ -397,7 +397,7 @@ phases:
 
 ### Steps
 
-**Executor:** primary agent **always** (inline), including when `execution_mode == subagent-dispatch`. Never dispatch to `aws-author`.
+**Executor:** primary agent **always** (inline), including when `execution_mode == subagent-dispatch`. Never dispatch to `aws-doc-author`.
 
 ```
 Load aws-explore in primary agent
@@ -484,23 +484,23 @@ The orchestrator does NOT hardcode a phase sequence. It calls `aws status --chan
 | Schema phase id | kind | skill | agent / executor |
 |---|---|---|---|
 | skill-registry-check | orchestrator-internal | — | — |
-| explore | **inline-only** | aws-explore | **primary agent** (never `task` / `aws-author`) |
-| case-design | agent | aws-case-design | aws-author |
+| explore | **inline-only** | aws-explore | **primary agent** (never `task` / `aws-doc-author`) |
+| case-design | agent | aws-case-design | aws-doc-author |
 | case-review | agent | aws-case-reviewer | aws-reviewer |
-| case-fix | agent | aws-case-fixer | aws-author |
-| fact-baseline | agent | aws-fact-baseline | aws-author |
-| api-plan | agent | aws-api-plan | aws-author |
+| case-fix | agent | aws-case-fixer | aws-doc-author |
+| fact-baseline | agent | aws-fact-baseline | aws-doc-author |
+| api-plan | agent | aws-api-plan | aws-doc-author |
 | api-plan-review | agent | aws-api-plan-reviewer | aws-reviewer |
-| api-plan-fix | agent | aws-api-plan-fixer | aws-author |
+| api-plan-fix | agent | aws-api-plan-fixer | aws-doc-author |
 | api-codegen | agent | aws-api-codegen | aws-test-author |
-| e2e-plan | agent | aws-e2e-plan | aws-author |
+| e2e-plan | agent | aws-e2e-plan | aws-doc-author |
 | e2e-plan-review | agent | aws-e2e-plan-reviewer | aws-reviewer |
-| e2e-plan-fix | agent | aws-e2e-plan-fixer | aws-author |
+| e2e-plan-fix | agent | aws-e2e-plan-fixer | aws-doc-author |
 | e2e-codegen | agent | aws-e2e-codegen | aws-test-author |
 | execution | cli | — | — |
 | inspect | agent | aws-inspect | aws-reviewer |
 | report | agent | aws-report-generator | aws-reporter |
-| fix-proposal | agent | aws-fix-proposal | aws-author |
+| fix-proposal | agent | aws-fix-proposal | aws-doc-author |
 | api-codegen-fix | agent | aws-api-codegen-fixer | aws-test-author |
 | e2e-codegen-fix | agent | aws-e2e-codegen-fixer | aws-test-author |
 | healing-rerun | cli | — | — |
@@ -2596,7 +2596,7 @@ Every gate listed in **Mandatory Review JSON Gate** applies identically whether 
 
 This section clarifies when subagent usage is **allowed** vs. **forbidden**, and how to record it unambiguously in `workflow-state.yaml`.
 
-**Authorized vs. unauthorized:** in `subagent-dispatch` mode, bounded phase subagents dispatched by the orchestration loop are **authorized** executors for their assigned phases — **except `explore`**, which always runs inline in the primary agent (never `task(agent=aws-author)`). Authorized subagents load their assigned phase skill and write that phase's output files. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
+**Authorized vs. unauthorized:** in `subagent-dispatch` mode, bounded phase subagents dispatched by the orchestration loop are **authorized** executors for their assigned phases — **except `explore`**, which always runs inline in the primary agent (never `task(agent=aws-doc-author)`). Authorized subagents load their assigned phase skill and write that phase's output files. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
 
 ### Allowed: exploration / document-driven subagents (both modes)
 
@@ -2850,6 +2850,9 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
 - **Never** allow healing to modify product code (`app/`, `web/`, `src/`).
 - **Never** allow healing to modify unrelated tests outside the current change scope.
 - **Never** modify test files between official `aws run` batches outside the healing loop. `aws run` records `tests_tree_sha256` in `execution-manifest.yaml` and refuses changed tests unless `phases.healing.status == applied` (or the user explicitly records `--allow-test-changes --reason`). `--rerun-reason` is only for code-unchanged environment retries.
+- `aws run` also records `product_tree_sha256`; during healing, product-code changes are mechanically rejected with `PRODUCT-CHANGED-DURING-HEALING` and have no bypass flag.
+- `healing/fixer-safety-check.json` is generated by `aws state heal --to applied`. Agent-authored versions are overwritten and must not be trusted as self-attestation.
+- If an `assertion_failure` is judged to be a test expected-value error, record that judgment with `aws report reclassify --change <id> --failure <id> --to assertion_expectation_error --evidence "<case/plan evidence>"`. Never edit `inspect/failure-analysis.json` directly.
 - If the healing skills (`aws-fix-proposal`, `aws-api-codegen-fixer`, `aws-e2e-codegen-fixer`) are not installed (`gates.healing_available == false`):
   - Set `phases.healing.status = skipped`.
   - If `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist in `inspect/failure-analysis.json`: **STOP** — report missing healing skills; do not archive a failed execution.

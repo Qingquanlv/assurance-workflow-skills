@@ -1,8 +1,17 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 import { resolveSelectedTargets, run, RunnerResult } from '../execution/runner';
 import { appendEvents } from '../core/events';
-import { assertHealingRunAllowed, assertRerunReasonIfNeeded, assertTestTreeUnchangedOrHealing } from '../core/healing_state';
+import {
+  assertHealingRunAllowed,
+  assertProductTreeUnchangedInHealing,
+  assertRerunReasonIfNeeded,
+  assertTestTreeUnchangedOrHealing,
+  loadProductCodeRoots,
+} from '../core/healing_state';
+import { writeTestChangesOverrideEvidence } from '../core/override_evidence';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerRunCommand(program: Command): void {
@@ -30,20 +39,24 @@ export function registerRunCommand(program: Command): void {
         if (allowTestChanges && !overrideReason?.trim()) {
           throw new Error('ALLOW-TEST-CHANGES-REASON-REQUIRED: --allow-test-changes requires --reason "<user decision>"');
         }
+        const overridePolicy = loadTestChangesOverridePolicy(projectRoot);
+        if (allowTestChanges && overridePolicy === 'forbidden') {
+          throw new Error('ALLOW-TEST-CHANGES-FORBIDDEN: execution policy forbids --allow-test-changes');
+        }
         assertHealingRunAllowed(projectRoot, changeId);
         assertRerunReasonIfNeeded(projectRoot, changeId, rerunReason);
         const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, allowTestChanges);
+        const productIntegrity = assertProductTreeUnchangedInHealing(projectRoot, changeId, loadProductCodeRoots(projectRoot));
 
         const selectedTargets = resolveSelectedTargets(projectRoot, changeId);
         const startedAt = Date.now();
-        if (allowTestChanges && integrity.testsChanged) {
+        if (productIntegrity.productChanged && productIntegrity.previousSha256) {
           appendEvents(projectRoot, changeId, [{
             source: 'run',
-            type: 'human_override',
-            phase: 'execution',
-            action: 'allow_test_changes',
-            reason: overrideReason!.trim(),
-            review_sha256: integrity.current.aggregate,
+            type: 'product_tree_changed',
+            prev_sha256: productIntegrity.previousSha256,
+            new_sha256: productIntegrity.current.aggregate,
+            ...(productIntegrity.previousBatchId ? { baseline_batch_id: productIntegrity.previousBatchId } : {}),
           }]);
         }
         appendEvents(projectRoot, changeId, [{
@@ -55,6 +68,31 @@ export function registerRunCommand(program: Command): void {
         }]);
 
         const result = run({ changeId, projectRoot, selectedTargets });
+        if (allowTestChanges && integrity.testsChanged) {
+          const evidence = overridePolicy === 'free'
+            ? null
+            : writeTestChangesOverrideEvidence({
+                projectRoot,
+                changeId,
+                batchId: result.batchId,
+                batchDir: result.batchDir,
+                reason: overrideReason!.trim(),
+                integrity,
+              });
+          appendEvents(projectRoot, changeId, [{
+            source: 'run',
+            type: 'human_override',
+            phase: 'execution',
+            action: 'allow_test_changes',
+            reason: overrideReason!.trim(),
+            review_sha256: integrity.current.aggregate,
+            ...(evidence ? {
+              evidence_file: evidence.relPath,
+              evidence_sha256: evidence.sha256,
+              changed_files_count: evidence.changedFilesCount,
+            } : {}),
+          }]);
+        }
         appendEvents(projectRoot, changeId, [{
           source: 'run',
           type: 'execution_end',
@@ -137,6 +175,23 @@ export function registerRunCommand(program: Command): void {
     });
 }
 
+type TestChangesOverridePolicy = 'forbidden' | 'with-evidence' | 'free';
+
+function loadTestChangesOverridePolicy(projectRoot: string): TestChangesOverridePolicy {
+  const configPath = path.join(projectRoot, '.aws', 'execution-policy.json');
+  if (!fs.existsSync(configPath)) return 'with-evidence';
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.healing)) return 'with-evidence';
+    const value = parsed.healing.testChangesOverride;
+    return value === 'forbidden' || value === 'free' || value === 'with-evidence'
+      ? value
+      : 'with-evidence';
+  } catch {
+    return 'with-evidence';
+  }
+}
+
 function toPerTarget(result: RunnerResult): Record<string, unknown> {
   return {
     api: result.api
@@ -168,4 +223,8 @@ function pickExecutionResult(result: {
     failed: result.failed,
     skipped: result.skipped,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

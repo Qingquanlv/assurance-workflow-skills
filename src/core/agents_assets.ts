@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const RUNTIME_AGENTS = ['aws-reviewer', 'aws-author', 'aws-test-author', 'aws-reporter', 'aws-archiver'] as const;
+export const RUNTIME_AGENTS = ['aws-reviewer', 'aws-doc-author', 'aws-test-author', 'aws-reporter', 'aws-archiver'] as const;
 export type RuntimeAgent = (typeof RUNTIME_AGENTS)[number];
 
 export interface CopyResult { created: string[]; skipped: string[]; }

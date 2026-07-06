@@ -18,6 +18,7 @@ export interface TestTreeHash {
 }
 
 const EXCLUDED_TEST_DIRS = new Set(['__pycache__', '.pytest_cache']);
+const EXCLUDED_PRODUCT_DIRS = new Set(['__pycache__', '.pytest_cache', 'node_modules', 'dist', 'build', '.venv']);
 
 export function hashTestTree(projectRoot: string): TestTreeHash {
   const testsRoot = path.join(projectRoot, 'tests');
@@ -32,6 +33,25 @@ export function hashTestTree(projectRoot: string): TestTreeHash {
     if (hash) files[rel] = hash;
   }
 
+  const serialized = Object.keys(files)
+    .sort()
+    .map(rel => `${rel}:${files[rel]}`)
+    .join('\n');
+  return { aggregate: sha256String(serialized), files };
+}
+
+export function hashProductTree(projectRoot: string, roots: string[]): TestTreeHash {
+  const files: Record<string, string> = {};
+  for (const root of roots) {
+    const absRoot = path.resolve(projectRoot, root);
+    if (!isInsideProject(projectRoot, absRoot)) continue;
+    if (!fs.existsSync(absRoot) || !fs.statSync(absRoot).isDirectory()) continue;
+    for (const filePath of listProductFiles(absRoot)) {
+      const rel = toPosix(path.relative(projectRoot, filePath));
+      const hash = sha256File(filePath);
+      if (hash) files[rel] = hash;
+    }
+  }
   const serialized = Object.keys(files)
     .sort()
     .map(rel => `${rel}:${files[rel]}`)
@@ -55,6 +75,29 @@ function listTestFiles(dir: string): string[] {
     files.push(fullPath);
   }
   return files;
+}
+
+function listProductFiles(dir: string): string[] {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (EXCLUDED_PRODUCT_DIRS.has(entry.name)) continue;
+      files.push(...listProductFiles(fullPath));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (entry.name.endsWith('.pyc') || entry.name.endsWith('.map')) continue;
+    files.push(fullPath);
+  }
+  return files;
+}
+
+function isInsideProject(projectRoot: string, filePath: string): boolean {
+  const rel = path.relative(path.resolve(projectRoot), filePath);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 function toPosix(value: string): string {

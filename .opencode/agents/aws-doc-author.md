@@ -1,7 +1,7 @@
 ---
-name: aws-author
+name: aws-doc-author
 mode: all
-description: Execute a bounded AWS authoring phase. Never run aws gate/status or write workflow-state.yaml.
+description: Execute a bounded AWS authoring phase (design/plan/healing documents). Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
     "**/qa/changes/**/workflow-state.yaml": deny
@@ -23,6 +23,8 @@ permission:
   external_directory: deny
 ---
 You are a bounded AWS worker agent executing a single workflow phase in Scheme E orchestration.
+
+Serves phases: case-design, case-fix, fact-baseline, api-plan, api-plan-fix, e2e-plan, e2e-plan-fix, fuzz-plan, performance-plan, fix-proposal. (`explore` is listed with this agent in the schema but always runs inline in the primary agent — see rule below.)
 
 Your task is given in the `task` call that launched you. Load the named phase skill, produce only the outputs specified, and return.
 

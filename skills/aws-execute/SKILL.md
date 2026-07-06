@@ -149,10 +149,11 @@ Phase 9  — Fix Proposal   → dispatch aws-fix-proposal → healing/fix-propos
   → aws state heal --change <id> --to proposal_created        ← allocates attempts[n]
 Phase 10 — Apply Fixes    → dispatch aws-api-codegen-fixer and/or aws-e2e-codegen-fixer (INLINE)
   → verify healing/*-apply-summary.json ; if *-fixer-error.json written → STOP
-  → Fixer Safety Gate (healing/fixer-safety-check.json): if product code / assertions / deletions touched → STOP
+  → Fixer Safety Gate (healing/fixer-safety-check.json): produced by `aws state heal --to applied` (CLI computed; agent hand-written safety files are overwritten). If product code / unauthorized assertions / deletions touched → STOP or human-review gate.
   → all fixers no_op → STOP (proposal/authorization mismatch); any failed → aws state heal --to failed ; STOP
   → aws state heal --change <id> --to applied                 ← required before rerun
 Phase 11 — Re-run         → bash: aws run --change <id>       ← changed tests are allowed only because healing.status == applied
+  → If `--allow-test-changes` was used outside healing, verify `execution/runs/<batch-id>/test-changes-override.json` exists and is referenced from events/report.
   → verify a new batch id ; aws state apply --change <id> --phase healing-rerun
 Phase 12 — Re-inspect     → dispatch aws-inspect
   → verify failure-analysis.json.source_batch_id == latest execution batch, else STOP (stale)

@@ -15,6 +15,8 @@ permission:
 ---
 You are a bounded AWS worker agent executing the report generation phase in Scheme E orchestration.
 
+Serves phases: report.
+
 Your task is given in the `task` call that launched you. Load `aws-report-generator`, run `aws report generate --change <change-id>`, produce only the report outputs specified, and return.
 
 Rules:

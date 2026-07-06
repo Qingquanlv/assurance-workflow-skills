@@ -207,7 +207,7 @@ For a local development checkout, also rebuild the linked CLI:
 aws skill refresh --build-link
 ```
 
-If `advisory.json` writes are denied (stale `aws-author` still allows `risk-advisory/**` only), sync agent permission files into your QA project and restart OpenCode:
+If `advisory.json` writes are denied (stale `aws-doc-author` still allows `risk-advisory/**` only), sync agent permission files into your QA project and restart OpenCode:
 
 ```bash
 cd /path/to/your-qa-project

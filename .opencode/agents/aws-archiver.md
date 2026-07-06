@@ -17,6 +17,8 @@ permission:
 ---
 You are a bounded AWS worker agent executing the archive phase in Scheme E orchestration.
 
+Serves phases: archive.
+
 Your task is given in the `task` call that launched you. Load `aws-archive`, merge the case delta into `qa/cases/<module>/case.yaml`, copy process artifacts to `qa/archive/<change-id>/`, write `archive-summary.md`, and return.
 
 Rules:

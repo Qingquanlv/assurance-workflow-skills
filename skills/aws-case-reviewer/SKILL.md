@@ -110,6 +110,7 @@ Review the generated case artifacts for:
 - Preconditions and test data
 - Assertions
 - Traceability
+- Minimum Required Coverage (MRC) mapping from advisory to cases
 - Risk and ambiguity
 - Duplicate or conflicting cases
 - Test layer assignments (API vs E2E per the decision tree in `aws-case-design`)
@@ -137,6 +138,34 @@ Finding example:
 ```
 
 Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `explore`, `risk_advisory` (legacy), `WL-*` / `PH-*` / `HS-*` (legacy) as dedicated trace fields).
+
+### Minimum Required Coverage gate (hard)
+
+When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`:
+
+```text
+FOR EACH required MRC item:
+  It MUST appear in at least one case trace.minimum_required_coverage
+  It MUST appear in trace/minimum-coverage-matrix.yaml covered_by_cases
+  The covering case type/layer MUST match the MRC layer (api/e2e/both)
+```
+
+Violations:
+
+- required MRC item has no covering case → `needs_fix`
+- matrix and case.yaml trace disagree → `needs_fix`
+- e2e_if_enabled item is skipped without explicit skipped_by_scope + reason → `needs_human_review`
+
+`case-review.json` should include:
+
+```json
+"minimum_coverage": {
+  "total_required": 24,
+  "covered": 24,
+  "skipped_by_scope": 0,
+  "missing": []
+}
+```
 
 ---
 

@@ -213,6 +213,6 @@ gap: [...]
 
 ## 未涉及的问题（有意不改）
 
-- `aws-author.md` 权限：源码为只读（Read/Grep），不涉及写权限
+- `aws-doc-author.md` 权限：源码为只读（Read/Grep），不涉及写权限
 - `explore-context.schema.json`：CLI 产出结构不变
 - 置信度等级枚举：不新增，code-derived 只是限制上限 medium

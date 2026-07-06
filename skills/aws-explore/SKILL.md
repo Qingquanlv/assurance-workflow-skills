@@ -41,7 +41,7 @@ Produce the **Explore** artifacts (Phase 0.5) from deterministic historical fact
 
 **Does not** write `case.yaml`, modify `context.json`, or simulate `aws-case-design`.
 
-**Workflow binding:** When invoked from `aws-workflow`, this skill **always** runs **inline in the primary agent** — even when `execution_mode == subagent-dispatch`. It is never dispatched to `aws-author` (subagents lack Bash for `aws risk` CLI).
+**Workflow binding:** When invoked from `aws-workflow`, this skill **always** runs **inline in the primary agent** — even when `execution_mode == subagent-dispatch`. It is never dispatched to `aws-doc-author` (subagents lack Bash for `aws risk` CLI).
 
 ---
 

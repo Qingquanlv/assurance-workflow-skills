@@ -94,6 +94,42 @@
         "approach": { "type": "string" }
       }
     },
+    "minimum_required_coverage": {
+      "description": "Minimum required risk/requirement coverage contract. New advisories should emit structured items; legacy string arrays are accepted for one compatibility cycle.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "required": ["id", "key", "required"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^MRC-[A-Z0-9-]+-\\d+$" },
+                "key": { "type": "string" },
+                "category": { "type": "string", "enum": ["api", "e2e", "e2e_if_enabled", "negative", "data_integrity"] },
+                "required": { "type": "boolean" },
+                "layer": { "type": "string", "enum": ["api", "e2e", "both"] },
+                "enabled_when": { "type": "string" },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": { "type": "string" },
+                    "handler": { "type": "string" },
+                    "source_files": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "additionalProperties": true
+                },
+                "advisory_refs": { "type": "array", "items": { "type": "string" } },
+                "acceptance": { "type": "string" }
+              },
+              "additionalProperties": true
+            }
+          ]
+        }
+      }
+    },
     "open_questions_for_case_design": {
       "description": "Per-pitfall assertion-intent questions ONLY. Each item must trace to a discovered code pitfall (evidence_ids) and ask whether to assert the known-bug behavior, the ideal behavior, or ignore it. Macro scope/data/layer/approach questions belong in test_strategy, not here.",
       "type": "array",

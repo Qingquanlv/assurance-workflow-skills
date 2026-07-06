@@ -191,4 +191,128 @@ describe('status audits', () => {
     expect(reviewed?.status).toBe('tampered');
     expect(adjusted.terminal?.kind).toBe('stopped');
   });
+
+  it('flags ARTIFACT-TAMPERED when fixer safety check hash drifts', () => {
+    fs.mkdirSync(path.join(changeDir(projectRoot), 'healing'), { recursive: true });
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'healing', 'fixer-safety-check.json'),
+      JSON.stringify({ passed: true }),
+      'utf-8',
+    );
+
+    appendEvents(projectRoot, changeId, [{
+      source: 'gate',
+      type: 'gate_verdict',
+      phase: 'healing-rerun',
+      gate: 'fixer-safety-gate',
+      verdict: 'pass',
+      blocks: 0,
+      evidence: { passed: true },
+      reads_sha256: { 'healing/fixer-safety-check.json': 'deadbeef' },
+    }]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [
+        { id: 'healing-rerun', status: 'done', gate: 'fixer-safety-gate', gate_verdict: 'pass' },
+      ],
+      next: [],
+      healing: { attempts_used: 1, max: 2, status: 'applied' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.code === 'ARTIFACT-TAMPERED')).toBe(true);
+  });
+
+  it('flags ARTIFACT-TAMPERED when human override evidence hash drifts', () => {
+    fs.mkdirSync(path.join(changeDir(projectRoot), 'execution', 'runs', 'b1'), { recursive: true });
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'execution', 'runs', 'b1', 'test-changes-override.json'),
+      JSON.stringify({ changed_files: [] }),
+      'utf-8',
+    );
+
+    appendEvents(projectRoot, changeId, [{
+      source: 'run',
+      type: 'human_override',
+      phase: 'execution',
+      action: 'allow_test_changes',
+      reason: 'approved',
+      review_sha256: 'tests-tree',
+      evidence_file: 'execution/runs/b1/test-changes-override.json',
+      evidence_sha256: 'deadbeef',
+      changed_files_count: 0,
+    }]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [],
+      next: [],
+      healing: { attempts_used: 0, max: 2, status: 'not_needed' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('test-changes-override.json'))).toBe(true);
+  });
+
+  it('allows fixer safety pass→pass content changes across a healing rerun', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate',
+        type: 'gate_verdict',
+        phase: 'healing-rerun',
+        gate: 'fixer-safety-gate',
+        verdict: 'pass',
+        blocks: 0,
+        evidence: {},
+        reads_sha256: { 'healing/fixer-safety-check.json': 'aaa' },
+      },
+      {
+        source: 'status',
+        type: 'phase_transition',
+        phase: 'healing-rerun',
+        from: 'ready',
+        to: 'FAIL',
+        outputs: [],
+      },
+      {
+        source: 'gate',
+        type: 'gate_verdict',
+        phase: 'healing-rerun',
+        gate: 'fixer-safety-gate',
+        verdict: 'pass',
+        blocks: 0,
+        evidence: {},
+        reads_sha256: { 'healing/fixer-safety-check.json': 'bbb' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [],
+      next: [],
+      healing: { attempts_used: 1, max: 2, status: 'applied' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('pass→pass'))).toBe(false);
+  });
 });

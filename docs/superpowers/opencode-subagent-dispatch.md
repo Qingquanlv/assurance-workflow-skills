@@ -59,7 +59,7 @@ Conductor maps logical roles to OpenCode agents (files shipped under `.opencode/
 | Runtime agent | Typical phases |
 |---------------|----------------|
 | `aws-test-author` | API/E2E codegen, execution runners |
-| `aws-author` | Case design, plan authoring/fix |
+| `aws-doc-author` | Case design, plan authoring/fix |
 | `aws-reviewer` | Reviews, inspect helpers, reports |
 
 All three share a **permission deny floor**: orchestration audit paths and `**` default deny; only brief `allowed_write_paths` glob allows product writes.

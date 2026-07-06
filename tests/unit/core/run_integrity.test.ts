@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { hashTestTree } from '../../../src/core/hash';
 import { assertTestTreeUnchangedOrHealing } from '../../../src/core/healing_state';
+import { writeTestChangesOverrideEvidence } from '../../../src/core/override_evidence';
 
 const changeId = 'REQ-RUN-INTEGRITY-001';
 
@@ -95,7 +96,15 @@ describe('run integrity test tree guard', () => {
 
     const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, false);
     expect(result.testsChanged).toBe(true);
-    expect(result.changedFiles).toContain('tests/api/test_sample.py');
+    expect(result.changedFiles.map(f => f.path)).toContain('tests/api/test_sample.py');
+    expect(result.changedFiles).toEqual([
+      expect.objectContaining({
+        path: 'tests/api/test_sample.py',
+        change_type: 'modified',
+        old_sha256: hash.files['tests/api/test_sample.py'],
+        new_sha256: expect.any(String),
+      }),
+    ]);
   });
 
   it('allows changed tests with an explicit human override flag', () => {
@@ -108,7 +117,64 @@ describe('run integrity test tree guard', () => {
 
     const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
     expect(result.testsChanged).toBe(true);
-    expect(result.changedFiles).toContain('tests/api/test_new.py');
+    expect(result.changedFiles).toEqual([
+      expect.objectContaining({
+        path: 'tests/api/test_new.py',
+        change_type: 'added',
+        old_sha256: null,
+        new_sha256: expect.any(String),
+      }),
+    ]);
+  });
+
+  it('reports deleted files in structured test tree diffs', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.rmSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'));
+
+    const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
+    expect(result.changedFiles).toEqual([
+      {
+        path: 'tests/api/test_sample.py',
+        change_type: 'deleted',
+        old_sha256: hash.files['tests/api/test_sample.py'],
+        new_sha256: null,
+      },
+    ]);
+  });
+
+  it('writes test changes override evidence with a stable sha256', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_new.py'), 'def test_b(): pass\n', 'utf-8');
+    const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
+    const batchDir = path.join(changeDir(projectRoot), 'execution', 'runs', '20260706-010203');
+    fs.mkdirSync(batchDir, { recursive: true });
+
+    const evidence = writeTestChangesOverrideEvidence({
+      projectRoot,
+      changeId,
+      batchId: '20260706-010203',
+      batchDir,
+      reason: 'human approved test update',
+      integrity,
+      createdAt: '2026-07-06T00:00:00.000Z',
+    });
+
+    expect(evidence.changedFilesCount).toBe(1);
+    expect(evidence.relPath).toBe('execution/runs/20260706-010203/test-changes-override.json');
+    expect(fs.existsSync(evidence.absPath)).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(evidence.absPath, 'utf-8'));
+    expect(parsed.changed_files).toEqual([
+      expect.objectContaining({ path: 'tests/api/test_new.py', change_type: 'added' }),
+    ]);
+    expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('fails open once for old manifests without test tree hashes', () => {

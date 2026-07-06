@@ -80,6 +80,23 @@ Inspect execution results and artifacts for a specific change, classify failures
 
 **Never:** Fabricate categories, overwrite `execution/known-product-issues.md` with inspect discoveries, or promote inspect findings to change-level records without explicit permission.
 
+## Assertion Expectation Reclassification
+
+Default `assertion_failure` remains non-fixable. If inspection determines the failure is a test expected-value error (not product behavior), the skill MUST use the CLI to record the judgment:
+
+```bash
+aws report reclassify --change <change-id> \
+  --failure <case_id-or-test-name> \
+  --to assertion_expectation_error \
+  --evidence "<case.yaml / plan evidence proving the expected value>"
+```
+
+Rules:
+
+- Evidence is mandatory and must cite the case or plan expectation.
+- Do not edit `inspect/failure-analysis.json` directly.
+- Reclassified failures become `fix_proposal_eligible=true` and `needs_review=true`; downstream fix proposals require human approval before apply.
+
 ## AWS CLI Identity Check
 
 This skill calls the **Assurance Workflow Skills CLI** (`aws`) — **not** the Amazon Web Services CLI.

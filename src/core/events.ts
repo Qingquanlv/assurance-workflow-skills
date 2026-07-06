@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { sha256File } from './hash';
+import { isAuditedGateRead } from './audit_scope';
 import type { GateReport, PhaseStatusKind, StatusReport } from '../orchestration/engine';
 import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
 
-export type QaEventSource = 'status' | 'gate' | 'run';
+export type QaEventSource = 'status' | 'gate' | 'run' | 'report';
 export type PhaseTransitionStatus = PhaseStatusKind | string;
 
 export interface QaEventBase {
@@ -58,6 +59,9 @@ export interface HumanOverrideEvent extends QaEventBase {
   action: string;
   reason: string;
   review_sha256: string;
+  evidence_file?: string;
+  evidence_sha256?: string;
+  changed_files_count?: number;
 }
 
 export interface ExecutionStartEvent extends QaEventBase {
@@ -66,6 +70,23 @@ export interface ExecutionStartEvent extends QaEventBase {
   targets: Record<string, boolean>;
   rerun_reason?: string;
   tests_changed?: boolean;
+}
+
+export interface ProductTreeChangedEvent extends QaEventBase {
+  source: 'run';
+  type: 'product_tree_changed';
+  prev_sha256: string;
+  new_sha256: string;
+  baseline_batch_id?: string;
+}
+
+export interface FailureReclassifiedEvent extends QaEventBase {
+  source: 'report';
+  type: 'failure_reclassified';
+  failure: string;
+  from: string;
+  to: string;
+  evidence: string;
 }
 
 export interface ExecutionEndEvent extends QaEventBase {
@@ -81,6 +102,8 @@ export type QaEvent =
   | HealTransitionEvent
   | HumanOverrideEvent
   | ExecutionStartEvent
+  | ProductTreeChangedEvent
+  | FailureReclassifiedEvent
   | ExecutionEndEvent;
 
 export type QaEventInput =
@@ -89,6 +112,8 @@ export type QaEventInput =
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HumanOverrideEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<ProductTreeChangedEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<FailureReclassifiedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionEndEvent, 'seq' | 'ts' | 'change_id'>;
 
 export function getEventsFile(projectRoot: string, changeId: string): string {
@@ -227,7 +252,7 @@ function computeReadsSha256(
 
   const hashes: Record<string, string> = {};
   for (const read of gate.reads) {
-    if (!read.path.startsWith('review/') || !read.path.endsWith('.json')) continue;
+    if (!isAuditedGateRead(read.path)) continue;
     const abs = resolveChangePath(projectRoot, changeId, read.path);
     const hash = sha256File(abs);
     if (hash) hashes[read.path] = hash;

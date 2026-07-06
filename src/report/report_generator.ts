@@ -26,6 +26,8 @@ import {
 } from '../core/types';
 import { computeQualityScore, ScoreDimension, ScoreDimensionKey } from './quality_score';
 import { loadExecutionArtifacts } from './execution_artifacts';
+import { buildMinimumCoverageResult } from './minimum_coverage';
+import { HumanOverrideEvent, QaEvent, readEvents } from '../core/events';
 
 export interface GenerateReportOptions {
   changeId: string;
@@ -108,6 +110,22 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
 
   // ── Scope (best-effort) ───────────────────────────────────────────────────
   const scope = scanScope(changeBase);
+  const minimumCoverage = buildMinimumCoverageResult({
+    changeId,
+    projectRoot,
+    apiResult,
+    e2eResult,
+  });
+  const humanOverrides = readEvents(projectRoot, changeId)
+    .filter(isAllowTestChangesOverride)
+    .map(e => ({
+      action: e.action,
+      reason: e.reason,
+      at: e.ts,
+      ...(typeof e.changed_files_count === 'number' ? { changed_files_count: e.changed_files_count } : {}),
+      ...(typeof e.evidence_file === 'string' ? { evidence_file: e.evidence_file } : {}),
+      ...(typeof e.evidence_sha256 === 'string' ? { evidence_sha256: e.evidence_sha256 } : {}),
+    }));
 
   const report: QualityReport = {
     schema_version: '1.0',
@@ -119,6 +137,8 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
     scope,
     functional: gate.dimensions.functional,
     coverage: gate.dimensions.coverage,
+    ...(humanOverrides.length > 0 ? { human_overrides: humanOverrides } : {}),
+    minimum_required_coverage: minimumCoverage,
     non_functional: gate.dimensions.non_functional,
     defects,
     risk_level: riskLevel,
@@ -132,10 +152,15 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
   const execSummaryPath = path.join(reportDir, 'executive-summary.md');
 
   fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf-8');
+  fs.writeFileSync(path.join(reportDir, 'minimum-coverage-result.json'), JSON.stringify(minimumCoverage, null, 2), 'utf-8');
   fs.writeFileSync(mdPath, buildReportMd(report), 'utf-8');
   fs.writeFileSync(execSummaryPath, buildExecutiveSummary(report), 'utf-8');
 
   return { report, jsonPath, mdPath, execSummaryPath };
+}
+
+function isAllowTestChangesOverride(event: QaEvent): event is HumanOverrideEvent {
+  return event.type === 'human_override' && event.action === 'allow_test_changes';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -301,7 +326,15 @@ function buildReportMd(r: QualityReport): string {
     c.available
       ? `- Line: ${c.line_coverage}% (threshold ${c.threshold.line}%)\n- Branch: ${c.branch_coverage}% (threshold ${c.threshold.branch}%)\n- Status: ${c.status}`
       : '- Not collected (pytest-cov unavailable or disabled). Treated as a warning, not a failure.',
+    ...(c.scope
+      ? [
+          `- Module scope line: ${c.scope.module_line_coverage}% (threshold ${c.scope.threshold}%)`,
+          `- Module scope status: ${c.scope.status}`,
+        ]
+      : []),
     '',
+    ...humanOverridesSection(r),
+    ...minimumCoverageSection(r),
     ...nonFunctionalSection(r),
     '## Defects',
     '',
@@ -320,6 +353,45 @@ function buildReportMd(r: QualityReport): string {
     '',
   ];
   return lines.join('\n');
+}
+
+function humanOverridesSection(r: QualityReport): string[] {
+  const overrides = r.human_overrides ?? [];
+  if (overrides.length === 0) return [];
+  const out = [
+    '## Human Overrides',
+    '',
+    '| Action | Time | Files | Evidence | Reason |',
+    '|--------|------|------:|----------|--------|',
+  ];
+  for (const item of overrides) {
+    out.push(
+      `| ${item.action} | ${item.at} | ${item.changed_files_count ?? '-'} | ${item.evidence_file ?? '-'} | ${item.reason} |`,
+    );
+  }
+  out.push('');
+  return out;
+}
+
+function minimumCoverageSection(r: QualityReport): string[] {
+  const mrc = r.minimum_required_coverage;
+  if (!mrc || mrc.items.length === 0) return [];
+  const out = [
+    '## Minimum Required Coverage',
+    '',
+    `- Required: ${mrc.summary.total_required}`,
+    `- Covered: ${mrc.summary.covered}`,
+    `- Covered known issue: ${mrc.summary.covered_known_issue}`,
+    `- Missing: ${mrc.summary.missing}`,
+    '',
+    '| Key | Status | Cases | Mapping |',
+    '|-----|--------|-------|---------|',
+  ];
+  for (const item of mrc.items) {
+    out.push(`| ${item.key} | ${item.status} | ${item.case_ids.join(', ') || '-'} | ${item.mapping_source} |`);
+  }
+  out.push('');
+  return out;
 }
 
 function nonFunctionalSection(r: QualityReport): string[] {

@@ -874,10 +874,23 @@ regression:
 trace:
   supersedes: []              # optional — prior requirement/case ids this case replaces
   related_requirements: []    # optional — related requirement ids
+  minimum_required_coverage: [] # MRC-* ids from advisory.minimum_required_coverage covered by this case
+  advisory_refs: []           # PH-* / WL-* / SS-* refs consumed by this case
   change_reason: ""           # optional — why this case changed; may be filled during design
 ```
 
-`trace` is required on every case but **may be `{}` or partially empty during case design**. Downstream archive / execution may enrich it. Reviewers should treat empty `trace` as compliant at case-design time.
+`trace` is required on every case. When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`, every required MRC item must be mapped to at least one case via `trace.minimum_required_coverage`; do not rely on title/name inference. Downstream archive / execution may enrich other trace fields.
+
+Also write `qa/changes/<change-id>/trace/minimum-coverage-matrix.yaml`:
+
+```yaml
+- mrc_id: MRC-API-006
+  key: refresh_api
+  required: true
+  covered_by_cases: [TC_API_012, TC_API_013]
+  status: covered | skipped_by_scope
+  skip_reason: null
+```
 
 **`type` → `framework` → output directory (must match):**
 

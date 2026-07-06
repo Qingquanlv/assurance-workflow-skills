@@ -42,6 +42,7 @@ export function buildExecutionPolicy(answers: InitAnswers): object {
     allowAssertionChange: false,
     allowProductCodeChange: false,
     allowAutoMerge: false,
+    testChangesOverride: 'with-evidence',
   };
 
   return policy;

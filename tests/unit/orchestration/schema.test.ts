@@ -337,7 +337,7 @@ gates: {}
 
   it('errors: CLI phase (skill: null) with an agent field', () => {
     const y = AGENT_YAML_BASE(
-      `  - id: exec\n    skill: null\n    agent: aws-author\n    requires: []\n    produces: [out.json]`,
+      `  - id: exec\n    skill: null\n    agent: aws-doc-author\n    requires: []\n    produces: [out.json]`,
     );
     const r = validateSchema(parseSchema(y));
     expect(r.ok).toBe(false);
@@ -355,7 +355,7 @@ gates: {}
 
   it('passes: agent phase with valid agent', () => {
     const y = AGENT_YAML_BASE(
-      `  - id: design\n    skill: aws-case-design\n    agent: aws-author\n    requires: []\n    produces: [out.json]`,
+      `  - id: design\n    skill: aws-case-design\n    agent: aws-doc-author\n    requires: []\n    produces: [out.json]`,
     );
     expect(validateSchema(parseSchema(y)).ok).toBe(true);
   });

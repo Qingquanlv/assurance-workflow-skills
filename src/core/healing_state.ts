@@ -1,8 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { spawnSync } from 'child_process';
 import { appendEvents } from './events';
-import { hashTestTree, TestTreeHash } from './hash';
+import { hashProductTree, hashTestTree, TestTreeHash } from './hash';
 import { getWorkflowStateFile } from './workflow_state';
 import type { ExecutionManifest } from './types';
 
@@ -41,7 +42,21 @@ export interface TestTreeIntegrityResult {
   testsChanged: boolean;
   current: TestTreeHash;
   previousBatchId?: string;
-  changedFiles: string[];
+  changedFiles: ChangedTestFile[];
+}
+
+export interface ProductTreeIntegrityResult {
+  productChanged: boolean;
+  current: TestTreeHash;
+  previousBatchId?: string;
+  previousSha256?: string;
+}
+
+export interface ChangedTestFile {
+  path: string;
+  old_sha256: string | null;
+  new_sha256: string | null;
+  change_type: 'modified' | 'added' | 'deleted';
 }
 
 export function readHealingStatus(projectRoot: string, changeId: string): HealingStatus {
@@ -64,6 +79,9 @@ export function transitionHealingStatus(
     throw new Error(`HEAL-TRANSITION-ILLEGAL: ${from} → ${to}`);
   }
 
+  if (from === 'proposal_created' && to === 'applied') {
+    writeCliFixerSafetyCheck(projectRoot, changeId);
+  }
   validatePreconditions(projectRoot, changeId, state, from, to);
 
   const nextHealing: Record<string, unknown> = { ...healing, status: to };
@@ -152,6 +170,9 @@ function validatePreconditions(
     if (!safety || safety.passed !== true) {
       throw new Error('applied requires healing/fixer-safety-check.json with passed == true');
     }
+    if (safety.needs_review === true) {
+      throw new Error('applied requires healing/fixer-safety-check.json needs_review != true');
+    }
   }
 
   if ((from === 'proposal_created' || from === 'applied') && to === 'failed') {
@@ -224,6 +245,54 @@ export function assertRerunReasonIfNeeded(
   }
 }
 
+export function loadProductCodeRoots(projectRoot: string): string[] {
+  const configPath = path.join(projectRoot, '.aws', 'config.yaml');
+  if (!fs.existsSync(configPath)) return ['app', 'web/src', 'src'];
+  try {
+    const parsed = yaml.load(fs.readFileSync(configPath, 'utf-8')) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.execution)) return ['app', 'web/src', 'src'];
+    const roots = (parsed.execution as Record<string, unknown>).product_code_roots;
+    if (!Array.isArray(roots)) return ['app', 'web/src', 'src'];
+    const filtered = roots.filter((root): root is string => typeof root === 'string' && root.trim().length > 0);
+    return filtered.length > 0 ? filtered : ['app', 'web/src', 'src'];
+  } catch {
+    return ['app', 'web/src', 'src'];
+  }
+}
+
+export function assertProductTreeUnchangedInHealing(
+  projectRoot: string,
+  changeId: string,
+  roots = loadProductCodeRoots(projectRoot),
+): ProductTreeIntegrityResult {
+  const current = hashProductTree(projectRoot, roots);
+  const previous = readLatestExecutionManifest(projectRoot, changeId);
+  if (!previous?.product_tree_sha256) {
+    return { productChanged: false, current };
+  }
+  if (previous.product_tree_sha256 === current.aggregate) {
+    return {
+      productChanged: false,
+      current,
+      previousBatchId: previous.batch_id,
+      previousSha256: previous.product_tree_sha256,
+    };
+  }
+  if (isHealingRunContext(projectRoot, changeId)) {
+    throw new Error(
+      `PRODUCT-CHANGED-DURING-HEALING: product code (roots: ${roots.join(', ')}) changed during the healing ` +
+      `loop (baseline batch ${previous.batch_id}). Healing MUST NOT touch product code. Revert product changes, ` +
+      'or abandon healing (aws state heal --to failed) and start a new formal run.',
+    );
+  }
+  return {
+    productChanged: true,
+    current,
+    previousBatchId: previous.batch_id,
+    previousSha256: previous.product_tree_sha256,
+  };
+}
+
 export function assertTestTreeUnchangedOrHealing(
   projectRoot: string,
   changeId: string,
@@ -256,7 +325,7 @@ export function assertTestTreeUnchangedOrHealing(
     };
   }
 
-  const examples = changedFiles.slice(0, 3).join(', ') || 'unknown test files';
+  const examples = changedFiles.slice(0, 3).map(f => f.path).join(', ') || 'unknown test files';
   throw new Error(
     `TESTS-CHANGED-WITHOUT-HEALING: test files changed since batch ${previous.batch_id} ` +
     `(${changedFiles.length} files, e.g. ${examples}) but healing.status=${status}. ` +
@@ -265,6 +334,114 @@ export function assertTestTreeUnchangedOrHealing(
     'If a human explicitly decided to modify tests outside healing, record that decision with ' +
     'aws run --change <id> --allow-test-changes --reason "<user decision>".',
   );
+}
+
+export function writeCliFixerSafetyCheck(projectRoot: string, changeId: string): Record<string, unknown> {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const healingDir = path.join(changeDir, 'healing');
+  fs.mkdirSync(healingDir, { recursive: true });
+
+  const previous = readLatestExecutionManifest(projectRoot, changeId);
+  const productRoots = loadProductCodeRoots(projectRoot);
+  const product = hashProductTree(projectRoot, productRoots);
+  const productCodeModified = !!previous?.product_tree_sha256 && previous.product_tree_sha256 !== product.aggregate;
+
+  const currentTests = hashTestTree(projectRoot);
+  const changedTests = previous?.test_files_sha256
+    ? diffTestFiles(previous.test_files_sha256, currentTests.files)
+    : [];
+  const proposal = readJson(changeDir, 'healing/fix-proposal.json');
+  const applySummaries = APPLY_SUMMARIES.map(p => readJson(changeDir, p)).filter(Boolean);
+  const proposalFiles = collectProposalFiles(proposal);
+  const modifiedByApply = new Set(applySummaries.flatMap(summary => {
+    return Array.isArray(summary?.files_modified)
+      ? summary.files_modified.filter((file): file is string => typeof file === 'string')
+      : [];
+  }));
+  const changedTestPaths = changedTests.map(f => f.path);
+  const unrelatedTests = changedTestPaths.filter(file => !proposalFiles.has(file));
+  const highRiskProposalApplied = hasHighRiskProposalApplied(proposal, modifiedByApply);
+  const diff = readTestsGitDiff(projectRoot);
+  const skipOrXfailAdded = diff.available ? hasAddedSkipOrXfail(diff.text) : 'undetermined';
+  const assertionChanges = diff.available ? findAssertionExpectedValueChanges(diff.text) : [];
+  const needsReview = skipOrXfailAdded === 'undetermined' || assertionChanges.length > 0;
+  const passed =
+    productCodeModified === false &&
+    skipOrXfailAdded === false &&
+    unrelatedTests.length === 0 &&
+    assertionChanges.length === 0 &&
+    highRiskProposalApplied === false &&
+    needsReview === false;
+
+  const payload: Record<string, unknown> = {
+    schema_version: '1.0',
+    source: 'cli',
+    change_id: changeId,
+    created_at: new Date().toISOString(),
+    baseline_batch_id: previous?.batch_id ?? null,
+    product_code_roots: productRoots,
+    product_code_modified: productCodeModified,
+    skip_or_xfail_added: skipOrXfailAdded,
+    unrelated_tests_modified: unrelatedTests.length > 0,
+    unrelated_test_files: unrelatedTests,
+    assertion_expected_value_changes_detected: assertionChanges.length > 0,
+    assertion_expected_value_changes: assertionChanges,
+    high_risk_proposal_applied: highRiskProposalApplied,
+    needs_review: needsReview,
+    passed,
+  };
+  fs.writeFileSync(path.join(healingDir, 'fixer-safety-check.json'), JSON.stringify(payload, null, 2), 'utf-8');
+  return payload;
+}
+
+function collectProposalFiles(proposal: Record<string, unknown> | null): Set<string> {
+  const files = new Set<string>();
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  for (const proposalItem of proposals) {
+    if (!isRecord(proposalItem)) continue;
+    const toModify = Array.isArray(proposalItem.files_to_modify) ? proposalItem.files_to_modify : [];
+    for (const file of toModify) {
+      if (typeof file === 'string') files.add(file);
+    }
+  }
+  return files;
+}
+
+function hasHighRiskProposalApplied(proposal: Record<string, unknown> | null, modifiedByApply: Set<string>): boolean {
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  for (const proposalItem of proposals) {
+    if (!isRecord(proposalItem)) continue;
+    if (proposalItem.risk_level !== 'high') continue;
+    const files = Array.isArray(proposalItem.files_to_modify) ? proposalItem.files_to_modify : [];
+    if (files.some(file => typeof file === 'string' && modifiedByApply.has(file))) return true;
+  }
+  return false;
+}
+
+function readTestsGitDiff(projectRoot: string): { available: true; text: string } | { available: false } {
+  const result = spawnSync('git', ['diff', '--', 'tests/'], { cwd: projectRoot, encoding: 'utf-8' });
+  if (result.status !== 0) return { available: false };
+  return { available: true, text: result.stdout ?? '' };
+}
+
+function hasAddedSkipOrXfail(diff: string): boolean {
+  return diff.split('\n').some(line =>
+    line.startsWith('+') &&
+    !line.startsWith('+++') &&
+    /pytest\.mark\.(skip|xfail)|unittest\.skip/.test(line),
+  );
+}
+
+function findAssertionExpectedValueChanges(diff: string): string[] {
+  return diff
+    .split('\n')
+    .filter(line =>
+      (line.startsWith('+') || line.startsWith('-')) &&
+      !line.startsWith('+++') &&
+      !line.startsWith('---') &&
+      /\bassert\b/.test(line) &&
+      /(['"][^'"]+['"]|\b\d{3}\b|\bTrue\b|\bFalse\b)/.test(line),
+    );
 }
 
 function assertPhaseDone(state: Record<string, unknown>, stateKey: string, label: string): void {
@@ -287,9 +464,18 @@ function readLatestExecutionManifest(projectRoot: string, changeId: string): Exe
   }
 }
 
-function diffTestFiles(previous: Record<string, string>, current: Record<string, string>): string[] {
+function diffTestFiles(previous: Record<string, string>, current: Record<string, string>): ChangedTestFile[] {
   const keys = new Set([...Object.keys(previous), ...Object.keys(current)]);
-  return [...keys].filter(key => previous[key] !== current[key]).sort();
+  return [...keys]
+    .filter(key => previous[key] !== current[key])
+    .sort()
+    .map((key): ChangedTestFile => {
+      const oldHash = previous[key] ?? null;
+      const newHash = current[key] ?? null;
+      const changeType: ChangedTestFile['change_type'] =
+        oldHash === null ? 'added' : newHash === null ? 'deleted' : 'modified';
+      return { path: key, old_sha256: oldHash, new_sha256: newHash, change_type: changeType };
+    });
 }
 
 function hasEligibleFailures(analysis: Record<string, unknown> | null): boolean {

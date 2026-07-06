@@ -508,7 +508,7 @@ params:
 phases:
   - id: design
     skill: aws-case-design
-    agent: aws-author
+    agent: aws-doc-author
     requires: []
     produces: [design.json]
   - id: run
@@ -526,7 +526,7 @@ describe('resolveNextDispatch', () => {
   it('maps an agent phase to kind:agent with skill and agent', () => {
     const result = resolveNextDispatch(['design'], dispatchSchema);
     expect(result).toEqual<PhaseDispatchEntry[]>([
-      { phase: 'design', kind: 'agent', skill: 'aws-case-design', agent: 'aws-author' },
+      { phase: 'design', kind: 'agent', skill: 'aws-case-design', agent: 'aws-doc-author' },
     ]);
   });
 

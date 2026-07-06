@@ -496,7 +496,7 @@ export function registerSkillCommand(program: Command): void {
           for (const f of agentSync.updated) logOk(`[agents] updated: ${f}`);
           for (const f of agentSync.unchanged) logInfo(`[agents] unchanged: ${f}`);
           if (agentSync.updated.length > 0) {
-            logWarn('[agents] permission files updated — restart OpenCode so aws-author picks up explore/** allow rules');
+            logWarn('[agents] permission files updated — restart OpenCode so aws-doc-author picks up explore/** allow rules');
           }
         }
         logBlank();

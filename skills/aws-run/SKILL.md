@@ -113,7 +113,25 @@ If test files changed since the previous batch:
 - The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
 - If a human explicitly decides to modify tests outside healing, record that decision with `aws run --change <id> --allow-test-changes --reason "<user decision>"`.
 
-Do not use `--allow-test-changes` autonomously. It is a human override path only, and the CLI records a `human_override(action=allow_test_changes)` event.
+Do not use `--allow-test-changes` autonomously. It is a human override path only, and the CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
+
+## Product Tree Integrity
+
+`aws run` records `product_tree_sha256` in every `execution-manifest.yaml` and writes per-file hashes to `execution/runs/<batch-id>/product-files-sha256.json`.
+
+- Product roots come from `.aws/config.yaml` `execution.product_code_roots` (default: `app`, `web/src`, `src`; missing roots are skipped).
+- During healing, product code changes are a hard error: `PRODUCT-CHANGED-DURING-HEALING`.
+- There is no bypass flag for product code changes in healing. Revert the product change, or abandon healing via `aws state heal --to failed` and start a new formal run.
+- Outside healing, product tree changes are allowed and recorded as a `product_tree_changed` event; the new batch becomes the baseline.
+
+## Python SUT Coverage
+
+For Python projects, `aws run` records coverage in `execution/coverage-result.json`.
+
+- `coverage.mode: pytest-cov` collects coverage only for Python code imported by the pytest process.
+- `coverage.mode: server-process` is required when API/E2E tests call a running service over HTTP (for example `httpx.Client(base_url=...)`). In that mode the SUT must be launched under coverage by the runner; do not report coverage numbers from an already-running non-coverage server.
+- `coverage.scope` is derived from advisory `test_strategy.scope.in_scope` and reported separately from project-level coverage.
+- Missing or untrusted coverage must be reported as `SKIPPED`, never fabricated.
 
 ## AWS CLI Identity Check
 

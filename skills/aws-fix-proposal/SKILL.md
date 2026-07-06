@@ -56,6 +56,7 @@ Generate a fix proposal **only** for:
 | `wait_strategy_failure` | ✓ | Always eligible |
 | `test_code_error` | ✓ | Always eligible |
 | `test_data_failure` | conditional | Only if test data generation can be fixed without changing product code or assertion expected values |
+| `assertion_expectation_error` | review | Eligible only after `aws report reclassify`; proposal must set `needs_review: true` and must not be applied until human approval |
 | `environment_failure` | ✗ | `not_eligible` |
 | `assertion_failure` | ✗ | `not_eligible` |
 | `business_logic_failure` | ✗ | `not_eligible` |
@@ -82,6 +83,8 @@ For each **eligible** failure:
 3. Assess risk level.
 4. Write a concrete `patch_plan` with file + operation + description + constraints.
 5. Set `verification.rerun_required = true` always.
+
+For any failure where `needs_review == true` (including `assertion_expectation_error`), generate the proposal but mark it review-gated. The fixer MUST NOT apply it until a human approval is recorded with `aws gate override --action fix_and_proceed` or an equivalent approved workflow decision.
 
 **Forbidden operations — always add to `forbidden_operations`:**
 

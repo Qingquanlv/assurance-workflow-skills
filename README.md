@@ -102,7 +102,7 @@ Subagent 角色（`.opencode/agents/`）：
 
 | Agent | 职责 |
 |---|---|
-| `aws-author` | Case / Plan / Explore / Fix Proposal 等创作类阶段 |
+| `aws-doc-author` | Case / Plan / Explore / Fix Proposal 等创作类阶段 |
 | `aws-reviewer` | Case / Plan Review、Inspect |
 | `aws-test-author` | API / E2E / Fuzz / Performance Codegen 与 Fixer |
 | `aws-reporter` | 质量报告生成 |
@@ -217,11 +217,11 @@ Codegen 工程约束（`aws-api-codegen` 等）：
 |---|---|---|---|
 | 0 | `aws-test-infra-bootstrap` | — | 一次性测试基础设施脚手架 |
 | 1.1 | — | 编排器 | Skill Registry Check + `execution_mode` 探测 |
-| 1.2 | `aws-explore` | `aws-author` | 历史上下文 + 浅读源码 + 研判 `advisory.json` |
-| 2.1 | `aws-case-design` | `aws-author` | Case 增量设计 |
+| 1.2 | `aws-explore` | `aws-doc-author` | 历史上下文 + 浅读源码 + 研判 `advisory.json` |
+| 2.1 | `aws-case-design` | `aws-doc-author` | Case 增量设计 |
 | 2.2 | `aws-case-reviewer` | `aws-reviewer` | Case 审查 |
-| 2.3 | `aws-case-fixer` | `aws-author` | Case 自动修复（条件触发） |
-| 2.4 | `aws-fact-baseline` | `aws-author` | 产品/环境事实基线 |
+| 2.3 | `aws-case-fixer` | `aws-doc-author` | Case 自动修复（条件触发） |
+| 2.4 | `aws-fact-baseline` | `aws-doc-author` | 产品/环境事实基线 |
 | 2.5 | — | 编排器 | Layer Scan |
 | 3–6 | `aws-*-plan` / `*-reviewer` / `*-codegen` | 见 schema | 按 `test_types` 裁剪 |
 | 7 | `aws-run`（CLI） | — | 测试执行 |

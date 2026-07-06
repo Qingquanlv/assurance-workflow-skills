@@ -32,7 +32,7 @@ phases:
 
   - id: explore
     skill: aws-explore
-    agent: aws-author
+    agent: aws-doc-author
     requires: [skill-registry-check]
     produces: [explore/advisory.json]
     owned_by: [full, intake]
@@ -40,7 +40,7 @@ phases:
 
   - id: case-design
     skill: aws-case-design
-    agent: aws-author
+    agent: aws-doc-author
     requires: [explore]
     produces: [.qa.yaml, proposal.md, cases/]
     owned_by: [full, intake]
@@ -57,7 +57,7 @@ phases:
 
   - id: case-fix
     skill: aws-case-fixer
-    agent: aws-author
+    agent: aws-doc-author
     requires: [case-review]
     produces: [review/case-review.json]
     owned_by: [full, intake]
@@ -67,7 +67,7 @@ phases:
 
   - id: fact-baseline
     skill: aws-fact-baseline
-    agent: aws-author
+    agent: aws-doc-author
     requires: [case-review]
     produces: [facts/fact-baseline.json]
     owned_by: [full, execute]
@@ -76,7 +76,7 @@ phases:
   # ---- API branch -----------------------------------------------------------
   - id: api-plan
     skill: aws-api-plan
-    agent: aws-author
+    agent: aws-doc-author
     requires: [fact-baseline]
     produces: [plans/api-plan.md, plans/api-test-data-plan.md, plans/api-codegen-plan.md, plans/m3-review-summary.md]
     owned_by: [full, execute]
@@ -93,7 +93,7 @@ phases:
 
   - id: api-plan-fix
     skill: aws-api-plan-fixer
-    agent: aws-author
+    agent: aws-doc-author
     requires: [api-plan-review]
     produces: [review/api-plan-review.json]
     owned_by: [full, execute]
@@ -113,7 +113,7 @@ phases:
   # ---- E2E branch -----------------------------------------------------------
   - id: e2e-plan
     skill: aws-e2e-plan
-    agent: aws-author
+    agent: aws-doc-author
     requires: [fact-baseline]
     produces: [plans/e2e-plan.md, plans/e2e-test-data-plan.md, plans/e2e-codegen-plan.md, plans/m4-review-summary.md]
     owned_by: [full, execute]
@@ -130,7 +130,7 @@ phases:
 
   - id: e2e-plan-fix
     skill: aws-e2e-plan-fixer
-    agent: aws-author
+    agent: aws-doc-author
     requires: [e2e-plan-review]
     produces: [review/plan-review.json]
     owned_by: [full, execute]
@@ -150,7 +150,7 @@ phases:
   # ---- Optional fuzz branch -------------------------------------------------
   - id: fuzz-plan
     skill: aws-fuzz-plan
-    agent: aws-author
+    agent: aws-doc-author
     requires: [fact-baseline]
     produces: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md, plans/fuzz-review-summary.md]
     owned_by: [full, execute]
@@ -177,7 +177,7 @@ phases:
   # ---- Optional performance branch -----------------------------------------
   - id: performance-plan
     skill: aws-performance-plan
-    agent: aws-author
+    agent: aws-doc-author
     requires: [fact-baseline]
     produces: [plans/performance-plan.md, plans/performance-codegen-plan.md, plans/performance-review-summary.md]
     owned_by: [full, execute]
@@ -227,7 +227,7 @@ phases:
   # ---- Healing loop ---------------------------------------------------------
   - id: fix-proposal
     skill: aws-fix-proposal
-    agent: aws-author
+    agent: aws-doc-author
     requires: [inspect]
     produces: [healing/fix-proposal.json]
     owned_by: [full, execute]
@@ -379,6 +379,7 @@ gates:
       and skip_or_xfail_added == false
       and unrelated_tests_modified == false
       and high_risk_proposal_applied == false
+    needs_human_review_when: "needs_review == true"
     stop_when: "passed == false"
 
   healing-entry-gate:

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { appendEvents } from './events';
 import { sha256File } from './hash';
+import { isAuditedGateRead } from './audit_scope';
 import { getWorkflowStateFile } from './workflow_state';
 import type { Schema } from '../orchestration/schema';
 
@@ -28,15 +29,15 @@ export function applyGateOverride(
   const gate = schema.gates[phase.gate];
   if (!gate) throw new Error(`Unknown gate '${phase.gate}'`);
 
-  const reviewPath = gate.reads.find(r => r.path.startsWith('review/') && r.path.endsWith('.json'))?.path;
-  if (!reviewPath) throw new Error(`Phase '${phaseId}' has no review JSON to bind override`);
+  const reviewPath = gate.reads.find(r => isAuditedGateRead(r.path))?.path;
+  if (!reviewPath) throw new Error(`Phase '${phaseId}' has no audited JSON to bind override`);
 
   const absReview = resolveChangePath(projectRoot, changeId, reviewPath);
   const reviewSha = sha256File(absReview);
-  if (!reviewSha) throw new Error(`Review file missing: ${reviewPath}`);
+  if (!reviewSha) throw new Error(`Audited file missing: ${reviewPath}`);
 
   const review = readJson(absReview);
-  if (!review) throw new Error(`Review file invalid: ${reviewPath}`);
+  if (!review) throw new Error(`Audited file invalid: ${reviewPath}`);
 
   const humanReviewRequired = review.human_review_required === true;
   const riskLevel = typeof review.risk_level === 'string' ? review.risk_level : '';

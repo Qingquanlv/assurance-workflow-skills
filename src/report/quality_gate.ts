@@ -95,6 +95,7 @@ export function buildQualityGate(opts: BuildQualityGateOptions): QualityGateResu
       line_coverage: coverageResult?.line_coverage ?? 0,
       branch_coverage: coverageResult?.branch_coverage ?? 0,
       threshold: coverageResult?.threshold ?? { line: 0, branch: 0 },
+      ...(coverageResult?.scope ? { scope: coverageResult.scope } : {}),
     },
   };
 

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { readEvents, GateVerdictEvent, QaEvent } from './events';
 import { sha256File } from './hash';
+import { isAuditedGateRead } from './audit_scope';
 import type { Schema, PhaseDef } from '../orchestration/schema';
 import type { PhaseStatus, StatusReport, Terminal } from '../orchestration/engine';
 
@@ -41,6 +42,7 @@ export function runStatusAudits(
   issues.push(...auditGateTampering(projectRoot, changeId, report, schema));
   issues.push(...auditHealingConsistency(projectRoot, changeId, report));
   issues.push(...auditVerdictTransitions(projectRoot, changeId, schema));
+  issues.push(...auditReclassificationEvents(projectRoot, changeId));
   return { issues };
 }
 
@@ -76,6 +78,7 @@ function auditGateTampering(
   const issues: AuditIssue[] = [];
   const events = readEvents(projectRoot, changeId);
   const lastVerdictByGate = latestGateVerdicts(events);
+  issues.push(...auditHumanOverrideEvidence(projectRoot, changeId, events));
 
   for (const phase of report.phases) {
     if (phase.status !== 'done' && phase.status !== 'stopped') continue;
@@ -88,7 +91,7 @@ function auditGateTampering(
     if (!verdictEvent?.reads_sha256) continue;
 
     for (const [relPath, recordedHash] of Object.entries(verdictEvent.reads_sha256)) {
-      if (!relPath.startsWith('review/') || !relPath.endsWith('.json')) continue;
+      if (!isAuditedGateRead(relPath)) continue;
       const abs = resolveChangePath(projectRoot, changeId, relPath);
       const current = sha256File(abs);
       if (current && current !== recordedHash) {
@@ -101,6 +104,28 @@ function auditGateTampering(
     }
   }
 
+  return issues;
+}
+
+function auditHumanOverrideEvidence(
+  projectRoot: string,
+  changeId: string,
+  events: QaEvent[],
+): AuditIssue[] {
+  const issues: AuditIssue[] = [];
+  for (const event of events) {
+    if (event.type !== 'human_override') continue;
+    if (!event.evidence_file || !event.evidence_sha256) continue;
+    const abs = resolveChangePath(projectRoot, changeId, event.evidence_file);
+    const current = sha256File(abs);
+    if (current && current !== event.evidence_sha256) {
+      issues.push({
+        code: 'ARTIFACT-TAMPERED',
+        phase: event.phase,
+        message: `ARTIFACT-TAMPERED: ${event.phase} ${event.evidence_file}`,
+      });
+    }
+  }
   return issues;
 }
 
@@ -146,6 +171,35 @@ function auditHealingConsistency(
     });
   }
 
+  return issues;
+}
+
+function auditReclassificationEvents(projectRoot: string, changeId: string): AuditIssue[] {
+  const analysisPath = path.join(projectRoot, 'qa', 'changes', changeId, 'inspect', 'failure-analysis.json');
+  if (!fs.existsSync(analysisPath)) return [];
+  let analysis: unknown;
+  try {
+    analysis = JSON.parse(fs.readFileSync(analysisPath, 'utf-8')) as unknown;
+  } catch {
+    return [];
+  }
+  if (!isRecord(analysis) || !Array.isArray(analysis.failures)) return [];
+  const events = readEvents(projectRoot, changeId).filter(e => e.type === 'failure_reclassified');
+  const issues: AuditIssue[] = [];
+  for (const failure of analysis.failures) {
+    if (!isRecord(failure) || !isRecord(failure.reclassified)) continue;
+    const id = firstString(failure.id, failure.case_id, failure.test);
+    const hasEvent = events.some(event => {
+      return event.failure === id || event.failure === failure.case_id || event.failure === failure.test;
+    });
+    if (!hasEvent) {
+      issues.push({
+        code: 'RECLASSIFY-WITHOUT-EVENT',
+        phase: 'inspect',
+        message: `RECLASSIFY-WITHOUT-EVENT: ${id ?? 'unknown failure'} has reclassified metadata without failure_reclassified event`,
+      });
+    }
+  }
   return issues;
 }
 
@@ -229,7 +283,11 @@ function checkVerdictMigration(
     const prevHash = prev.reads_sha256 ?? {};
     const nextHash = next.reads_sha256 ?? {};
     const hashChanged = Object.keys(nextHash).some(k => prevHash[k] && nextHash[k] !== prevHash[k]);
-    if (hashChanged && !repairDone) {
+    const healingEvidenceRefresh = isSafetyGate(schema, gateId) && between.some(e =>
+      (e.type === 'phase_transition' && (e.phase === 'healing-rerun' || e.phase === 'healing-reinspect')) ||
+      e.type === 'execution_start',
+    );
+    if (hashChanged && !repairDone && !healingEvidenceRefresh) {
       return {
         code: 'GATE-TRANSITION-ILLEGAL',
         message: `GATE-TRANSITION-ILLEGAL: ${gateId} pass→pass (content changed)`,
@@ -238,6 +296,15 @@ function checkVerdictMigration(
   }
 
   return null;
+}
+
+function isSafetyGate(schema: Schema, gateId: string): boolean {
+  const gate = schema.gates[gateId];
+  if (!gate) return false;
+  return gate.reads.some(read =>
+    read.path === 'healing/fixer-safety-check.json' ||
+    read.path === 'inspect/inspect-safety-check.json',
+  );
 }
 
 function latestGateVerdicts(events: QaEvent[]): Map<string, GateVerdictEvent> {
@@ -270,4 +337,15 @@ function resolveChangePath(projectRoot: string, changeId: string, p: string): st
   if (resolved.startsWith('repo:')) return path.join(projectRoot, resolved.slice('repo:'.length));
   if (resolved.startsWith('qa/')) return path.join(projectRoot, resolved);
   return path.join(projectRoot, 'qa', 'changes', changeId, resolved);
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

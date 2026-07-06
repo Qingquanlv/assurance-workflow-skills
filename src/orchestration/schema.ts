@@ -277,7 +277,7 @@ export function findSchemaFile(projectRoot: string, override?: string): string {
 
 // ─── Static validation ───────────────────────────────────────────────────────
 
-export const ALLOWED_AGENTS = new Set(['aws-author', 'aws-test-author', 'aws-reviewer', 'aws-reporter', 'aws-archiver']);
+export const ALLOWED_AGENTS = new Set(['aws-doc-author', 'aws-test-author', 'aws-reviewer', 'aws-reporter', 'aws-archiver']);
 export const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
 export const ALLOWED_OWNED_BY_SCOPES = new Set(['full', 'intake', 'execute']);
 
