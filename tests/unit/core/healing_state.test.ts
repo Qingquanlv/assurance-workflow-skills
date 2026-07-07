@@ -9,6 +9,7 @@ import {
   assertHealingRunAllowed,
   assertRerunReasonIfNeeded,
   assertTestTreeUnchangedOrHealing,
+  recordApplySummary,
   transitionHealingStatus,
 } from '../../../src/core/healing_state';
 
@@ -128,6 +129,44 @@ function writeAnalysis(root: string, analysis: Record<string, unknown>): void {
   );
 }
 
+function apiApplySummary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schema_version: '1.0',
+    change_id: changeId,
+    target: 'api',
+    applied: true,
+    no_op: false,
+    applied_proposals: [
+      {
+        proposal_id: 'FIX-API-001',
+        files_modified: ['tests/api/test.py'],
+        operations_applied: ['fix_request_payload'],
+        notes: '',
+      },
+    ],
+    files_modified: ['tests/api/test.py'],
+    skipped_proposals: [],
+    forbidden_attempts: [],
+    rerun_required: true,
+    next_action: 'run_aws_run',
+    ...overrides,
+  };
+}
+
+function writeApiApplySummary(root: string, overrides: Record<string, unknown> = {}): void {
+  fs.mkdirSync(path.join(changeDir(root), 'healing'), { recursive: true });
+  fs.writeFileSync(
+    path.join(changeDir(root), 'healing', 'api-apply-summary.json'),
+    JSON.stringify(apiApplySummary(overrides)),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(changeDir(root), 'healing', 'api-apply-summary.md'),
+    '# API Codegen Fixer — Apply Summary\n',
+    'utf-8',
+  );
+}
+
 describe('healing loop-back (applied → proposal_created)', () => {
   let projectRoot: string;
 
@@ -224,13 +263,51 @@ describe('applied authorization pinning', () => {
         { proposal_id: 'FIX-E2E-001', target: 'e2e', eligible: true, files_to_modify: [] },
       ],
     });
+    writeApiApplySummary(projectRoot);
+    expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(
+      'applied requires healing/e2e-apply-summary.json',
+    );
+  });
+
+  it('rejects a hand-written minimal apply-summary that lacks fixer schema fields', () => {
+    writeState(projectRoot, {
+      phases: { healing: { status: 'proposal_created', attempts: [{ attempt: 1 }] } },
+    });
+    writeProposal(projectRoot, {
+      proposals: [
+        { proposal_id: 'FIX-API-001', target: 'api', eligible: true, files_to_modify: ['tests/api/test.py'] },
+      ],
+    });
     fs.writeFileSync(
       path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.json'),
       JSON.stringify({ files_modified: ['tests/api/test.py'] }),
       'utf-8',
     );
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.md'),
+      '# forged summary\n',
+      'utf-8',
+    );
+
     expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(
-      'applied requires healing/e2e-apply-summary.json',
+      'api-apply-summary.json missing required field schema_version',
+    );
+  });
+
+  it('rejects apply-summary that does not cover every eligible proposal for its target', () => {
+    writeState(projectRoot, {
+      phases: { healing: { status: 'proposal_created', attempts: [{ attempt: 1 }] } },
+    });
+    writeProposal(projectRoot, {
+      proposals: [
+        { proposal_id: 'FIX-API-001', target: 'api', eligible: true, files_to_modify: ['tests/api/test.py'] },
+        { proposal_id: 'FIX-API-002', target: 'api', eligible: true, files_to_modify: ['tests/api/test.py'] },
+      ],
+    });
+    writeApiApplySummary(projectRoot);
+
+    expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(
+      'api-apply-summary.json does not account for eligible proposal FIX-API-002',
     );
   });
 
@@ -243,11 +320,7 @@ describe('applied authorization pinning', () => {
         { proposal_id: 'FIX-API-001', target: 'api', eligible: true, files_to_modify: [] },
       ],
     });
-    fs.writeFileSync(
-      path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.json'),
-      JSON.stringify({ files_modified: ['tests/api/test.py'] }),
-      'utf-8',
-    );
+    writeApiApplySummary(projectRoot);
 
     const result = transitionHealingStatus(projectRoot, changeId, 'applied');
     expect(result).toEqual({ from: 'proposal_created', to: 'applied' });
@@ -285,5 +358,116 @@ describe('applied authorization pinning', () => {
     });
     const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, false);
     expect(result.testsChanged).toBe(true);
+  });
+});
+
+describe('recordApplySummary', () => {
+  let projectRoot: string;
+
+  beforeEach(() => {
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-heal-record-'));
+    execSync('git init -q', { cwd: projectRoot });
+  });
+
+  afterEach(() => {
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  it('writes standard apply-summary json and markdown from the test tree diff', () => {
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'old\n', 'utf-8');
+    const baseline = hashTestTree(projectRoot);
+    writeManifest(projectRoot, {
+      batch_id: 'b1',
+      test_files_sha256: baseline.files,
+      tests_tree_sha256: baseline.aggregate,
+    });
+    writeProposal(projectRoot, {
+      proposals: [
+        {
+          proposal_id: 'FIX-API-001',
+          target: 'api',
+          eligible: true,
+          files_to_modify: ['tests/api/test.py'],
+          patch_plan: [{ file: 'tests/api/test.py', operation: 'fix_request_payload' }],
+        },
+      ],
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'new\n', 'utf-8');
+
+    const result = recordApplySummary(projectRoot, changeId, 'api', ['FIX-API-001']);
+
+    expect(result.modifiedFiles).toEqual(['tests/api/test.py']);
+    expect(fs.existsSync(path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.md'))).toBe(true);
+    const summary = JSON.parse(
+      fs.readFileSync(path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.json'), 'utf-8'),
+    );
+    expect(summary.source).toBe('cli-record-apply');
+    expect(summary.applied_proposals[0].proposal_id).toBe('FIX-API-001');
+    expect(summary.files_modified).toEqual(['tests/api/test.py']);
+  });
+
+  it('appends an audit event for record-apply outputs', () => {
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'old\n', 'utf-8');
+    const baseline = hashTestTree(projectRoot);
+    writeManifest(projectRoot, {
+      batch_id: 'b1',
+      test_files_sha256: baseline.files,
+      tests_tree_sha256: baseline.aggregate,
+    });
+    writeProposal(projectRoot, {
+      proposals: [
+        {
+          proposal_id: 'FIX-API-001',
+          target: 'api',
+          eligible: true,
+          files_to_modify: ['tests/api/test.py'],
+        },
+      ],
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'new\n', 'utf-8');
+
+    recordApplySummary(projectRoot, changeId, 'api', ['FIX-API-001']);
+
+    const event = (readEvents(projectRoot, changeId) as any[]).find(e => e.type === 'heal_record_apply');
+    expect(event).toMatchObject({
+      source: 'heal',
+      target: 'api',
+      applied_proposals: ['FIX-API-001'],
+      skipped_proposals: [],
+      files_modified: ['tests/api/test.py'],
+      summary_file: 'healing/api-apply-summary.json',
+      markdown_file: 'healing/api-apply-summary.md',
+    });
+    expect(event.summary_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(event.markdown_sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('rejects changed target files not authorized by the selected proposal', () => {
+    fs.mkdirSync(path.join(projectRoot, 'tests', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'old\n', 'utf-8');
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'other.py'), 'old\n', 'utf-8');
+    const baseline = hashTestTree(projectRoot);
+    writeManifest(projectRoot, {
+      batch_id: 'b1',
+      test_files_sha256: baseline.files,
+      tests_tree_sha256: baseline.aggregate,
+    });
+    writeProposal(projectRoot, {
+      proposals: [
+        {
+          proposal_id: 'FIX-API-001',
+          target: 'api',
+          eligible: true,
+          files_to_modify: ['tests/api/test.py'],
+        },
+      ],
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'other.py'), 'new\n', 'utf-8');
+
+    expect(() => recordApplySummary(projectRoot, changeId, 'api', ['FIX-API-001'])).toThrow(
+      'not authorized by selected proposals',
+    );
   });
 });

@@ -54,9 +54,24 @@ function writeHealingArtifacts(root: string): void {
   );
   fs.writeFileSync(
     path.join(healingDir, 'api-apply-summary.json'),
-    JSON.stringify({ files_modified: ['tests/api/test_sample.py'] }),
+    JSON.stringify({
+      schema_version: '1.0',
+      change_id: changeId,
+      target: 'api',
+      applied: true,
+      no_op: false,
+      applied_proposals: [
+        { proposal_id: 'p1', files_modified: ['tests/api/test_sample.py'], operations_applied: [], notes: 'test fixture' },
+      ],
+      files_modified: ['tests/api/test_sample.py'],
+      skipped_proposals: [],
+      forbidden_attempts: [],
+      rerun_required: true,
+      next_action: 'run_aws_run',
+    }),
     'utf-8',
   );
+  fs.writeFileSync(path.join(healingDir, 'api-apply-summary.md'), '# fixture apply summary\n', 'utf-8');
   fs.writeFileSync(
     path.join(healingDir, 'fixer-safety-check.json'),
     JSON.stringify({ passed: true, product_code_modified: false }),

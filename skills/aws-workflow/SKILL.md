@@ -1982,21 +1982,34 @@ Phase 9 — Fix Proposal
       This attempt counts toward max_healing_attempts even if Phase 10/11/12 subsequently fail.
 
 Phase 10 — Apply Fixes
+  Healing fixers support only API/E2E test-code targets. Fuzz and performance
+  failures are manual-review / separate-change outcomes unless a future
+  dedicated fixer target is added. Do not modify `tests/fuzz/**` or
+  `tests/perf/**` inside the API/E2E healing loop, and do not coerce a
+  fuzz/performance failure into an API/E2E proposal.
+
   [If fix-proposal.json contains API proposals (target == "api" AND eligible == true):]
   → Load skill aws-api-codegen-fixer in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
   → Execute inline
+  → Run `aws heal record-apply --change <id> --target api --proposal <applied proposal ids>`
   → Verify healing/api-apply-summary.json exists and is valid JSON
-  → Verify every file in api-apply-summary.json.modified_files is an allowed API test file
+  → Verify every file in api-apply-summary.json.files_modified is an allowed API test file
   → If healing/api-fixer-error.json was written: STOP — forbidden modification attempted
 
   [If fix-proposal.json contains E2E proposals (target == "e2e" AND eligible == true):]
   → Load skill aws-e2e-codegen-fixer in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
   → Execute inline
+  → Run `aws heal record-apply --change <id> --target e2e --proposal <applied proposal ids>`
   → Verify healing/e2e-apply-summary.json exists and is valid JSON
-  → Verify every file in e2e-apply-summary.json.modified_files is an allowed E2E test file
+  → Verify every file in e2e-apply-summary.json.files_modified is an allowed E2E test file
   → If healing/e2e-fixer-error.json was written: STOP — forbidden modification attempted
+
+  `aws state heal --to applied` independently validates each API/E2E apply-summary:
+  required schema fields, every eligible proposal accounted for, files authorized by
+  fix-proposal.json, and actual changed test files matching the summary. A hand-written
+  minimal summary is not a valid substitute for running the fixer and `aws heal record-apply`.
 
   → Apply Fixer Safety Gate (see Fixer Safety Gate section)
       If product code changed, assertions weakened, tests deleted, skip/xfail added, or unrelated tests changed:

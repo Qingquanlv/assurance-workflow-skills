@@ -6,7 +6,7 @@ import type { GateReport, PhaseStatusKind, StatusReport } from '../orchestration
 import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
 
-export type QaEventSource = 'status' | 'gate' | 'run' | 'report';
+export type QaEventSource = 'status' | 'gate' | 'run' | 'report' | 'heal';
 export type PhaseTransitionStatus = PhaseStatusKind | string;
 
 export interface QaEventBase {
@@ -50,6 +50,19 @@ export interface HealTransitionEvent extends QaEventBase {
   type: 'heal_transition';
   from: string;
   to: string;
+}
+
+export interface HealRecordApplyEvent extends QaEventBase {
+  source: 'heal';
+  type: 'heal_record_apply';
+  target: 'api' | 'e2e';
+  applied_proposals: string[];
+  skipped_proposals: string[];
+  files_modified: string[];
+  summary_file: string;
+  summary_sha256: string | null;
+  markdown_file: string;
+  markdown_sha256: string | null;
 }
 
 export interface HumanOverrideEvent extends QaEventBase {
@@ -100,6 +113,7 @@ export type QaEvent =
   | PhaseTransitionEvent
   | GateVerdictEvent
   | HealTransitionEvent
+  | HealRecordApplyEvent
   | HumanOverrideEvent
   | ExecutionStartEvent
   | ProductTreeChangedEvent
@@ -110,6 +124,7 @@ export type QaEventInput =
   | Omit<PhaseTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<GateVerdictEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HealRecordApplyEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HumanOverrideEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ProductTreeChangedEvent, 'seq' | 'ts' | 'change_id'>

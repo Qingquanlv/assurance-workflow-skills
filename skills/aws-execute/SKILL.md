@@ -172,9 +172,16 @@ Phase 9  — Fix Proposal   → dispatch aws-fix-proposal → healing/fix-propos
      the loop-back edge requires healing-rerun done + attempts < max_healing_attempts,
      otherwise the CLI rejects with HEAL-ATTEMPTS-EXHAUSTED)
 Phase 10 — Apply Fixes    → dispatch aws-api-codegen-fixer and/or aws-e2e-codegen-fixer (INLINE)
+  → Healing fixers support only API/E2E test-code targets. If the latest inspect contains only
+    fuzz/performance failures, or if fix-proposal.json tries to target fuzz/performance, STOP:
+    mark healing not_needed when no eligible API/E2E fixes remain and surface a manual-review
+    decision. Do not hand-edit `tests/fuzz/**` or `tests/perf/**` inside this healing loop.
+  → after each fixer edits tests, run `aws heal record-apply --change <id> --target <api|e2e> --proposal <ids>`;
+    this is the ONLY legal way to create healing/*-apply-summary.{json,md}
   → verify healing/*-apply-summary.json ; if *-fixer-error.json written → STOP
-  → every target with an eligible proposal MUST have its own apply-summary (no_op: true allowed);
-    `aws state heal --to applied` rejects when one is missing
+  → every API/E2E target with an eligible proposal MUST have its own apply-summary (no_op: true allowed);
+    `aws state heal --to applied` rejects when one is missing, incomplete, stale, or inconsistent
+    with the fix-proposal / actual test diff
   → Fixer Safety Gate (healing/fixer-safety-check.json): produced by `aws state heal --to applied` (CLI computed; agent hand-written safety files are overwritten). If product code / unauthorized assertions / deletions touched → STOP or human-review gate.
   → all fixers no_op → STOP (proposal/authorization mismatch); any failed → aws state heal --to failed ; STOP
   → aws state heal --change <id> --to applied                 ← required before rerun;

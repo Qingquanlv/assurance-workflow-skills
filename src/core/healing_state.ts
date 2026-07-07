@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { spawnSync } from 'child_process';
 import { appendEvents } from './events';
-import { hashProductTree, hashTestTree, TestTreeHash } from './hash';
+import { hashProductTree, hashTestTree, sha256File, TestTreeHash } from './hash';
 import { getWorkflowStateFile } from './workflow_state';
 import type { ExecutionManifest } from './types';
 
@@ -32,6 +32,9 @@ const APPLY_SUMMARIES = [
   'healing/e2e-apply-summary.json',
 ];
 
+const APPLY_SUMMARY_TARGETS = ['api', 'e2e'] as const;
+type ApplySummaryTarget = typeof APPLY_SUMMARY_TARGETS[number];
+
 const FIXER_ERROR_GLOBS = [
   'healing/api-fixer-error.json',
   'healing/e2e-fixer-error.json',
@@ -40,6 +43,15 @@ const FIXER_ERROR_GLOBS = [
 export interface HealTransitionResult {
   from: HealingStatus;
   to: HealingStatus;
+}
+
+export interface RecordApplySummaryResult {
+  target: ApplySummaryTarget;
+  summaryPath: string;
+  markdownPath: string;
+  modifiedFiles: string[];
+  appliedProposalIds: string[];
+  skippedProposalIds: string[];
 }
 
 export interface TestTreeIntegrityResult {
@@ -68,6 +80,100 @@ export function readHealingStatus(projectRoot: string, changeId: string): Healin
   const healing = getHealingPhase(state);
   const status = healing.status;
   return typeof status === 'string' ? (status as HealingStatus) : 'pending';
+}
+
+export function recordApplySummary(
+  projectRoot: string,
+  changeId: string,
+  target: ApplySummaryTarget,
+  proposalIds: string[],
+): RecordApplySummaryResult {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const proposal = readJson(changeDir, 'healing/fix-proposal.json');
+  if (!proposal) throw new Error('healing/fix-proposal.json missing or invalid');
+  const manifest = readLatestExecutionManifest(projectRoot, changeId);
+  if (!manifest?.test_files_sha256) {
+    throw new Error('record-apply requires execution-manifest.yaml with test_files_sha256');
+  }
+
+  const selected = new Set(proposalIds.map(id => id.trim()).filter(Boolean));
+  if (selected.size === 0) throw new Error('record-apply requires at least one --proposal id');
+
+  const eligibleIds = eligibleProposalIds(proposal, target);
+  for (const id of selected) {
+    if (!eligibleIds.includes(id)) {
+      throw new Error(`record-apply proposal ${id} is not an eligible ${target} proposal`);
+    }
+  }
+
+  const selectedFiles = collectEligibleProposalFilesByIds(proposal, target, selected);
+  const changed = diffTestFiles(manifest.test_files_sha256, hashTestTree(projectRoot).files);
+  const changedPaths = changed.map(file => file.path);
+  const modifiedFiles = changedPaths.filter(file => selectedFiles.has(file));
+  const unauthorized = changedPaths.filter(file => {
+    if (target === 'api' && !file.startsWith('tests/api/') && !file.startsWith('tests/fixtures/')) return false;
+    if (target === 'e2e' && !file.startsWith('tests/e2e/') && !file.startsWith('tests/fixtures/')) return false;
+    return !selectedFiles.has(file);
+  });
+  if (unauthorized.length > 0) {
+    throw new Error(`record-apply found changed ${target} test files not authorized by selected proposals: ${unauthorized.join(', ')}`);
+  }
+
+  const appliedProposalIds = [...selected];
+  const skippedProposalIds = eligibleIds.filter(id => !selected.has(id));
+  const noOp = modifiedFiles.length === 0;
+  const now = new Date().toISOString();
+  const summary = {
+    schema_version: '1.0',
+    change_id: changeId,
+    target,
+    applied: !noOp,
+    no_op: noOp,
+    applied_proposals: appliedProposalIds.map(id => ({
+      proposal_id: id,
+      files_modified: modifiedFiles,
+      operations_applied: proposalOperations(proposal, id),
+      notes: 'Recorded by aws heal record-apply from current test tree diff.',
+    })),
+    files_modified: modifiedFiles,
+    skipped_proposals: skippedProposalIds.map(id => ({
+      proposal_id: id,
+      reason: 'not selected in aws heal record-apply --proposal',
+    })),
+    forbidden_attempts: [],
+    rerun_required: !noOp,
+    next_action: noOp ? 'none' : 'run_aws_run',
+    created_at: now,
+    source: 'cli-record-apply',
+  };
+
+  fs.mkdirSync(path.join(changeDir, 'healing'), { recursive: true });
+  const summaryPath = path.join(changeDir, applySummaryRel(target));
+  const markdownPath = path.join(changeDir, `healing/${target}-apply-summary.md`);
+  fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2), 'utf-8');
+  fs.writeFileSync(markdownPath, buildApplySummaryMarkdown(changeId, target, now, summary), 'utf-8');
+
+  validateApplySummary(projectRoot, changeId, target, summary, proposal);
+  appendEvents(projectRoot, changeId, [{
+    source: 'heal',
+    type: 'heal_record_apply',
+    target,
+    applied_proposals: appliedProposalIds,
+    skipped_proposals: skippedProposalIds,
+    files_modified: modifiedFiles,
+    summary_file: applySummaryRel(target),
+    summary_sha256: sha256File(summaryPath),
+    markdown_file: `healing/${target}-apply-summary.md`,
+    markdown_sha256: sha256File(markdownPath),
+  }]);
+  return {
+    target,
+    summaryPath,
+    markdownPath,
+    modifiedFiles,
+    appliedProposalIds,
+    skippedProposalIds,
+  };
 }
 
 export function transitionHealingStatus(
@@ -201,22 +307,26 @@ function validatePreconditions(
   }
 
   if (from === 'proposal_created' && to === 'applied') {
+    const proposal = readJson(changeDir, 'healing/fix-proposal.json');
     const summaries = APPLY_SUMMARIES.map(p => readJson(changeDir, p)).filter(Boolean);
     if (summaries.length === 0) {
       throw new Error('applied requires at least one apply-summary');
     }
-    for (const summary of summaries) {
-      const files = Array.isArray(summary?.files_modified) ? summary.files_modified : [];
-      const noOp = summary?.no_op === true;
-      if (!noOp && files.length === 0) {
-        throw new Error('apply-summary requires files_modified or no_op: true');
+    for (const target of APPLY_SUMMARY_TARGETS) {
+      const summaryRel = applySummaryRel(target);
+      const summary = readJson(changeDir, summaryRel);
+      if (summary) {
+        const markdownRel = `healing/${target}-apply-summary.md`;
+        if (!fs.existsSync(path.join(changeDir, markdownRel))) {
+          throw new Error(`applied requires ${markdownRel}`);
+        }
+        validateApplySummary(projectRoot, changeId, target, summary, proposal);
       }
     }
     // Every target with an eligible proposal must have its own apply-summary
     // (no_op: true is acceptable) — one summary must not silently cover both.
-    const proposal = readJson(changeDir, 'healing/fix-proposal.json');
     for (const target of eligibleProposalTargets(proposal)) {
-      const summaryRel = `healing/${target}-apply-summary.json`;
+      const summaryRel = applySummaryRel(target);
       if (!readJson(changeDir, summaryRel)) {
         throw new Error(
           `applied requires ${summaryRel}: fix-proposal has an eligible ${target} proposal ` +
@@ -231,6 +341,7 @@ function validatePreconditions(
     if (safety.needs_review === true) {
       throw new Error('applied requires healing/fixer-safety-check.json needs_review != true');
     }
+    validateApplySummaryAgainstTestDiff(projectRoot, changeId, proposal);
   }
 
   if ((from === 'proposal_created' || from === 'applied') && to === 'failed') {
@@ -558,9 +669,243 @@ function getMaxHealingAttempts(state: Record<string, unknown>): number {
     : DEFAULT_MAX_HEALING_ATTEMPTS;
 }
 
-function eligibleProposalTargets(proposal: Record<string, unknown> | null): string[] {
+function applySummaryRel(target: ApplySummaryTarget): string {
+  return `healing/${target}-apply-summary.json`;
+}
+
+function validateApplySummary(
+  projectRoot: string,
+  changeId: string,
+  target: ApplySummaryTarget,
+  summary: Record<string, unknown>,
+  proposal: Record<string, unknown> | null,
+): void {
+  const label = `${target}-apply-summary.json`;
+  requireField(summary, 'schema_version', 'string', label);
+  requireField(summary, 'change_id', 'string', label);
+  requireField(summary, 'target', 'string', label);
+  requireField(summary, 'applied', 'boolean', label);
+  requireField(summary, 'applied_proposals', 'array', label);
+  requireField(summary, 'files_modified', 'array', label);
+  requireField(summary, 'skipped_proposals', 'array', label);
+  requireField(summary, 'forbidden_attempts', 'array', label);
+  requireField(summary, 'rerun_required', 'boolean', label);
+  requireField(summary, 'next_action', 'string', label);
+
+  if (summary.change_id !== changeId) throw new Error(`${label} change_id mismatch: expected ${changeId}`);
+  if (summary.target !== target) throw new Error(`${label} target mismatch: expected ${target}`);
+
+  const files = stringArray(summary.files_modified, `${label} files_modified`);
+  const noOp = summary.no_op === true;
+  if (!noOp && summary.applied === true && files.length === 0) {
+    throw new Error(`${label} requires files_modified or no_op: true`);
+  }
+
+  const authorizedFiles = collectEligibleProposalFiles(proposal, target);
+  const accountedProposalIds = new Set<string>();
+  for (const item of recordArray(summary.applied_proposals, `${label} applied_proposals`)) {
+    accountedProposalIds.add(requireString(item, 'proposal_id', `${label} applied_proposals[]`));
+    for (const file of stringArray(item.files_modified, `${label} applied_proposals[].files_modified`)) {
+      validateSummaryFileAuthorized(label, file, authorizedFiles);
+    }
+  }
+  for (const item of recordArray(summary.skipped_proposals, `${label} skipped_proposals`)) {
+    accountedProposalIds.add(requireString(item, 'proposal_id', `${label} skipped_proposals[]`));
+    requireString(item, 'reason', `${label} skipped_proposals[]`);
+  }
+  for (const file of files) validateSummaryFileAuthorized(label, file, authorizedFiles);
+
+  for (const proposalId of eligibleProposalIds(proposal, target)) {
+    if (!accountedProposalIds.has(proposalId)) {
+      throw new Error(`${label} does not account for eligible proposal ${proposalId}`);
+    }
+  }
+}
+
+function validateApplySummaryAgainstTestDiff(
+  projectRoot: string,
+  changeId: string,
+  proposal: Record<string, unknown> | null,
+): void {
+  const previous = readLatestExecutionManifest(projectRoot, changeId);
+  if (!previous?.test_files_sha256) return;
+
+  const changed = diffTestFiles(previous.test_files_sha256, hashTestTree(projectRoot).files).map(f => f.path);
+  if (changed.length === 0) return;
+
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const claimed = new Set<string>();
+  for (const target of APPLY_SUMMARY_TARGETS) {
+    const summary = readJson(changeDir, applySummaryRel(target));
+    if (!summary) continue;
+    for (const file of stringArray(summary.files_modified ?? [], `${target}-apply-summary.json files_modified`)) {
+      claimed.add(file);
+    }
+  }
+
+  const authorized = new Set([
+    ...collectEligibleProposalFiles(proposal, 'api'),
+    ...collectEligibleProposalFiles(proposal, 'e2e'),
+  ]);
+  const unclaimed = changed.filter(file => !claimed.has(file));
+  if (unclaimed.length > 0) {
+    throw new Error(`APPLY-SUMMARY-MISMATCH: changed test files not listed in apply-summary: ${unclaimed.join(', ')}`);
+  }
+  const unauthorized = changed.filter(file => !authorized.has(file));
+  if (unauthorized.length > 0) {
+    throw new Error(`APPLY-SUMMARY-UNAUTHORIZED-FILE: changed test files not authorized by fix-proposal: ${unauthorized.join(', ')}`);
+  }
+}
+
+function requireField(
+  summary: Record<string, unknown>,
+  field: string,
+  type: 'string' | 'boolean' | 'array',
+  label: string,
+): void {
+  const value = summary[field];
+  const ok = type === 'array' ? Array.isArray(value) : typeof value === type;
+  if (!ok) throw new Error(`${label} missing required field ${field}`);
+}
+
+function requireString(record: Record<string, unknown>, field: string, label: string): string {
+  const value = record[field];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} missing required field ${field}`);
+  }
+  return value;
+}
+
+function stringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+    throw new Error(`${label} must be an array of strings`);
+  }
+  return value;
+}
+
+function recordArray(value: unknown, label: string): Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.some(item => !isRecord(item))) {
+    throw new Error(`${label} must be an array of objects`);
+  }
+  return value as Record<string, unknown>[];
+}
+
+function validateSummaryFileAuthorized(label: string, file: string, authorizedFiles: Set<string>): void {
+  if (authorizedFiles.size > 0 && !authorizedFiles.has(file)) {
+    throw new Error(`${label} lists file not authorized by fix-proposal: ${file}`);
+  }
+}
+
+function eligibleProposalIds(proposal: Record<string, unknown> | null, target: ApplySummaryTarget): string[] {
   const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
-  const targets = new Set<string>();
+  return proposals
+    .filter(item => isRecord(item) && item.eligible === true && item.target === target)
+    .map(item => (item as Record<string, unknown>).proposal_id)
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+}
+
+function collectEligibleProposalFiles(proposal: Record<string, unknown> | null, target: ApplySummaryTarget): Set<string> {
+  const files = new Set<string>();
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  for (const proposalItem of proposals) {
+    if (!isRecord(proposalItem) || proposalItem.eligible !== true || proposalItem.target !== target) continue;
+    const toModify = Array.isArray(proposalItem.files_to_modify) ? proposalItem.files_to_modify : [];
+    for (const file of toModify) {
+      if (typeof file === 'string') files.add(file);
+    }
+    const patchPlan = Array.isArray(proposalItem.patch_plan) ? proposalItem.patch_plan : [];
+    for (const step of patchPlan) {
+      if (isRecord(step) && typeof step.file === 'string') files.add(step.file);
+    }
+  }
+  return files;
+}
+
+function collectEligibleProposalFilesByIds(
+  proposal: Record<string, unknown> | null,
+  target: ApplySummaryTarget,
+  proposalIds: Set<string>,
+): Set<string> {
+  const files = new Set<string>();
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  for (const proposalItem of proposals) {
+    if (!isRecord(proposalItem) || proposalItem.eligible !== true || proposalItem.target !== target) continue;
+    if (typeof proposalItem.proposal_id !== 'string' || !proposalIds.has(proposalItem.proposal_id)) continue;
+    const toModify = Array.isArray(proposalItem.files_to_modify) ? proposalItem.files_to_modify : [];
+    for (const file of toModify) {
+      if (typeof file === 'string') files.add(file);
+    }
+    const patchPlan = Array.isArray(proposalItem.patch_plan) ? proposalItem.patch_plan : [];
+    for (const step of patchPlan) {
+      if (isRecord(step) && typeof step.file === 'string') files.add(step.file);
+    }
+  }
+  return files;
+}
+
+function proposalOperations(proposal: Record<string, unknown> | null, proposalId: string): string[] {
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  const item = proposals.find(candidate => isRecord(candidate) && candidate.proposal_id === proposalId);
+  if (!isRecord(item)) return [];
+  const patchPlan = Array.isArray(item.patch_plan) ? item.patch_plan : [];
+  const operations = patchPlan
+    .map(step => (isRecord(step) && typeof step.operation === 'string' ? step.operation : null))
+    .filter((operation): operation is string => operation !== null);
+  return [...new Set(operations)];
+}
+
+function buildApplySummaryMarkdown(
+  changeId: string,
+  target: ApplySummaryTarget,
+  createdAt: string,
+  summary: Record<string, unknown>,
+): string {
+  const applied = recordArray(summary.applied_proposals, `${target}-apply-summary.md applied_proposals`);
+  const skipped = recordArray(summary.skipped_proposals, `${target}-apply-summary.md skipped_proposals`);
+  const files = stringArray(summary.files_modified, `${target}-apply-summary.md files_modified`);
+  const lines = [
+    `# ${target.toUpperCase()} Codegen Fixer — Apply Summary`,
+    '',
+    `**Change**: ${changeId}`,
+    `**Recorded at**: ${createdAt}`,
+    `**Source**: aws heal record-apply`,
+    `**Applied proposals**: ${applied.length}`,
+    `**Files modified**: ${files.length}`,
+    '',
+    '## Applied Fixes',
+    '',
+  ];
+  if (applied.length === 0) {
+    lines.push('_None_', '');
+  } else {
+    for (const item of applied) {
+      lines.push(`- ${requireString(item, 'proposal_id', 'applied_proposals[]')}`);
+    }
+    lines.push('');
+  }
+  lines.push('## Modified Files', '');
+  if (files.length === 0) {
+    lines.push('_None_', '');
+  } else {
+    for (const file of files) lines.push(`- \`${file}\``);
+    lines.push('');
+  }
+  lines.push('## Skipped Proposals', '');
+  if (skipped.length === 0) {
+    lines.push('_None_', '');
+  } else {
+    for (const item of skipped) {
+      lines.push(`- ${requireString(item, 'proposal_id', 'skipped_proposals[]')}: ${requireString(item, 'reason', 'skipped_proposals[]')}`);
+    }
+    lines.push('');
+  }
+  lines.push('## Next Action', '', String(summary.next_action ?? 'unknown'), '');
+  return `${lines.join('\n')}\n`;
+}
+
+function eligibleProposalTargets(proposal: Record<string, unknown> | null): ApplySummaryTarget[] {
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  const targets = new Set<ApplySummaryTarget>();
   for (const item of proposals) {
     if (!isRecord(item) || item.eligible !== true) continue;
     const target = item.target;

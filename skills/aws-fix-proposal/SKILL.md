@@ -63,6 +63,11 @@ Generate a fix proposal **only** for:
 | `case_semantic_failure` | ✗ | `not_eligible` |
 | `known_product_issue` | ✗ | `not_eligible` |
 | `coverage_gap` | ✗ | `not_eligible` |
+| `fuzz_configuration_error` | ✗ | `not_eligible` — fuzz harness files are outside the API/E2E healing loop |
+| `fuzz_stateful_failure` | ✗ | `not_eligible` — usually product robustness or case-design review |
+| `perf_script_error` | ✗ | `not_eligible` — performance files are outside the API/E2E healing loop |
+| `perf_threshold_exceeded` | ✗ | `not_eligible` — product/performance review required |
+| `perf_environment` | ✗ | `not_eligible` — environment fix required |
 | `product_bug` | ✗ | `not_eligible` |
 | `unrelated_existing_failure` | ✗ | `not_eligible` — not in current change scope |
 | `unknown` | ✗ | `not_eligible` |
@@ -114,6 +119,8 @@ tests/e2e/scripts/<module>_data_setup.py
 tests/e2e/conftest.py
 tests/fixtures/**/*.py
 ```
+
+There is deliberately no `fuzz` or `performance` target in this fixer. Do not generate proposals that modify `tests/fuzz/**` or `tests/perf/**`; those changes require a separate test-maintenance change or an explicit human-approved test-change override.
 
 For each **not_eligible** failure, record it in the `not_eligible` array with a `recommended_next_action`.
 
@@ -171,7 +178,7 @@ For each **not_eligible** failure, record it in the `not_eligible` array with a 
   "not_eligible": [
     {
       "failure_id": "FAIL-002",
-      "target": "api|e2e",
+      "target": "api|e2e|fuzz|performance",
       "category": "assertion_failure",
       "reason": "Assertion failure may reflect real product behavior change; cannot fix without human review",
       "recommended_next_action": "developer_fix_required|manual_investigation|environment_fix_required|separate_change_required"
