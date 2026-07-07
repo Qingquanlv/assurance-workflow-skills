@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
 1. Write output files:
    - `qa/changes/<change-id>/review/case-review.json`
    - `qa/changes/<change-id>/review/case-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.case_review.status` = `pass | needs_fix | needs_human_review | reject`
-   - Set `phases.case_review.gate_file` = `review/case-review.json`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.case_review.status` = `pass | needs_fix | needs_human_review | reject`
+   - `phases.case_review.gate_file` = `review/case-review.json`
 
 ---
 
@@ -110,9 +110,84 @@ Review the generated case artifacts for:
 - Preconditions and test data
 - Assertions
 - Traceability
+- Minimum Required Coverage (MRC) mapping from advisory to cases
 - Risk and ambiguity
 - Duplicate or conflicting cases
 - Test layer assignments (API vs E2E per the decision tree in `aws-case-design`)
+
+### Explore soft check (Phase 0.5 — warning only, not blocker)
+
+When `explore/advisory.json` exists and `phases.explore.status == done`:
+
+```
+FOR EACH watchlist item WHERE confidence == high:
+  proposal.md ## Explore Input MUST list WL-* as disposition in [adopted, override]
+  IF override → reason required in table
+ELSE emit warning: RISK-ADVISORY-WATCHLIST-UNADDRESSED
+```
+
+Finding example:
+
+```json
+{
+  "id": "RISK-ADVISORY-WATCHLIST-UNADDRESSED",
+  "severity": "low",
+  "human_review_required": false,
+  "message": "High-confidence watchlist item WL-001 not addressed in proposal.md Explore Input"
+}
+```
+
+Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `explore`, `risk_advisory` (legacy), `WL-*` / `PH-*` / `HS-*` (legacy) as dedicated trace fields).
+
+### Test Types Considered check (warning only, not blocker)
+
+`proposal.md` MUST contain a `## Test Types Considered` section listing **all four layers** (API / E2E / Fuzz / Performance), each marked `selected` or `declined` with a reason. This is the evidence that Fuzz/Performance were offered to the user during clarification (Category 3 hard rule in `aws-case-design`).
+
+```text
+IF proposal.md has no "## Test Types Considered" section
+   OR any of the four layers is missing from it
+   OR a declined layer has no reason
+→ emit warning: TEST-TYPES-NOT-CONSIDERED
+```
+
+Finding example:
+
+```json
+{
+  "id": "TEST-TYPES-NOT-CONSIDERED",
+  "severity": "low",
+  "human_review_required": false,
+  "message": "proposal.md Test Types Considered is missing or does not cover all four layers (API/E2E/Fuzz/Performance) with selected/declined decisions"
+}
+```
+
+### Minimum Required Coverage gate (hard)
+
+When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`:
+
+```text
+FOR EACH required MRC item:
+  It MUST appear in at least one case trace.minimum_required_coverage
+  It MUST appear in trace/minimum-coverage-matrix.yaml covered_by_cases
+  The covering case type/layer MUST match the MRC layer (api/e2e/both)
+```
+
+Violations:
+
+- required MRC item has no covering case → `needs_fix`
+- matrix and case.yaml trace disagree → `needs_fix`
+- e2e_if_enabled item is skipped without explicit skipped_by_scope + reason → `needs_human_review`
+
+`case-review.json` should include:
+
+```json
+"minimum_coverage": {
+  "total_required": 24,
+  "covered": 24,
+  "skipped_by_scope": 0,
+  "missing": []
+}
+```
 
 ---
 
@@ -166,15 +241,15 @@ Check that case files are valid YAML and follow the delta format produced by `aw
 schema_version: "1.0"
 
 added:
-  - case_id: "TC-USER-AUTH-001"
+  - case_id: "TC_USER_AUTH_001"
     title: "..."
     # ... all required case fields
 modified:
-  - case_id: "TC-USER-AUTH-002"
+  - case_id: "TC_USER_AUTH_002"
     title: "..."
     # ... all required case fields
 removed:
-  - case_id: "TC-USER-AUTH-003"
+  - case_id: "TC_USER_AUTH_003"
     reason: "..."
 ```
 
@@ -185,12 +260,12 @@ Do not expect a top-level `case_id` in the change delta file — cases are alway
 **Required fields per case under `added` / `modified`:**
 
 ```yaml
-case_id: "TC-[A-Z]+(-[A-Z]+)*-[0-9]{3}"  # e.g. TC-USER-001, TC-USER-AUTH-002
+case_id: "TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}"  # underscore-only; e.g. TC_USER_001, TC_USER_AUTH_002 — hyphens are NOT allowed
 title: "..."
 status: draft|active|deprecated
 priority: P0|P1|P2|P3
 severity: blocker|critical|major|minor
-type: API|E2E|Unit|Visual|Mixed
+type: API|E2E|Fuzz|Performance
 module: "..."
 requirement_id: "..."
 feature_name: "..."
@@ -393,7 +468,7 @@ Finding example (Type 1):
   "severity": "medium",
   "category": "layering",
   "file": "qa/changes/<change-id>/cases/<module>/case.yaml",
-  "message": "TC-MENU-001 validation is verifiable via single API request; set type to API not E2E.",
+  "message": "TC_MENU_001 validation is verifiable via single API request; set type to API not E2E.",
   "suggestion": "Change type from E2E to API.",
   "auto_fix_allowed": true,
   "fix_scope": ["type"],

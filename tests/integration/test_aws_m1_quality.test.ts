@@ -43,6 +43,44 @@ describe('M1 coverage_parser', () => {
     expect(result.uncovered_critical_files.map(f => f.file)).toEqual(['app/api/v1/menu.py']);
   });
 
+  it('aggregates module scope coverage from advisory in-scope files', () => {
+    const changeId = 'REQ-SCOPE-1';
+    const projectRoot = dir;
+    const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+    fs.mkdirSync(path.join(changeDir, 'risk-advisory'), { recursive: true });
+    fs.writeFileSync(path.join(changeDir, 'risk-advisory', 'advisory.json'), JSON.stringify({
+      test_strategy: {
+        scope: {
+          in_scope: ['app/controllers/api.py', 'app/schemas/apis.py'],
+        },
+      },
+    }));
+    const covJson = path.join(dir, 'coverage.json');
+    fs.writeFileSync(covJson, JSON.stringify({
+      files: {
+        'app/controllers/api.py': { summary: { percent_covered: 80, num_statements: 10, covered_lines: 8 } },
+        'app/schemas/apis.py': { summary: { percent_covered: 60, num_statements: 10, covered_lines: 6 } },
+        'app/other.py': { summary: { percent_covered: 10, num_statements: 10, covered_lines: 1 } },
+      },
+      totals: { percent_covered: 50, num_branches: 0, covered_branches: 0 },
+    }));
+
+    const result = parseCoverage({
+      changeId,
+      batchId: 'B1',
+      available: true,
+      coverageJsonPath: covJson,
+      coverageXmlPath: path.join(dir, 'coverage.xml'),
+      threshold: { line: 70, branch: 60, module_line: 75 },
+      targetPackage: 'app',
+      projectRoot,
+    });
+
+    expect(result.scope?.files.map(f => f.file)).toEqual(['app/controllers/api.py', 'app/schemas/apis.py']);
+    expect(result.scope?.module_line_coverage).toBe(70);
+    expect(result.scope?.status).toBe('PASS_WITH_WARNINGS');
+  });
+
   it('marks coverage SKIPPED when data is unavailable', () => {
     const result = parseCoverage({
       changeId: 'REQ-1', batchId: 'B1', available: false,
@@ -188,6 +226,56 @@ describe('M1 report_generator', () => {
 
   it('throws when quality-gate-result.json is missing', () => {
     expect(() => generateReport({ changeId: 'NOPE', projectRoot })).toThrow(/quality-gate-result.json not found/);
+  });
+
+  it('generates minimum required coverage result from advisory and case execution', () => {
+    const changeId = 'REQ-RPT-MRC';
+    const base = path.join(projectRoot, 'qa', 'changes', changeId);
+    fs.mkdirSync(path.join(base, 'risk-advisory'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'cases', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'risk-advisory', 'advisory.json'), JSON.stringify({
+      minimum_required_coverage: { api: ['list_api'] },
+    }));
+    fs.writeFileSync(path.join(base, 'cases', 'api', 'case.yaml'), yaml.dump({
+      added: [{ case_id: 'TC_API_001', title: 'list api', type: 'API', trace: { minimum_required_coverage: ['MRC-API-001'] } }],
+    }));
+
+    const gate: QualityGateResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'B1',
+      dimensions: {
+        functional: { status: 'PASS', api: { total: 1, passed: 1, failed: 0 }, e2e: { total: 0, passed: 0, failed: 0 } },
+        coverage: { status: 'SKIPPED', available: false, line_coverage: 0, branch_coverage: 0, threshold: { line: 70, branch: 60 } },
+      },
+      final_status: 'PASS',
+    };
+    const analysis: FailureAnalysis = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'B1', source_batch_id: 'B1',
+      source_manifest: '', inspection_status: 'completed',
+      final_status: 'PASS', inspect_mode: 'primary', classification_performed: true, status: 'no_failures',
+      failures: [], hard_fails: [], needs_review: [], known_product_issues: [],
+    };
+    const coverage: CoverageResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'B1', kind: 'coverage', available: false,
+      line_coverage: 0, branch_coverage: 0, threshold: { line: 70, branch: 60 }, status: 'SKIPPED',
+      uncovered_critical_files: [], source: { coverage_json: '', coverage_xml: '' },
+    };
+    const api: ApiResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'B1', target: 'api', status: 'passed', command: '',
+      source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' },
+      total: 1, passed: 1, failed: 0, skipped: 0,
+      cases: [{ case_id: 'TC_API_001', status: 'passed', file: 'tests/api/test_api.py', test_name: 'test_tc_api_001__list_api', duration_ms: 1, message: '', raw_log_ref: '' }],
+      unmapped_tests: [],
+    };
+    const e2e: E2eResult = {
+      schema_version: '1.0', change_id: changeId, batch_id: 'B1', target: 'e2e', status: 'skipped', command: '',
+      source: { framework: 'pytest-playwright', raw_log: '', json_report: '', html_report: '' },
+      total: 0, passed: 0, failed: 0, skipped: 0, cases: [], unmapped_tests: [],
+    };
+    seed(changeId, gate, analysis, coverage, api, e2e);
+
+    const result = generateReport({ changeId, projectRoot });
+    expect(result.report.minimum_required_coverage?.summary.covered).toBe(1);
+    expect(fs.existsSync(path.join(base, 'report', 'minimum-coverage-result.json'))).toBe(true);
   });
 
   it('reads execution results from manifest batch dir, not stale latest pointers', () => {

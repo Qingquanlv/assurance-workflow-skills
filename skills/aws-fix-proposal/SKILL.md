@@ -20,7 +20,7 @@ Do not rely on prior conversation context.
 
 1. Verify `qa/changes/<change-id>/healing/fix-proposal.json` exists and is valid JSON.
 2. Verify `qa/changes/<change-id>/healing/fix-proposal.md` exists.
-3. Update `workflow-state.yaml`: `phases.healing.status = proposal_created` (or `not_needed` if no eligible failures).
+3. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them): `phases.healing.status = proposal_created` (or `not_needed` if no eligible failures).
 
 ---
 
@@ -56,12 +56,18 @@ Generate a fix proposal **only** for:
 | `wait_strategy_failure` | ✓ | Always eligible |
 | `test_code_error` | ✓ | Always eligible |
 | `test_data_failure` | conditional | Only if test data generation can be fixed without changing product code or assertion expected values |
+| `assertion_expectation_error` | review | Eligible only after `aws report reclassify`; proposal must set `needs_review: true` and must not be applied until human approval |
 | `environment_failure` | ✗ | `not_eligible` |
 | `assertion_failure` | ✗ | `not_eligible` |
 | `business_logic_failure` | ✗ | `not_eligible` |
 | `case_semantic_failure` | ✗ | `not_eligible` |
 | `known_product_issue` | ✗ | `not_eligible` |
 | `coverage_gap` | ✗ | `not_eligible` |
+| `fuzz_configuration_error` | ✗ | `not_eligible` — fuzz harness files are outside the API/E2E healing loop |
+| `fuzz_stateful_failure` | ✗ | `not_eligible` — usually product robustness or case-design review |
+| `perf_script_error` | ✗ | `not_eligible` — performance files are outside the API/E2E healing loop |
+| `perf_threshold_exceeded` | ✗ | `not_eligible` — product/performance review required |
+| `perf_environment` | ✗ | `not_eligible` — environment fix required |
 | `product_bug` | ✗ | `not_eligible` |
 | `unrelated_existing_failure` | ✗ | `not_eligible` — not in current change scope |
 | `unknown` | ✗ | `not_eligible` |
@@ -82,6 +88,8 @@ For each **eligible** failure:
 3. Assess risk level.
 4. Write a concrete `patch_plan` with file + operation + description + constraints.
 5. Set `verification.rerun_required = true` always.
+
+For any failure where `needs_review == true` (including `assertion_expectation_error`), generate the proposal but mark it review-gated. The fixer MUST NOT apply it until a human approval is recorded with `aws gate override --action fix_and_proceed` or an equivalent approved workflow decision.
 
 **Forbidden operations — always add to `forbidden_operations`:**
 
@@ -111,6 +119,8 @@ tests/e2e/scripts/<module>_data_setup.py
 tests/e2e/conftest.py
 tests/fixtures/**/*.py
 ```
+
+There is deliberately no `fuzz` or `performance` target in this fixer. Do not generate proposals that modify `tests/fuzz/**` or `tests/perf/**`; those changes require a separate test-maintenance change or an explicit human-approved test-change override.
 
 For each **not_eligible** failure, record it in the `not_eligible` array with a `recommended_next_action`.
 
@@ -168,7 +178,7 @@ For each **not_eligible** failure, record it in the `not_eligible` array with a 
   "not_eligible": [
     {
       "failure_id": "FAIL-002",
-      "target": "api|e2e",
+      "target": "api|e2e|fuzz|performance",
       "category": "assertion_failure",
       "reason": "Assertion failure may reflect real product behavior change; cannot fix without human review",
       "recommended_next_action": "developer_fix_required|manual_investigation|environment_fix_required|separate_change_required"
@@ -295,7 +305,7 @@ And set `workflow_status = stopped` if `phases.execution.status == FAIL` (FAIL +
    c. If not eligible: build a `not_eligible` entry with `recommended_next_action`.
 4. Write `healing/fix-proposal.json` (create `healing/` directory if not present).
 5. Write `healing/fix-proposal.md`.
-6. Update `workflow-state.yaml`.
+6. Report the state delta per the Context Contract (orchestrator applies it to `workflow-state.yaml` when dispatched).
 7. Present summary to user.
 
 ---

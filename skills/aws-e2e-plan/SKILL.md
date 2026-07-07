@@ -33,9 +33,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/e2e-codegen-plan.md`
    - `qa/changes/<change-id>/plans/m4-review-summary.md`
    - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml`（仅当 `.aws/data-knowledge.yaml` 缺失时）
-2. Update `workflow-state.yaml`:
-   - Set `phases.e2e_plan.status = done`
-   - List **all actually generated** output files under `phases.e2e_plan.outputs`（含 `data-knowledge.proposal.yaml`，若已生成）
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.e2e_plan.status = done`
+   - `phases.e2e_plan.outputs` = **all actually generated** output files（含 `data-knowledge.proposal.yaml`，若已生成）
 
 ---
 
@@ -230,6 +230,7 @@ Selector Strategy 优先级（必须遵守）：
 
 - **Target Files** — 表格：File \| Purpose
 - **Test Function Mapping** — 表格：Case ID \| Test Function \| Target File（仅 `added` + `modified`；不含 `removed`）
+  - **命名（硬规则）：** 每个 Test Function 必须是 `test_<case_id 小写>__<description>` —— 小写 case_id 前缀 + **双下划线**。例：`TC_USER_E2E_001` → `test_tc_user_e2e_001__admin_enters_user_list`。`aws run` 结果解析器依赖该前缀回填 case_id；缺前缀的函数会成为 Unmapped Tests，破坏 MRC/inspect/healing 可追溯链，并使 quality gate 封顶 PASS_WITH_WARNINGS。映射违反此规则的 plan **不具备 codegen 就绪状态**。
 - **Fixture Mapping** — 表格：Fixture \| Source \| Required By
 - **Data Setup Script Mapping** — 表格：Script \| Input \| Output \| Required By
 - **Import Strategy** — 每个文件的 import 模块

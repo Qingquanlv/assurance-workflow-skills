@@ -9,11 +9,18 @@ Do not rely on prior conversation context.
 
 **Before doing any work:**
 
-1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists.
-2. Read **Required** inputs:
+1. Read `qa/changes/<change-id>/workflow-state.yaml` if it exists, including top-level `run_context`.
+   - `run_context.interaction_mode == autonomous` (default when absent under `aws-workflow`) → do not run planned clarification dialogue or require user approval; generate from Explore `test_strategy` + resolved `open_questions`, then hand off to `aws-case-reviewer`.
+   - `run_context.interaction_mode == interactive` → keep the existing clarification dialogue and explicit user approval before writing files.
+2. **Explore gate (Phase 1.1):** If `phases.explore` exists (written by `aws-explore`), apply gate logic from this repo's `aws-explore/SKILL.md` (Context Contract + Phase 1 gate):
+   - `status == pending` → **STOP**
+   - `status == done` → read `explore/advisory.json`; missing file → **STOP**
+   - `mode == required` and `status in [failed, unavailable]` → **STOP**
+   - `mode == advisory` and `status in [skipped, unavailable, failed]` → record warning, continue without advisory
+3. Read **Required** inputs:
    - user requirement text
    - project source root or enough requirement context to derive QA scope
-3. Read **Optional** inputs (missing = warning, do **not** STOP):
+4. Read **Optional** inputs (missing = warning, do **not** STOP):
    - existing `qa/cases/**`
    - existing `tests/api/**`
    - existing `tests/e2e/**`
@@ -21,8 +28,8 @@ Do not rely on prior conversation context.
    - existing `qa/changes/**`
    - backend / frontend source files (when available)
    If optional QA directories are missing, record a warning and continue as a **new QA asset initialization** path. Do **not** stop solely because `qa/cases/`, `tests/`, or `qa/knowledge/` does not exist.
-4. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
-5. Use files as the sole source of truth.
+5. If `workflow-state.yaml` exists and `phases.skill_registry_check.status == fail` → **STOP**.
+6. Use files as the sole source of truth.
 
 **After completing work:**
 
@@ -30,37 +37,51 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/.qa.yaml`
    - `qa/changes/<change-id>/proposal.md`
    - `qa/changes/<change-id>/cases/<module>/case.yaml`
-2. Create or update `qa/changes/<change-id>/workflow-state.yaml`:
-   - If the file does **not** exist, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
-     - `execution_mode: inline`
-     - `subagent_skill_inheritance: disabled`
-     - `phases.skill_registry_check.status: skipped`
-     - `phases.skill_registry_check.reason: standalone aws-case-design invocation; full registry check is owned by aws-workflow`
-     - `phases.skill_registry_check.checked_skills: [aws-case-design]`
-     - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
-   - Do **not** set `phases.skill_registry_check.status: pass` from this skill — full registry verification belongs to `aws-workflow` Phase 0.
-   - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
-   - Set `phases.case_design.status = done`
-   - List all output files under `phases.case_design.outputs`
-3. Record any warnings or known issues explicitly in `workflow-state.yaml`.
+2. Handle `qa/changes/<change-id>/workflow-state.yaml` by execution context:
+   - **Dispatched phase subagent (aws-workflow subagent-dispatch mode):** never create or write `workflow-state.yaml` — the orchestrator owns it and created it in Phase 1.1. Report the state delta in your final message instead:
+     - `phases.case_design.status = done`
+     - `phases.case_design.outputs` = all output files
+   - **Standalone / inline invocation (primary agent):** create or update the file directly:
+     - If the file does **not** exist, create it with the full base schema (see `aws-workflow` `workflow-state.yaml` schema), including:
+       - `execution_mode: inline`
+       - `subagent_skill_inheritance: disabled`
+       - `phases.skill_registry_check.status: skipped`
+       - `phases.skill_registry_check.reason: standalone aws-case-design invocation; full registry check is owned by aws-workflow`
+       - `phases.skill_registry_check.checked_skills: [aws-case-design]`
+       - `agent_warnings` with `OPENCODE-SKILL-RESOLUTION-001`
+     - Do **not** set `phases.skill_registry_check.status: pass` from this skill — full registry verification belongs to `aws-workflow` Phase 0.
+     - Do **not** create a partial file containing only `phases.case_design`. Always write the full schema.
+     - Set `phases.case_design.status = done`
+     - List all output files under `phases.case_design.outputs`
+3. Record any warnings or known issues explicitly (in `workflow-state.yaml` when inline/standalone; in the reported state delta when dispatched).
 
 ---
 
 # Brainstorming Requirements Into QA Coverage
 
-Help turn requirements and change descriptions into a well-scoped QA coverage plan through collaborative dialogue — then generate the proposal and semantic case delta YAML directly in this skill.
+Help turn requirements and change descriptions into a well-scoped QA coverage plan. In `interactive` mode, do this through collaborative dialogue. In `autonomous` mode, derive the plan from file evidence, Explore `test_strategy`, and resolved `open_questions`, then generate the proposal and semantic case delta YAML directly in this skill.
 
-Start by deriving the change ID and exploring the existing QA context. Ask clarifying questions **one at a time**. Once you understand the scope, propose 2–3 coverage approaches and get user approval. After approval, write `proposal.md`, then write the semantic case delta YAML and self-review it before handing off to aws-case-reviewer.
+Start by deriving the change ID and exploring the existing QA context. Branch by `run_context.interaction_mode`:
+
+- `interactive`: ask clarifying questions **one at a time**. Once you understand the scope, propose 2–3 coverage approaches and get user approval. After approval, write `proposal.md`, then write the semantic case delta YAML and self-review it before handing off to aws-case-reviewer.
+- `autonomous`: do not ask planned clarification questions and do not wait for user approval. Use Explore `test_strategy` as the macro plan proposal, consume `open_questions` with `status=answered` / `answered_via=auto_default`, use neutral wording for `deferred` or `undecided`, write `proposal.md` with `generation_mode: autonomous`, then write case delta YAML and self-review it before handing off to aws-case-reviewer.
 
 <HARD-GATE>
-Do NOT generate case delta, plan, test code, execution result, review result, or archive output until:
+Do NOT generate case delta, plan, test code, execution result, review result, or archive output until the mode-specific gate below is satisfied.
 
+`interactive` gate:
 1. QA context has been explored,
 2. clarifying questions have been answered,
 3. 2–3 QA coverage approaches have been proposed,
 4. the user has approved the QA coverage approach.
 
-After approval, this skill MUST:
+`autonomous` gate:
+1. QA context has been explored,
+2. Explore advisory (when present) has no `status=unanswered` open question,
+3. `test_strategy` / propagated `assertion_intent` / available QA context have been reconciled into an internal coverage decision,
+4. `proposal.md` records `generation_mode: autonomous` and describes which defaults were used.
+
+After the mode-specific gate passes, this skill MUST:
 1. Write `qa/changes/<change-id>/proposal.md`
 2. Write `qa/changes/<change-id>/cases/<module>/case.yaml`
 
@@ -71,23 +92,55 @@ Do NOT invoke aws-api-plan, aws-e2e-plan, aws-api-codegen, aws-e2e-codegen, or a
 
 ## Anti-Pattern: "This Is Too Simple To Need Brainstorming"
 
-Every QA change goes through this process. A one-line fix, a small new field, a configuration toggle — all of them. Unexamined assumptions about what to test, what data to set up, and what constitutes a pass are where most QA effort is wasted. The brainstorm can be short for simple changes, but you MUST complete it and get approval before generating any file.
+Every `interactive` QA change goes through this process. A one-line fix, a small new field, a configuration toggle — all of them. Unexamined assumptions about what to test, what data to set up, and what constitutes a pass are where most QA effort is wasted. The brainstorm can be short for simple changes, but in `interactive` mode you MUST complete it and get approval before generating any file. In `autonomous` mode, the explicit approval is replaced by transparent defaults plus the mandatory `aws-case-reviewer` gate.
 
 ## Checklist
 
 Maintain a visible checklist for each item, or use the available task/todo tool if the environment supports it. Complete them in order:
 
+0. **Explore gate** — read `phases.explore`; if `done`, read `explore/advisory.json` (internal; no dump to user); collect `open_questions_for_case_design[]`:
+   - `status=answered` (or legacy `answer != null`) resolves the assertion intent for **that specific `pitfall_ref` only** (do not re-ask that exact pitfall in interactive mode), but do **not** mark the whole category satisfied.
+   - `status=deferred` or `assertion_intent=undecided` means use neutral wording and do not assert the pitfall as known-accepted behavior.
+   - `status=unanswered` is allowed only in `interactive` mode before Step 4; in `autonomous` mode it is a STOP because Explore should have applied `auto_default`.
+   Also read propagated `assertion_intent` on `case_design_guidance.priority_hints[]`, `watchlist[]`, and `suggested_scenarios[]` — when present, treat the hint/scenario text as the authoritative test directive (do not reinterpret neutral pitfall wording); also read `test_strategy` (if present) as a **macro plan proposal** for scope/data/layer/approach.
 1. **Derive change ID** — format `<TICKET-ID>-<short-kebab-description>`
 2. **Explore QA context** — check `qa/cases/`, `tests/`, `qa/knowledge/`, `qa/changes/`
 3. **Identify target module** — ask one module confirmation question at a time; decompose if multiple independent modules are involved
-4. **Ask clarifying questions one at a time** — cover 8 categories, one question per message
-5. **Analyze risks internally** — do NOT dump full risk analysis to the user
-6. **Propose 2–3 QA coverage approaches** — with trade-offs and recommendation
-7. **Get user approval** — wait for explicit confirmation
-8. **Write `proposal.md`** — to `qa/changes/<change-id>/proposal.md` (must include `## Layer Rationale` section — one entry per case with a `case_id`, layer assignment, and `reason`)
-9. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
-10. **Self-review case delta YAML** — validate schema, required fields, delta operation rules, semantic rules
-11. **Hand off** — report completion; the orchestrator or user will invoke `aws-case-reviewer`
+   - If `phases.explore.status == done`: after module confirm, show **3–5 bullet Explore 摘要** (confidence tags; path to `advisory.json`; no full dump)
+4. **Mode branch**:
+   - `interactive`: ask clarifying questions one at a time — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; lead macro categories with the `test_strategy` proposal (confirm/override) when present; treat advisory answered OQs as already-resolved for that specific pitfall; surface unresolved OQs as part of their category's question.
+   - `autonomous`: skip planned user questions. Adopt `test_strategy` where supported by evidence, choose conservative defaults for missing macro categories, and keep `deferred` / `undecided` pitfalls neutral.
+5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; in `interactive` mode, gap-only follow-up max 1–2 questions; in `autonomous` mode, record unresolved gaps in `proposal.md` instead of asking.
+6. **Propose 2–3 QA coverage approaches** — `interactive` only; each must cite adopted / override / gap from Reconcile; the option list MUST include an explicit Fuzz/Performance opt-in entry (Category 3 hard rule).
+7. **Get user approval** — `interactive` only; wait for explicit confirmation. `autonomous` skips this step and relies on `aws-case-reviewer` as the gate artifact.
+8. **Write `.qa.yaml` approval metadata** — in `interactive` mode, persist the approved coverage approach before writing cases:
+   ```yaml
+   approval:
+     mode: interactive
+     approved_by: user
+     approved_approach: <stable-option-id>
+     approved_at: <ISO timestamp>
+   ```
+   `aws status` enforces this through `case-design-gate`; `cases/` existing on disk is not enough for case-design to be `done`.
+9. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Test Types Considered` (all four layers, selected/declined + reason) and `## Layer Rationale`; include `generation_mode: autonomous` when no user approval was requested.
+10. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
+11. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
+12. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
+
+### case.yaml boundary (Explore)
+
+**MUST NOT** persist in `case.yaml`:
+
+- advisory IDs (`WL-*`, `PH-*`, `KPI-*` as trace fields)
+- `evidence_ids[]`, `adopted[]`, `override[]`, `gap[]`
+- `explore`, `advisory_input`, or Reconcile blocks
+- `test_strategy`, `pitfall_ref`, `assertion_intent`, or any `OQ-*` id
+
+**Only** user-approved case business fields (priority, type, assertions, automation, etc.).
+
+Explore disposition lives **only** in `proposal.md` (`## Explore Input`).
+
+**Readiness:** generated `case.yaml` must not contain Explore Input / evidence_ids / WL-* / PH-* metadata keys.
 
 ---
 
@@ -101,6 +154,39 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 - If a category can be inferred from project context, state the inference and ask for confirmation instead of asking an open-ended question.
 - Only move to the next question when the current one is answered.
 - Prefer multiple-choice questions when possible.
+
+**open_questions deduplication (when advisory `done`):**
+
+Before starting Step 4, partition `open_questions_for_case_design[]` from the advisory:
+
+- `answered` = items where `status = "answered"` (legacy: `answer != null` and `answered_via = "explore"`) → treat as already-established context for that specific `pitfall_ref`; do not re-ask that exact pitfall. **Do NOT mark the whole category pre-satisfied** — each item only resolves the assertion intent for one pitfall, not the entire `success_assertions` / `exception_scenarios` / `out_of_scope` category. In `interactive` mode, still ask the category's broader question in Step 4, citing the already-resolved pitfalls as established context rather than re-deciding them.
+- `deferred` = items where `status = "deferred"` → do not assert this pitfall as accepted behavior; use neutral language and list it as unresolved in `proposal.md`.
+- `pending` = items where `status = "unanswered"` or legacy `answer == null` → in `interactive` mode, merge these into the category queue and ask them when their category comes up; in `autonomous` mode, STOP because `aws-explore` should have resolved them via `auto_default`.
+
+Do NOT repeat an advisory question (same `pitfall_ref`) that was already answered in `aws-explore`. The user has already answered it; use it silently as clarification context when covering the broader category.
+
+**Assertion intent from propagated guidance (when advisory `done`):**
+
+When a `priority_hint`, `watchlist` item, or `suggested_scenario` carries `assertion_intent` + `open_question_ref`, that pair is the **authoritative test directive** for that pitfall — prefer it over neutral pitfall descriptions or your own inference:
+
+| `assertion_intent` | Case-design action |
+|---|---|
+| `assert_ideal` | Design cases that assert the **ideal** behavior (expected rejection / correct constraint) — do NOT write cases that merely reproduce the bug as acceptable |
+| `assert_known_bug` | Design cases that assert the **current** buggy behavior (document as known limitation) |
+| `ignore` | Do not generate assertions for this pitfall; if a `priority_hint` was correctly removed in explore reconciliation, do not reintroduce coverage via `suggested_scenarios` |
+| absent / `undecided` | Fall back to open_question answer if present; otherwise ask during the matching clarifying category |
+
+If `priority_hint.hint` text still reads like neutral pitfall reproduction but `assertion_intent` is set, **trust `assertion_intent`** and rewrite case expectations accordingly — flag in `proposal.md` Explore Input if hint and intent appear contradictory (reviewer signal).
+
+**`priority_hints` vs `suggested_scenarios` (how to consume each):** `priority_hints` tell you **测什么方向** (which pitfalls to cover + assertion direction); `suggested_scenarios` are **怎么测** drafts (case-ready scenarios, each carrying `priority_hint_ref`). Use a PH to decide coverage/direction, and turn each SS into one concrete `case.yaml` entry — a single PH may fan out into several SS along distinct input/assertion dimensions. If an SS only restates its PH with no extra execution detail (no concrete input value, no specific asserted status/field), treat it as a thin pointer and derive the case's concrete steps/assertions yourself from the PH + module contract; do not blindly copy the SS description into the case.
+
+**`test_strategy` as a macro-plan starting point (when advisory `done`):**
+
+`aws-explore` may populate `advisory.json.test_strategy` (scope / data_focus / layer_recommendation / approach) as an evidence-derived proposal. This skill still owns the macro categories (`module_confirmation`, `change_type`, `test_types`, `data_needs`, `target_selection_depth`, `out_of_scope`) — `test_strategy` does not pre-answer them. Instead, when asking each of those categories, lead with the relevant `test_strategy` slice as a recommendation to confirm or override, rather than asking open-ended:
+
+> "Explore 基于代码证据建议覆盖 API + E2E，并对 UserCreate/UserUpdate schema 增加 Fuzz（依据：发现用户输入 schema SC-SCHEMA-002/004）。是否采用此方案，还是需要调整？"
+
+The user's confirm/override response is what gets recorded as `adopted[]` / `override[]` in Step 5 (Reconcile) — same mechanism as priority_hint/watchlist adoption. If `test_strategy` is absent or empty, ask the category normally with no proposal to lead with.
 
 **The 8 categories must be covered before case delta generation — but must NOT be asked as a batch:**
 
@@ -116,6 +202,12 @@ The 8 categories below are a **coverage checklist**, not a questionnaire. Do not
 | 8 | Out of scope | Explicit exclusions |
 
 > When the user selects **Fuzz**, ask which input endpoints need robustness testing. When the user selects **Performance**, ask which capability is high-frequency/core and what the acceptable P95 latency and error-rate thresholds are (no defaults — thresholds must be user-confirmed).
+
+**Category 3 hard rule — all four layers must be offered, not just recommended ones:**
+
+- The coverage-approach options presented to the user MUST include an explicit Fuzz/Performance opt-in entry (like option E in the example below), **even when Explore does not recommend those layers**. Presenting only API/E2E depth variants (e.g. 方案 A/B/C all within API+E2E) without a Fuzz/Performance entry is a process deviation.
+- When the user declines a layer, record the decision — silence is not a decision. `proposal.md` `## Test Types Considered` captures all four layers with `selected | declined + reason`.
+- An Explore `test_strategy.layer_recommendation` with `recommended: false` is a lead-in for the question ("Explore 不建议 Fuzz，理由是 X — 是否同意？"), never a reason to skip asking.
 
 ### Test Layer Decision Tree
 
@@ -358,9 +450,13 @@ If they agree, read: `skills/aws-case-design/visual-companion.md`
 
 ---
 
-### Step 7: Propose 2–3 QA Coverage Approaches
+### Step 7: Propose 2–3 QA Coverage Approaches (`interactive` only)
 
 Present 2–3 options with trade-offs and your recommendation. Lead with your recommendation. Wait for explicit approval before writing any file.
+
+In `autonomous` mode, skip this section: select one conservative approach from `test_strategy` + evidence, record the rationale and `generation_mode: autonomous` in `proposal.md`, and continue directly to writing outputs.
+
+The option list MUST include an explicit Fuzz/Performance opt-in option even if the recommended approach does not include them. If Explore recommends `recommended: false` for Fuzz or Performance, cite that rationale and ask the user to confirm or override it.
 
 **Example:**
 
@@ -378,6 +474,11 @@ Present 2–3 options with trade-offs and your recommendation. Lead with your re
 > - Best regression coverage for high-risk features.
 > - Requires more data setup and more cases.
 > - Appropriate when this feature is critical path or has a history of regressions.
+>
+> **D. Add Fuzz and/or Performance**
+> - Fuzz hardens user-input endpoints such as create/update schemas.
+> - Performance validates high-frequency or heavy-query paths with user-confirmed P95/error-rate thresholds.
+> - Add only when these non-functional targets are in scope for this change.
 >
 > Recommendation: **B**, because this is a state-changing workflow.
 
@@ -443,22 +544,50 @@ Example:
 - API
 - E2E
 
+## Test Types Considered
+
+All four layers must appear — this table is the evidence that Fuzz/Performance were offered to the user.
+
+| Layer | Decision | Reason |
+|---|---|---|
+| API | selected | <why> |
+| E2E | selected | <why> |
+| Fuzz | declined | <user's reason, e.g. 输入 schema 简单，本期不做健壮性测试> |
+| Performance | declined | <user's reason, e.g. 无高频路径，无性能指标要求> |
+
 ## Layer Rationale
 
 For each case in this change, record the layer assignment and rationale.
 Format is fixed — reviewer uses `case_id` to cross-check each case's `type`.
 
-- TC-MENU-001: API
+- TC_MENU_001: API
   - reason: <why API is sufficient, e.g. validates status code / response body directly>
 
-- TC-MENU-E2E-001: E2E
+- TC_MENU_E2E_001: E2E
   - reason: <why E2E is required, e.g. validates browser interaction and live UI update>
 
-- TC-MENU-FUZZ-001: Fuzz
-  - reason: <endpoint accepts user-input schema, needs robustness; relates TC-MENU-001>
+- TC_MENU_FUZZ_001: Fuzz
+  - reason: <endpoint accepts user-input schema, needs robustness; relates TC_MENU_001>
 
-- TC-MENU-PERF-001: Performance
-  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC-MENU-002>
+- TC_MENU_PERF_001: Performance
+  - reason: <high-frequency query endpoint, P95 < 200ms; relates TC_MENU_002>
+
+## Explore Input
+
+<!-- Include this section ONLY when phases.explore.status == done. Otherwise write: _skipped (no advisory)_ -->
+
+- advisory: `explore/advisory.json` (status: done | degraded)
+- source_code_read: true | false
+- test_strategy: adopted as-is | adopted with overrides | not provided
+  - proposal: <test_strategy.approach, if present>
+  - override: [<layer/scope item>: reason — <rationale for overriding this part of the proposal>]
+- open_questions (assertion-intent, per pitfall):
+  - answered in explore: OQ-001 (pitfall_ref: SC-RBAC-001, success_assertions) — assert_known_bug, "<answer>"
+  - pending (answered here): OQ-002 (pitfall_ref: SC-SCHEMA-005, exception_scenarios) — assert_ideal, "<answer given in this session>"
+  - skipped: OQ-004 (pitfall_ref: SC-SCHEMA-004, out_of_scope) — left unanswered
+- adopted: [PH-001 → TC_MODULE_001, WL-002 → TC_MODULE_003]
+- override: [PH-002: reason — <rationale for overriding this priority hint>]
+- gap: [macro categories clarified here beyond what test_strategy covered]
 
 ## Data Needs
 
@@ -691,7 +820,7 @@ removed: []
 **Every case under `added` or `modified` MUST include all of these fields:**
 
 ```yaml
-case_id: <stable-case-id>            # e.g. TC-USER-AUTH-001, TC-MENU-FUZZ-001, TC-MENU-PERF-001
+case_id: <stable-case-id>            # underscore-only, e.g. TC_USER_AUTH_001, TC_MENU_FUZZ_001, TC_MENU_PERF_001 (hyphens NOT allowed)
 title: <human-readable-title>
 status: draft | active | deprecated
 priority: P0 | P1 | P2 | P3
@@ -769,10 +898,23 @@ regression:
 trace:
   supersedes: []              # optional — prior requirement/case ids this case replaces
   related_requirements: []    # optional — related requirement ids
+  minimum_required_coverage: [] # MRC-* ids from advisory.minimum_required_coverage covered by this case
+  advisory_refs: []           # PH-* / WL-* / SS-* refs consumed by this case
   change_reason: ""           # optional — why this case changed; may be filled during design
 ```
 
-`trace` is required on every case but **may be `{}` or partially empty during case design**. Downstream archive / execution may enrich it. Reviewers should treat empty `trace` as compliant at case-design time.
+`trace` is required on every case. When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`, every required MRC item must be mapped to at least one case via `trace.minimum_required_coverage`; do not rely on title/name inference. Downstream archive / execution may enrich other trace fields.
+
+Also write `qa/changes/<change-id>/trace/minimum-coverage-matrix.yaml`:
+
+```yaml
+- mrc_id: MRC-API-006
+  key: refresh_api
+  required: true
+  covered_by_cases: [TC_API_012, TC_API_013]
+  status: covered | skipped_by_scope
+  skip_reason: null
+```
 
 **`type` → `framework` → output directory (must match):**
 
@@ -789,7 +931,7 @@ One case has exactly one `type`. Fuzz and Performance are **independent cases** 
 
 ```yaml
 modified:
-  - case_id: TC-USER-AUTH-002
+  - case_id: TC_USER_AUTH_002
     title: 有效登录用户可以成功登出
     status: draft
     priority: P0
@@ -842,8 +984,8 @@ modified:
       - 携带无效 Token 调用登出接口
 
     related_cases:
-      - TC-USER-AUTH-003
-      - TC-USER-AUTH-004
+      - TC_USER_AUTH_003
+      - TC_USER_AUTH_004
 
     automation:
       required: true
@@ -908,6 +1050,16 @@ The case YAML contains **user-readable QA cases** optimized for Web display and 
 
 Case YAML describes what to test. API mapping belongs to `api-plan.md`. E2E locator mapping belongs to `e2e-plan.md` and `tests/e2e/`.
 
+**YAML scalar safety (mandatory):**
+
+- Natural-language list items under `preconditions`, `test_data`, `steps`, `assertions`, `postconditions`, and `edge_cases` MUST be YAML strings.
+- If a list item contains a colon followed by a space (for example `name: "qa_dept_dup"` or `部门 1: "x"`), quote the entire item:
+  - Good: `- '第一次 name: "qa_dept_dup"'`
+  - Good: `- '部门 1: "qa_dept_filter_match"'`
+  - Bad: `- 第一次 name: "qa_dept_dup"`
+- Do not rely on YAML parsing `- name: "x"` as an object inside natural-language fields. These fields are string arrays, not maps.
+- When in doubt, quote the entire scalar with single quotes and escape inner single quotes by doubling them.
+
 **Allowed:**
 
 ```yaml
@@ -937,7 +1089,7 @@ edge_cases:
   - 未携带 Token 调用登出接口
 
 related_cases:
-  - TC-USER-AUTH-003
+  - TC_USER_AUTH_003
 
 automation:
   required: true
@@ -1200,6 +1352,8 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 **YAML structure:**
 
 1. YAML is valid and parseable.
+   - Must be validated with a real YAML parser after writing, not only visually inspected.
+   - Pay special attention to natural-language list items containing `: `, quotes, parentheses, or HTTP/status fragments.
 2. `schema_version` exists.
 3. `added`, `modified`, and `removed` are arrays (not null).
 4. case.yaml does NOT contain a top-level `change:` block (belongs in `.qa.yaml`).
@@ -1213,7 +1367,7 @@ Before invoking aws-case-reviewer, verify that ALL of these are true. Fix any is
 
 **Per-case fields (every added / modified case):**
 
-9. `case_id` — exists and matches `TC-[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{3}` format (e.g. `TC-USER-001`, `TC-API-V2-001`, `TC-M4-E2E-001`, `TC-3D-ASSET-001`).
+9. `case_id` — exists and matches `TC_[A-Z0-9]+(_[A-Z0-9]+)*_[0-9]{3}` format (underscore-only; hyphens NOT allowed; e.g. `TC_USER_001`, `TC_API_V2_001`, `TC_M4_E2E_001`, `TC_3D_ASSET_001`).
 10. `case_id` — unique within this delta.
 11. `title` — exists and is not empty.
 12. `status` — one of draft, active, deprecated.
@@ -1317,7 +1471,7 @@ change_id: <change-id>
 links:
   - requirement_id: REQ-002
     test_condition_id: COND-USER-AUTH-001
-    case_id: TC-USER-AUTH-002
+    case_id: TC_USER_AUTH_002
     plan:
       api: qa/changes/<change-id>/plans/api-plan.md
       e2e: null
@@ -1387,7 +1541,7 @@ Stop and address these before continuing:
 - Do NOT generate or modify `tests/api` or `tests/e2e` in this skill.
 - Do NOT write review or execution result in this skill.
 - Do NOT archive anything in this skill.
-- If the user says "skip brainstorm", do **NOT** skip the hard gate. Instead, offer a shortened brainstorm mode:
+- If the user says "skip brainstorm" while `interaction_mode == interactive`, do **NOT** skip the hard gate. Instead, offer a shortened brainstorm mode:
   > "You've asked to skip brainstorming. I cannot skip the hard gate — QA scope must be confirmed before writing any file. I can run a shortened mode: I'll confirm module, change type, test types, data needs, success assertions, exception scope, automation target, and out-of-scope in fewer questions. Shall I proceed with the shortened mode?"
   In shortened mode, still cover all 8 clarifying categories. Still propose 2–3 coverage approaches. Still require user approval before writing any file.
 
@@ -1400,7 +1554,8 @@ Stop and address these before continuing:
 - **YAGNI ruthlessly** — Remove out-of-scope cases from all coverage proposals
 - **Explore before proposing** — Always check existing `qa/cases/` and `tests/` before recommending coverage
 - **Propose alternatives** — Always offer 2–3 coverage approaches before settling
-- **Approve before writing** — Get coverage approach approval before generating any file
+- **Approve before writing (`interactive`)** — Get coverage approach approval before generating any file
+- **Transparent defaults (`autonomous`)** — When approval is skipped, mark `proposal.md` with `generation_mode: autonomous` and list defaults / unresolved gaps
 - **proposal.md first** — Write the proposal before writing cases
 - **Natural language cases** — Describe what to test in plain language; leave method/path/auth/code to aws-api-plan; include objective, postconditions, edge_cases, related_cases, automation.status, regression
 - **Delta operations are explicit** — Decide added/modified/removed at write time, not at archive time

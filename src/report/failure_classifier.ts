@@ -19,6 +19,7 @@ const FIX_PROPOSAL_ALLOWED: Record<FailureCategory, boolean | 'review'> = {
   test_code_error: true,
   environment_failure: false,
   assertion_failure: false,
+  assertion_expectation_error: 'review',
   business_logic_failure: false,
   case_semantic_failure: false,
   known_product_issue: false,
@@ -145,6 +146,7 @@ function computeSeverity(category: FailureCategory): 'low' | 'medium' | 'high' |
     case 'manifest_asset_missing':
       return 'critical';
     case 'assertion_failure':
+    case 'assertion_expectation_error':
     case 'case_semantic_failure':
       return 'high';
     case 'locator_failure':

@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
 1. Write output files:
    - `qa/changes/<change-id>/review/api-plan-review.json`
    - `qa/changes/<change-id>/review/api-plan-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.api_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
-   - Set `phases.api_plan_review.gate_file` = `review/api-plan-review.json`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.api_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
+   - `phases.api_plan_review.gate_file` = `review/api-plan-review.json`
 
 ---
 
@@ -57,6 +57,7 @@ qa/changes/<change-id>/plans/api-plan.md
 qa/changes/<change-id>/plans/api-test-data-plan.md
 qa/changes/<change-id>/plans/api-codegen-plan.md
 qa/changes/<change-id>/plans/m3-review-summary.md
+qa/changes/<change-id>/cases/**/*.yaml
 ```
 
 Optional (only present when `.aws/data-knowledge.yaml` was missing during planning):
@@ -75,7 +76,6 @@ Recommended:
 
 ```text
 qa/changes/<change-id>/proposal.md
-qa/changes/<change-id>/cases/**/*.yaml
 .aws/data-knowledge.yaml
 tests/api/**
 ```
@@ -103,7 +103,7 @@ Create the review directory if it does not exist.
 
 This skill is a **gate producer**. The workflow cannot advance to `aws-api-codegen` without the JSON file this skill writes.
 
-- You **must** write `qa/changes/<change-id>/review/api-plan-review.json` as valid JSON with all required fields, including `codegen_readiness`.
+- You **must** write `qa/changes/<change-id>/review/api-plan-review.json` as valid JSON with all required fields, including `codegen_readiness` and `assertion_traceability`.
 - You **must** write `qa/changes/<change-id>/review/api-plan-review-summary.md`.
 - A natural language conclusion in chat is **not** a substitute for the JSON file. Never end with only a textual verdict.
 - User approval in chat does not release the gate; only a valid `api-plan-review.json` does. See **User Approval Handling**.
@@ -136,6 +136,7 @@ Review the API plan for:
 - Auth and fixture handling
 - Codegen readiness
 - Missing knowledge and unknowns
+- Assertion traceability from approved cases to the executable API plan
 
 ---
 
@@ -150,6 +151,14 @@ Flag:
 - Case missing from plan
 - Plan scenario not linked to any case
 - Critical assertion missing from plan
+
+**Test function naming (mechanical, blocking):** for every row in `api-codegen-plan.md` **Test Function Mapping**, the Test Function MUST match:
+
+```
+^test_<case_id lowercase>__
+```
+
+i.e. the lowercase form of that row's Case ID as prefix, then a **double underscore** (e.g. `TC_USER_API_001` → `test_tc_user_api_001__...`). Any mismatch (missing prefix, single underscore, wrong case_id) is a **finding with `blocking: true`** and `auto_fix_allowed: true` (fix = rename in the mapping table) — decision cannot be `pass` and `codegen_readiness` cannot be `ready`/`ready_with_warnings` until fixed. This is what lets the `aws run` result parser backfill case_id; without it every executed test becomes an Unmapped Test.
 
 ### 2. API Endpoint and Method
 
@@ -180,6 +189,23 @@ Check:
 - Data does not depend on production-like hardcoded IDs
 
 Flag unknown factories, unknown states, and missing cleanup.
+
+**Domain Boundary Checks:**
+
+- **Factory-first default:** for every entity listed in **Required Data**, plan must specify Ring + method in **Factory / Boundary Strategy** → else `severity: medium` (`auto_fix_allowed: true`).
+- If `tests/factories/` contains a `test_<module>_<library>.py` factory module defining `make_<entity>()` for an entity under test, plan/fixtures **must** use it for setup/teardown → else `severity: high`.
+- If `api-codegen-plan.md` Target Files includes `tests/fixtures/<module>_fixtures.py` for a fixture that creates or cleans up domain data but does **not** include the corresponding `tests/factories/test_<module>_<library>.py` target → `severity: high`, `codegen_readiness = not_ready`.
+- `tests/fixtures/` must be wrapper-only: `@pytest.fixture`, yield/lifecycle orchestration, and calls to `make_*`. Any direct business data creation in `tests/fixtures/` plan text → `severity: high`.
+- **HTTP setup ban:** fixture or setup step uses `POST /.../create` (or helper wrapping create) for cases **not** primarily testing create → `severity: high` (`auto_fix_allowed: false`). Exception: create-focused case IDs explicitly mapped in **Data Setup Mapping** with reason.
+- Anti-pattern: `tmp_<entity>` fixture = POST create + GET list resolve id → flag when `make_<entity>` exists or should exist per degradation ladder step 1.
+- Cleanup must maintain the same invariants as setup; raw-delete cleanup for M2M, closure, or soft-delete entities → `severity: high` (`auto_fix_allowed: false` unless plan only needs wording clarification).
+- Entities with M2M tables (Role↔menus/apis / User↔roles): plan must use `make_*` from `tests/factories/` modules; must not plan raw single-table insert or HTTP fixture seeding → else `severity: high`.
+- Entities with closure derived tables (Dept↔DeptClosure): plan must use `make_dept()` → else `severity: high`.
+- Entities with password hashing (User): plan must use `make_user()` → else `severity: high`.
+- Menu / single-table domain entities: plan must use `make_menu()` when factory exists; HTTP fixture seeding forbidden except create cases → else `severity: high` (or `medium` if factory missing but step 1 documented in Blockers).
+- Test config (BASE_URL / admin credentials / prefixes): plan must reference `tests.config.settings`; must not hardcode → else `severity: medium`.
+- If `tests/factories/` is in `discovered_candidates` or `.aws/data-knowledge.yaml`, capabilities must map to the correct `test_<module>_<library>.py` module and exported `make_*` functions (including `make_menu` when present).
+- If `api-test-data-plan.md` lacks **Factory / Boundary Strategy** section → `severity: medium` (`auto_fix_allowed: true`).
 
 ### 4. Codegen Readiness
 
@@ -270,38 +296,35 @@ Check that the plan does not silently depend on unknown capabilities:
 - If the plan references fixtures or factories not present in `.aws/data-knowledge.yaml`, flag as `high` severity finding.
 - Unknowns that are silently omitted from the plan are a `high` finding.
 
+### 8. Assertion Traceability
+
+For every API case with `automation.required = true`, compare each `assertions[]` item in the case delta to the API plan's expected status, response, and postcondition assertions. Record every assertion in `assertion_traceability` using one of:
+
+| verdict | Meaning | Required handling |
+|---|---|---|
+| `mapped` | The plan assertion is semantically equivalent to the case assertion. | Pass silently; no finding required. |
+| `narrowed` | The plan narrows a broader case assertion (for example, case says `4xx`, plan says observed `404`). | Allowed only when the plan marks the expectation as observed and cites source-code, fact-baseline, or advisory evidence. Add a non-blocking `traceability` finding that explains the narrowing and its evidence. If evidence is missing, escalate to blocker. |
+| `contradicted` | The plan contradicts the case assertion, changes `assert_ideal` / `assert_known_bug` semantics, or turns a "non-500" expectation into an expected 500. | Blocking issue. `decision` cannot be `pass`. If the plan can be mechanically corrected from the case file, record a `blocking: true` auto-fixable finding and an `auto_fix_plan`; otherwise record a blocker and use `reject` or `needs_human_review`. |
+| `missing` | The case assertion has no corresponding plan assertion. | P0/P1 cases: blocking issue and `codegen_readiness` cannot be `ready`. If mechanically restorable from the case file, record a `blocking: true` auto-fixable finding; otherwise record a blocker. P2+ cases: high finding only if the omission has an explicit non-blocking rationale. |
+
+Do not let the plan silently replace approved case semantics with observed product behavior. Observed behavior may refine a broad assertion, but it cannot override the approved intent.
+
 ---
 
 ## Decision Rules
 
 Return one of: `pass` / `needs_fix` / `needs_human_review` / `reject`
 
-**Use `pass` when:**
+Derive the decision mechanically, in this order:
 
-- `codegen_readiness` is `ready` or `ready_with_warnings`.
-- `.aws/data-knowledge.yaml` exists.
-- No blocker exists.
-- Codegen can continue safely.
+1. Use `reject` when required plan files are missing, the plan targets the wrong feature, or the plan contradicts approved case files in a way that cannot be safely and mechanically corrected.
+2. If any blocker or `blocking: true` finding exists, do not use `pass`:
+   - Use `needs_fix` only when `blockers[]` is empty and every blocking issue is represented by an auto-fixable finding with `severity in ["low", "medium"]`, `human_review_required == false`, and `auto_fix_plan` is non-empty.
+   - Use `needs_human_review` when resolving the blocking issue requires a product decision, scope confirmation, endpoint/auth/fixture clarification, or acceptance of an endpoint coverage gap.
+3. Use `pass` when there are only non-blocking risk warnings and all Gate Consistency Rules for `pass` are satisfied. Summarize the warnings; do not turn them into blocker-like findings.
+4. Use `pass` when there are no findings, no blockers, no blocking `needs_review` items, `.aws/data-knowledge.yaml` exists, and `codegen_readiness` is `ready` or `ready_with_warnings`.
 
-**Use `needs_fix` when:**
-
-- Plan issues are fixable without product decisions.
-- Auto-fix can make the plan codegen-ready.
-- `auto_fix_plan` is non-empty and every entry maps to a finding with `severity in ["low", "medium"]`.
-
-**Use `needs_human_review` when:**
-
-- Endpoint, auth, or fixture is unknown.
-- Test scope must be confirmed.
-- Codegen would require guessing.
-- Endpoint coverage gap exists and `known-product-issues.md` is missing or scope is not yet accepted.
-
-**Use `reject` when:**
-
-- Plan is for the wrong feature.
-- Required plan files are missing.
-- Plan contradicts case files.
-- Codegen would be unsafe or misleading.
+**Finding discipline:** write findings only for blockers or risk warnings with a concrete downstream failure mode. Do not write endorsement findings such as "no change required", "proceed as planned", or "per plan; not blocking" unless they describe a specific risk, affected case, and consequence. Put general approval language in `summary`, not `findings[]`.
 
 ### Decision ↔ JSON Field Constraints
 
@@ -400,10 +423,13 @@ Auto-fixable examples:
 - Add known execution command
 - Add TODO markers only for already documented non-blocking warnings
 - Clarify fixture reuse if known from `.aws/data-knowledge.yaml`
+- Add missing **Factory / Boundary Strategy** section skeleton (entities already listed in plan; include per-entity Ring + method table)
+- Replace hardcoded `BASE_URL` / credential string in plan with reference to `tests.config.settings`
+- Add note in **Fixture Mapping** that HTTP create must not be used for non-create cases (wording only when reviewer flagged HTTP setup)
 
 Do not downgrade blockers into TODO-only warnings.
 
-Unknown endpoint, unknown method, unknown auth mechanism, missing required fixture/factory, unknown expected response schema, or unsafe cleanup must remain blockers or `needs_human_review`.
+Unknown endpoint, unknown method, unknown auth mechanism, missing required fixture/factory, unknown expected response schema, unsafe cleanup, or **inventing `make_*` factory implementations** must remain blockers or `needs_human_review`.
 
 Not auto-fixable:
 
@@ -443,6 +469,7 @@ Use this exact top-level structure (no comments in the actual file):
   "findings": [],
   "needs_review": [],
   "auto_fix_plan": [],
+  "assertion_traceability": [],
   "next_action": "continue",
   "created_at": "YYYY-MM-DDTHH:mm:ssZ"
 }
@@ -454,6 +481,7 @@ Use this exact top-level structure (no comments in the actual file):
 - `qa/changes/<change-id>/plans/api-test-data-plan.md`
 - `qa/changes/<change-id>/plans/api-codegen-plan.md`
 - `qa/changes/<change-id>/plans/m3-review-summary.md`
+- `qa/changes/<change-id>/cases/**/*.yaml`
 - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (if present)
 - `qa/changes/<change-id>/known-product-issues.md` (if read for coverage-gap acknowledgment)
 
@@ -463,10 +491,11 @@ Each finding must use:
 {
   "id": "API-PLAN-FINDING-001",
   "severity": "low|medium|high|critical",
-  "category": "coverage|coverage_gap|endpoint|auth|data|assertion|fixture|codegen|execution|knowledge",
+  "category": "coverage|coverage_gap|endpoint|auth|data|assertion|traceability|fixture|codegen|execution|knowledge",
   "file": "qa/changes/<change-id>/plans/...",
   "message": "What is wrong.",
   "suggestion": "How to fix it.",
+  "blocking": false,
   "auto_fix_allowed": true,
   "human_review_required": false
 }
@@ -511,6 +540,26 @@ Each `needs_review` item must use:
 
 Set `blocking: true` when product behavior, scope, endpoint coverage gap, or auth strategy must be confirmed before codegen. Set `blocking: false` only for non-blocking clarifications that do not affect gate safety.
 
+Each `assertion_traceability` item must use:
+
+```json
+{
+  "case_id": "TC_EXAMPLE_001",
+  "case_assertion": "HTTP 4xx, not 500",
+  "plan_ref": "qa/changes/<change-id>/plans/api-plan.md#API Targets",
+  "verdict": "mapped|narrowed|contradicted|missing",
+  "evidence": "Source-code, fact-baseline, advisory, or plan evidence supporting the verdict."
+}
+```
+
+Rules:
+
+- Include at least one `assertion_traceability` item for every in-scope API case with `automation.required = true`.
+- `verdict = narrowed` requires evidence and a non-blocking `traceability` finding that explains the narrowing.
+- `verdict in ["contradicted", "missing"]` requires a corresponding blocker or `blocking: true` finding; P0/P1 `missing` assertions are blocking issues.
+- If any item has `verdict = contradicted`, `decision` must not be `pass`.
+- If any P0/P1 item has `verdict = missing`, `codegen_readiness` must not be `ready`.
+
 ---
 
 ## Summary Markdown Format
@@ -543,6 +592,10 @@ Use this structure:
 ...
 
 ## Codegen Readiness
+
+...
+
+## Assertion Traceability
 
 ...
 

@@ -89,6 +89,12 @@ export interface ExecutionManifest {
   batch_id: string;
   selected_targets: SelectedTargets;
   result_files: Partial<Record<keyof SelectedTargets | 'coverage' | 'summary', string>>;
+  /** Aggregate hash of the full tests/ tree at aws-run start. */
+  tests_tree_sha256?: string;
+  /** Per-file hashes for test tree drift diagnostics. */
+  test_files_sha256?: Record<string, string>;
+  /** Aggregate hash of configured product code roots at aws-run start. */
+  product_tree_sha256?: string;
   /** Quality gate outcome for this batch — written by `aws run` (CLI primary mode). */
   final_status?: GateStatus;
 }
@@ -101,6 +107,7 @@ export type FailureCategory =
   | 'locator_failure'
   | 'wait_strategy_failure'
   | 'assertion_failure'
+  | 'assertion_expectation_error'
   | 'business_logic_failure'
   | 'case_semantic_failure'
   | 'test_code_error'
@@ -142,6 +149,12 @@ export interface FailureEntry {
   diagnosis: string;
   recommended_action: string;
   recommended_next_action?: string;
+  needs_review?: boolean;
+  reclassified?: {
+    from: FailureCategory;
+    evidence: string;
+    at: string;
+  };
 }
 
 export interface CoverageGapEntry {
@@ -192,11 +205,26 @@ export type GateStatus = 'PASS' | 'PASS_WITH_WARNINGS' | 'FAIL' | 'SKIPPED';
 export interface CoverageThreshold {
   line: number;
   branch: number;
+  module_line?: number;
+  diff_line?: number;
 }
 
 export interface UncoveredFile {
   file: string;
   line_coverage: number;
+}
+
+export interface CoverageScopeFile {
+  file: string;
+  line_coverage: number;
+}
+
+export interface CoverageScopeResult {
+  source: string;
+  files: CoverageScopeFile[];
+  module_line_coverage: number;
+  threshold: number;
+  status: 'PASS' | 'PASS_WITH_WARNINGS' | 'SKIPPED';
 }
 
 /** Canonical coverage result, normalised from coverage.py JSON (M1). */
@@ -219,6 +247,7 @@ export interface CoverageResult {
    */
   skip_reason?: 'api_unselected' | 'pytest_cov_unavailable' | 'disabled';
   uncovered_critical_files: UncoveredFile[];
+  scope?: CoverageScopeResult;
   source: {
     coverage_json: string;
     coverage_xml: string;
@@ -237,6 +266,12 @@ export interface FunctionalDimension {
   e2e: FunctionalCounts;
   /** Added by M3 Phase D when fuzz targets exist. */
   fuzz?: FunctionalCounts;
+  /**
+   * Executed tests that could not be mapped back to a case_id (traceability
+   * broken — generated function names must start with `test_<case_id>__`).
+   * Any value > 0 caps the functional status at PASS_WITH_WARNINGS.
+   */
+  unmapped_tests?: number;
 }
 
 export interface CoverageDimension {
@@ -245,6 +280,7 @@ export interface CoverageDimension {
   line_coverage: number;
   branch_coverage: number;
   threshold: CoverageThreshold;
+  scope?: CoverageScopeResult;
 }
 
 /** Per-scenario performance verdict (M3 Phase C/D). */
@@ -295,6 +331,8 @@ export interface QualityGateResult {
   batch_id: string;
   dimensions: QualityGateDimensions;
   final_status: GateStatus;
+  /** Deterministic gate warnings (e.g. traceability breaks). Optional for back-compat. */
+  warnings?: string[];
 }
 
 export interface QualityScoreBreakdown {
@@ -329,6 +367,8 @@ export interface QualityReport {
   };
   functional: FunctionalDimension;
   coverage: CoverageDimension;
+  human_overrides?: HumanOverrideReportItem[];
+  minimum_required_coverage?: MinimumCoverageResult;
   non_functional?: NonFunctionalDimension;
   defects: {
     product: ReportDefect[];
@@ -339,6 +379,52 @@ export interface QualityReport {
   risk_level: RiskLevel;
   risk_rationale: string;
   recommendation: string;
+}
+
+export interface HumanOverrideReportItem {
+  action: string;
+  reason: string;
+  at: string;
+  changed_files_count?: number;
+  evidence_file?: string;
+  evidence_sha256?: string;
+}
+
+export type MinimumCoverageStatus =
+  | 'covered'
+  | 'covered_known_issue'
+  | 'covered_but_failing'
+  | 'not_executed'
+  | 'missing'
+  | 'skipped_by_scope';
+
+export interface MinimumCoverageItemResult {
+  mrc_id: string;
+  key: string;
+  category: string;
+  required: boolean;
+  layer: string;
+  status: MinimumCoverageStatus;
+  case_ids: string[];
+  executed_case_ids: string[];
+  mapping_source: 'trace' | 'heuristic' | 'none';
+  handler?: string;
+  endpoint?: string;
+}
+
+export interface MinimumCoverageResult {
+  schema_version: '1.0';
+  change_id: string;
+  summary: {
+    total_required: number;
+    covered: number;
+    covered_known_issue: number;
+    covered_but_failing: number;
+    not_executed: number;
+    missing: number;
+    skipped_by_scope: number;
+  };
+  items: MinimumCoverageItemResult[];
 }
 
 // ─── Existing types ───────────────────────────────────────────────────────────
@@ -402,6 +488,9 @@ export interface AwsConfig {
 
 export interface CoverageConfig {
   enabled: boolean;
+  mode?: 'pytest-cov' | 'server-process';
+  server_command?: string;
+  server_port?: number;
   target_package: string;
   threshold: CoverageThreshold;
   /** warn: below threshold → PASS_WITH_WARNINGS (default). block: below threshold → FAIL. */

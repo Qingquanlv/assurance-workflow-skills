@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { inspect } from '../report/inspector';
 import { generateReport } from '../report/report_generator';
+import { reclassifyFailure } from '../report/reclassifier';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerReportCommand(program: Command): void {
@@ -99,6 +100,35 @@ export function registerReportCommand(program: Command): void {
         }
       } catch (err) {
         logError(`Inspect failed: ${(err as Error).message}`);
+        if (process.env.AWS_DEBUG) console.error((err as Error).stack);
+        process.exit(1);
+      }
+    });
+
+  reportCmd
+    .command('reclassify')
+    .description('Reclassify one assertion failure with CLI provenance')
+    .requiredOption('--change <change-id>', 'Change ID')
+    .requiredOption('--failure <id>', 'Failure id, case_id, or test name')
+    .requiredOption('--to <category>', 'Target category (currently assertion_expectation_error)')
+    .requiredOption('--evidence <text>', 'Evidence for the reclassification decision')
+    .action((options) => {
+      const changeId: string = options.change;
+      const projectRoot = process.cwd();
+      logHeader(`aws report reclassify — change: ${changeId}`);
+      logBlank();
+      try {
+        const failure = reclassifyFailure({
+          projectRoot,
+          changeId,
+          failure: String(options.failure),
+          to: String(options.to) as never,
+          evidence: String(options.evidence),
+        });
+        logOk(`reclassified ${failure.case_id}: ${failure.reclassified?.from} → ${failure.category}`);
+        logBlank();
+      } catch (err) {
+        logError(`Reclassify failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
         process.exit(1);
       }

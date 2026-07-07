@@ -98,6 +98,45 @@ This skill **does not synthesize normalised result files itself**. It invokes th
 - Set `final_status = FAIL` (or apply fallback per **Runner Mode**)
 - **Never fabricate** `api-result.json` or `e2e-result.json`
 
+## Rerun Integrity
+
+`aws run` records a SHA256 snapshot of the full `tests/` tree in every `execution-manifest.yaml`:
+
+- `tests_tree_sha256` — aggregate hash of all test files.
+- `test_files_sha256` — per-file hashes for diagnostics.
+
+After a formal run exists, `--rerun-reason` is only for **code-unchanged** retries such as environment flake, SUT restart, transient timeout, or infrastructure validation. It is **not** permission to modify tests and rerun.
+
+If test files changed since the previous batch:
+
+- `aws run` hard-fails with `TESTS-CHANGED-WITHOUT-HEALING` unless `phases.healing.status == applied`.
+- The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
+
+**`--allow-test-changes` is forbidden for the agent — no exceptions.** This project's `.aws/execution-policy.json` sets `healing.testChangesOverride: "forbidden"`, so the CLI rejects the flag with `ALLOW-TEST-CHANGES-FORBIDDEN`. Rules:
+
+- The agent MUST NEVER construct a command containing `--allow-test-changes`, even when the user asks to "fix the tests and rerun" — that request routes through the healing loop.
+- On `TESTS-CHANGED-WITHOUT-HEALING` or `ALLOW-TEST-CHANGES-FORBIDDEN`, the correct reaction is to enter/continue the healing loop, or STOP and report — never to retry with an override flag.
+- The override exists only for a human who (a) verbatim authorizes a specific one-batch override in conversation, (b) temporarily relaxes `testChangesOverride` in `execution-policy.json` themselves, and (c) restores it to `"forbidden"` afterwards. One authorization covers exactly one batch. The CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
+- Note: before the first formal batch there is no `tests_tree_sha256` baseline, so infra backfill (factories, conftest) needs no override at all.
+
+## Product Tree Integrity
+
+`aws run` records `product_tree_sha256` in every `execution-manifest.yaml` and writes per-file hashes to `execution/runs/<batch-id>/product-files-sha256.json`.
+
+- Product roots come from `.aws/config.yaml` `execution.product_code_roots` (default: `app`, `web/src`, `src`; missing roots are skipped).
+- During healing, product code changes are a hard error: `PRODUCT-CHANGED-DURING-HEALING`.
+- There is no bypass flag for product code changes in healing. Revert the product change, or abandon healing via `aws state heal --to failed` and start a new formal run.
+- Outside healing, product tree changes are allowed and recorded as a `product_tree_changed` event; the new batch becomes the baseline.
+
+## Python SUT Coverage
+
+For Python projects, `aws run` records coverage in `execution/coverage-result.json`.
+
+- `coverage.mode: pytest-cov` collects coverage only for Python code imported by the pytest process.
+- `coverage.mode: server-process` is required when API/E2E tests call a running service over HTTP (for example `httpx.Client(base_url=...)`). In that mode the SUT must be launched under coverage by the runner; do not report coverage numbers from an already-running non-coverage server.
+- `coverage.scope` is derived from advisory `test_strategy.scope.in_scope` and reported separately from project-level coverage.
+- Missing or untrusted coverage must be reported as `SKIPPED`, never fabricated.
+
 ## AWS CLI Identity Check
 
 This skill calls the **Assurance Workflow Skills CLI** (`aws`) — **not** the Amazon Web Services CLI.
@@ -189,9 +228,47 @@ When `fallback_runner.used == true`:
 - Optionally write skill-owned `execution/run-summary-note.md` explaining fallback mode — do **not** rewrite CLI-owned `summary.md`
 - `final_status = PASS_WITH_WARNINGS` if fallback passed; `FAIL` if fallback failed
 
+## SUT Connectivity Check
+
+**Enforced in code, not duplicated in this skill.**
+
+SUT readiness is validated by the session autouse fixture `_verify_sut_ready` in `tests/conftest.py`. It runs automatically for every pytest invocation that loads the root conftest (API, E2E, Fuzz).
+
+The fixture verifies:
+
+1. `tests/config.py` is importable (via `tests.config.settings`)
+2. `GET {base_url}/openapi.json` returns HTTP 200
+3. `POST /api/v1/base/access_token` succeeds with configured admin credentials
+
+On failure it calls `pytest.exit(..., returncode=2)` — pytest stops immediately with a clear message instead of producing false test failures.
+
+**Skill / CLI behavior when connectivity fails:**
+
+- If pytest exits with code `2` before tests run, treat as **SUT connectivity failure**
+- Set `final_status = FAIL`
+- Report the pytest exit message to the user (do not re-run curl checks manually)
+- Do **not** fabricate test results
+
+**Optional bypass (local debugging only):**
+
+```bash
+QA_SKIP_SUT_READINESS=1 pytest ...
+```
+
+Do not use bypass in CI or formal QA workflow runs.
+
+**Manifest note (optional):** If pytest fails at session startup, record in `execution-manifest.yaml`:
+
+```yaml
+sut_connectivity:
+  enforced_by: tests/conftest.py::_verify_sut_ready
+  status: fail
+  reason: <pytest exit message summary>
+```
+
 ## CLI Invocation
 
-This Skill **must** run **AWS CLI Identity Check** before invoking primary mode.
+This Skill **must** run **AWS CLI Identity Check** before invoking primary mode. SUT connectivity is enforced by `tests/conftest.py` during pytest startup — do not duplicate manual curl/login probes here.
 
 If identity check passes, attempt:
 

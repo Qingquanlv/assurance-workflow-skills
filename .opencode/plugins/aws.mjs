@@ -5,6 +5,7 @@
  * skills without symlinks or manual config.
  *
  * Skills included:
+ *   - aws-explore       Phase 0.5 Explore before case design
  *   - aws-case-design   QA requirements clarification and case delta generation
  *   - aws-api-plan      API test planning
  *   - aws-api-codegen   API test code generation (pytest)
@@ -107,8 +108,15 @@ ${skills.join('\n')}
 
 export default async ({ client, directory }) => {
   return {
-    // Register AWS skills directory so OpenCode discovers all skills
+    // Register AWS skills directory for native OpenCode discovery.
+    // Skip when oh-my-openagent (omo) is installed: omo replaces the native skill
+    // tool and only scans ~/.config/opencode/skills/ (see scripts/link-skills.sh).
+    // Registering skills.paths as well would duplicate every aws-* skill in the palette.
     config: async (config) => {
+      const plugins = Array.isArray(config.plugin) ? config.plugin : [];
+      const usesOmo = plugins.some((p) => /oh-my-openagent|oh-my-opencode/i.test(String(p)));
+      if (usesOmo) return;
+
       config.skills = config.skills || {};
       config.skills.paths = config.skills.paths || [];
       if (!config.skills.paths.includes(AWS_SKILLS_DIR)) {

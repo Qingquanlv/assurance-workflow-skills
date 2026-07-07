@@ -29,7 +29,7 @@ describe('parsePytestXml', () => {
     expect(result.status).toBe('passed');
     expect(result.total).toBe(1);
     expect(result.passed).toBe(1);
-    expect(result.cases[0].case_id).toBe('TC-USER-AUTH-001');
+    expect(result.cases[0].case_id).toBe('TC_USER_AUTH_001');
     expect(result.source.framework).toBe('pytest');
   });
 

@@ -146,6 +146,13 @@ export function buildSummaryMd(
   if (unmapped.length === 0) {
     lines.push('_None_');
   } else {
+    lines.push(
+      `> **WARNING (TRACEABILITY-BROKEN):** ${unmapped.length} executed test(s) have no case_id mapping, ` +
+      'so MRC / inspect / healing cannot trace them. Rename the functions to ' +
+      '`test_<case_id lowercase>__<description>` (e.g. `test_tc_user_api_001__list_users`) and rerun. ' +
+      'The quality gate is capped at PASS_WITH_WARNINGS until this is fixed.',
+    );
+    lines.push('');
     lines.push('| Test Name | Message |');
     lines.push('|-----------|---------|');
     for (const c of unmapped) {

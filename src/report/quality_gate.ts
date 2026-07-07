@@ -54,6 +54,16 @@ function functionalStatus(...results: (ApiResult | E2eResult | FuzzResult | null
   return 'PASS';
 }
 
+/**
+ * Executed-but-unmapped test count across targets that actually ran.
+ * Synthetic placeholder entries from skipped targets (total == 0) are excluded.
+ */
+function unmappedTestCount(...results: (ApiResult | E2eResult | FuzzResult | null | undefined)[]): number {
+  return results
+    .filter(r => r && r.total > 0)
+    .reduce((sum, r) => sum + (r!.unmapped_tests?.length ?? 0), 0);
+}
+
 /** Non-functional (performance) dimension from the Locust result. */
 function nonFunctionalDimension(perf: PerformanceResult | null | undefined): NonFunctionalDimension | undefined {
   if (!perf) return undefined;
@@ -79,15 +89,30 @@ export function buildQualityGate(opts: BuildQualityGateOptions): QualityGateResu
   const { changeId, batchId, apiResult, e2eResult, coverageResult, coverageGateMode, fuzzResult, performanceResult } = opts;
 
   // Fuzz folds into the functional dimension (input-robustness is still functional correctness).
-  const funcStatus = functionalStatus(apiResult, e2eResult, fuzzResult);
+  let funcStatus = functionalStatus(apiResult, e2eResult, fuzzResult);
   const covStatus = coverageDimensionStatus(coverageResult, coverageGateMode);
   const nonFunctional = nonFunctionalDimension(performanceResult);
+  const warnings: string[] = [];
+
+  // Traceability gate: executed tests without a case_id mapping break the
+  // case → result chain (MRC, inspect, healing all key off case_id). A green
+  // run with broken traceability must not report a clean PASS.
+  const unmapped = unmappedTestCount(apiResult, e2eResult, fuzzResult);
+  if (unmapped > 0) {
+    warnings.push(
+      `TRACEABILITY-BROKEN: ${unmapped} executed test(s) have no case_id mapping. ` +
+      'Test function names must use the `test_<case_id lowercase>__<description>` prefix ' +
+      '(e.g. test_tc_user_api_001__list_users_happy_path).',
+    );
+    if (funcStatus === 'PASS') funcStatus = 'PASS_WITH_WARNINGS';
+  }
 
   const dimensions: QualityGateResult['dimensions'] = {
     functional: {
       status: funcStatus,
       api: counts(apiResult),
       e2e: counts(e2eResult),
+      ...(unmapped > 0 ? { unmapped_tests: unmapped } : {}),
     },
     coverage: {
       status: covStatus,
@@ -95,6 +120,7 @@ export function buildQualityGate(opts: BuildQualityGateOptions): QualityGateResu
       line_coverage: coverageResult?.line_coverage ?? 0,
       branch_coverage: coverageResult?.branch_coverage ?? 0,
       threshold: coverageResult?.threshold ?? { line: 0, branch: 0 },
+      ...(coverageResult?.scope ? { scope: coverageResult.scope } : {}),
     },
   };
 
@@ -115,5 +141,6 @@ export function buildQualityGate(opts: BuildQualityGateOptions): QualityGateResu
     batch_id: batchId,
     dimensions,
     final_status: worstStatus(gateStatuses),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { generateProject, repairProject, registerOpenCode } from '../../../src/core/generator';
+import { runDoctorChecks } from '../../../src/core/checks';
 import { InitAnswers } from '../../../src/core/types';
 
 const defaultAnswers: InitAnswers = {
@@ -37,6 +38,20 @@ describe('generateProject', () => {
     expect(fs.existsSync(path.join(tmpDir, 'tests/fixtures/.gitkeep'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'tests/helpers/.gitkeep'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'tests/reports/.gitkeep'))).toBe(true);
+  });
+
+  it('creates .aws/data-knowledge.yaml scaffold required by the codegen precondition gate', () => {
+    generateProject(tmpDir, defaultAnswers);
+    const dkPath = path.join(tmpDir, '.aws/data-knowledge.yaml');
+    expect(fs.existsSync(dkPath)).toBe(true);
+    expect(fs.readFileSync(dkPath, 'utf-8')).toContain('capabilities:');
+  });
+
+  it('produces a config that aws doctor can read without crashing', () => {
+    generateProject(tmpDir, defaultAnswers);
+    expect(() => runDoctorChecks(tmpDir)).not.toThrow();
+    const config = fs.readFileSync(path.join(tmpDir, '.aws/config.yaml'), 'utf-8');
+    expect(config).toContain('agents:');
   });
 
   it('does not create claude or codex agent files', () => {

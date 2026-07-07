@@ -1,6 +1,23 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { run } from '../execution/runner';
+import { resolveSelectedTargets, run, RunnerResult } from '../execution/runner';
+import { appendEvents } from '../core/events';
+import {
+  assertHealingRunAllowed,
+  assertProductTreeUnchangedInHealing,
+  assertRerunReasonIfNeeded,
+  assertTestTreeUnchangedOrHealing,
+  loadProductCodeRoots,
+} from '../core/healing_state';
+import type { TestTreeIntegrityResult } from '../core/healing_state';
+import { writeTestChangesOverrideEvidence } from '../core/override_evidence';
+import {
+  assertTestChangesOverridePolicyAllows,
+  consumeExecutionTestChangesOverrideToken,
+  loadTestChangesOverridePolicy,
+  readExecutionTestChangesOverrideTokenForCurrentTree,
+  type ExecutionTestChangesOverrideToken,
+} from '../core/test_changes_override';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerRunCommand(program: Command): void {
@@ -8,8 +25,14 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Execute API and E2E tests for a change and write normalized execution results')
     .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
+    .option('--rerun-reason <text>', 'Required when re-running after execution is already done')
+    .option('--allow-test-changes', 'Allow test tree changes outside healing after explicit human decision')
+    .option('--reason <text>', 'Human decision reason for --allow-test-changes')
     .action((options) => {
       const changeId: string = options.change;
+      const rerunReason: string | undefined = options.rerunReason;
+      const allowTestChanges: boolean = options.allowTestChanges === true;
+      const overrideReason: string | undefined = options.reason;
       const projectRoot = process.cwd();
 
       logHeader(`aws run — change: ${changeId}`);
@@ -19,7 +42,78 @@ export function registerRunCommand(program: Command): void {
       logBlank();
 
       try {
-        const result = run({ changeId, projectRoot });
+        if (allowTestChanges && !overrideReason?.trim()) {
+          throw new Error('ALLOW-TEST-CHANGES-REASON-REQUIRED: --allow-test-changes requires --reason "<user decision>"');
+        }
+        const overridePolicy = loadTestChangesOverridePolicy(projectRoot);
+        if (allowTestChanges && overridePolicy.mode === 'forbidden') {
+          throw new Error('ALLOW-TEST-CHANGES-FORBIDDEN: execution policy forbids --allow-test-changes');
+        }
+        assertHealingRunAllowed(projectRoot, changeId);
+        assertRerunReasonIfNeeded(projectRoot, changeId, rerunReason);
+        const { integrity, token } = resolveTestTreeIntegrity(projectRoot, changeId, allowTestChanges);
+        const overrideAuthorized = allowTestChanges || token !== null;
+        if (overrideAuthorized && integrity.testsChanged) {
+          assertTestChangesOverridePolicyAllows(projectRoot, changeId, integrity, overridePolicy);
+        }
+        const productIntegrity = assertProductTreeUnchangedInHealing(projectRoot, changeId, loadProductCodeRoots(projectRoot));
+
+        const selectedTargets = resolveSelectedTargets(projectRoot, changeId);
+        const startedAt = Date.now();
+        if (productIntegrity.productChanged && productIntegrity.previousSha256) {
+          appendEvents(projectRoot, changeId, [{
+            source: 'run',
+            type: 'product_tree_changed',
+            prev_sha256: productIntegrity.previousSha256,
+            new_sha256: productIntegrity.current.aggregate,
+            ...(productIntegrity.previousBatchId ? { baseline_batch_id: productIntegrity.previousBatchId } : {}),
+          }]);
+        }
+        appendEvents(projectRoot, changeId, [{
+          source: 'run',
+          type: 'execution_start',
+          targets: { ...selectedTargets },
+          ...(rerunReason ? { rerun_reason: rerunReason } : {}),
+          tests_changed: integrity.testsChanged,
+        }]);
+
+        const result = run({ changeId, projectRoot, selectedTargets });
+        if (overrideAuthorized && integrity.testsChanged) {
+          if (token) {
+            consumeExecutionTestChangesOverrideToken(projectRoot, changeId, result.batchId);
+          }
+          const reason = overrideReason?.trim() || token?.reason || 'one-time execution test-change token';
+          const evidence = !overridePolicy.evidence
+            ? null
+            : writeTestChangesOverrideEvidence({
+                projectRoot,
+                changeId,
+                batchId: result.batchId,
+                batchDir: result.batchDir,
+                reason,
+                integrity,
+              });
+          appendEvents(projectRoot, changeId, [{
+            source: 'run',
+            type: 'human_override',
+            phase: 'execution',
+            action: 'allow_test_changes',
+            reason,
+            review_sha256: integrity.current.aggregate,
+            ...(token ? { token_consumed: true } : {}),
+            ...(evidence ? {
+              evidence_file: evidence.relPath,
+              evidence_sha256: evidence.sha256,
+              changed_files_count: evidence.changedFilesCount,
+            } : {}),
+          }]);
+        }
+        appendEvents(projectRoot, changeId, [{
+          source: 'run',
+          type: 'execution_end',
+          duration_ms: Date.now() - startedAt,
+          per_target: toPerTarget(result),
+        }]);
 
         logBlank();
         logHeader('Execution Results');
@@ -95,3 +189,61 @@ export function registerRunCommand(program: Command): void {
       }
     });
 }
+
+function resolveTestTreeIntegrity(
+  projectRoot: string,
+  changeId: string,
+  allowTestChanges: boolean,
+): { integrity: TestTreeIntegrityResult; token: ExecutionTestChangesOverrideToken | null } {
+  try {
+    return {
+      integrity: assertTestTreeUnchangedOrHealing(projectRoot, changeId, allowTestChanges),
+      token: null,
+    };
+  } catch (err) {
+    const message = (err as Error).message;
+    if (allowTestChanges || !message.includes('TESTS-CHANGED-WITHOUT-HEALING')) {
+      throw err;
+    }
+    const token = readExecutionTestChangesOverrideTokenForCurrentTree(projectRoot, changeId);
+    if (!token) throw err;
+    return {
+      integrity: assertTestTreeUnchangedOrHealing(projectRoot, changeId, true),
+      token,
+    };
+  }
+}
+
+function toPerTarget(result: RunnerResult): Record<string, unknown> {
+  return {
+    api: result.api
+      ? pickExecutionResult(result.api)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    e2e: result.e2e
+      ? pickExecutionResult(result.e2e)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    fuzz: result.fuzz
+      ? pickExecutionResult(result.fuzz)
+      : { status: 'unselected', total: 0, passed: 0, failed: 0, skipped: 0 },
+    performance: result.performance
+      ? { status: result.performance.status, scenarios: result.performance.scenarios.length }
+      : { status: 'unselected', scenarios: 0 },
+  };
+}
+
+function pickExecutionResult(result: {
+  status: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+}): Record<string, unknown> {
+  return {
+    status: result.status,
+    total: result.total,
+    passed: result.passed,
+    failed: result.failed,
+    skipped: result.skipped,
+  };
+}
+

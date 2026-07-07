@@ -32,20 +32,20 @@ Do not rely on prior conversation context.
    - `tests/e2e/conftest.py` — only if plan explicitly requires it (see **conftest.py Policy**)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` (create `codegen/` directory if missing)
-2. Update `workflow-state.yaml`:
-   - Set `phases.e2e_codegen.status = done`
-   - Set `phases.e2e_codegen.review_gate_file = review/plan-review.json`
-   - Set `phases.e2e_codegen.codegen_readiness` = value from review JSON
-   - List generated files under `phases.e2e_codegen.generated_tests.files`
-   - Set `phases.e2e_codegen.data_setup.scripts` = newly generated script paths
-   - Set `phases.e2e_codegen.data_setup.reused` = reused script/capability paths
-   - Set `phases.e2e_codegen.fixtures.generated` = newly generated fixture paths
-   - Set `phases.e2e_codegen.fixtures.reused` = reused fixture paths
-   - Set `phases.e2e_codegen.warnings_carried` = warning IDs or summaries from review JSON
-   - Set `phases.e2e_codegen.known_product_issues.present` = true|false
-   - Set `phases.e2e_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.e2e_codegen.status = done`
+   - `phases.e2e_codegen.review_gate_file = review/plan-review.json`
+   - `phases.e2e_codegen.codegen_readiness` = value from review JSON
+   - `phases.e2e_codegen.generated_tests.files` = list of generated files
+   - `phases.e2e_codegen.data_setup.scripts` = newly generated script paths
+   - `phases.e2e_codegen.data_setup.reused` = reused script/capability paths
+   - `phases.e2e_codegen.fixtures.generated` = newly generated fixture paths
+   - `phases.e2e_codegen.fixtures.reused` = reused fixture paths
+   - `phases.e2e_codegen.warnings_carried` = warning IDs or summaries from review JSON
+   - `phases.e2e_codegen.known_product_issues.present` = true|false
+   - `phases.e2e_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
 
-Example `workflow-state.yaml` fragment:
+Example `workflow-state.yaml` fragment (as applied by the state owner):
 
 ```yaml
 phases:
@@ -302,6 +302,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 - [ ] 更新 `tests/e2e/conftest.py`（仅 plan 明确要求时）
 - [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen` 含 review_gate_file、codegen_readiness、data_setup、fixtures、warnings_carried、known_product_issues）
 - [ ] 创建 `codegen/` 目录（若不存在），写入 `e2e-codegen-summary.md`
+- [ ] **机械命名校验（强制，需留证据）：** 运行 `uv run pytest --collect-only -q <生成的测试文件>`，确认收集到的每个测试名都匹配 `test_<case_id 小写>__<description>` 且覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）。将 collect-only 输出粘贴到 `e2e-codegen-summary.md` 的 **Traceability Verification** 段落。若 plan 的 Test Function Mapping 本身缺 case_id 前缀，**不得照抄** —— 本 skill 的命名规则优先于 plan；改名并在 summary 中注明修正。
 - [ ] 输出 E2E Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
@@ -311,7 +312,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 必须满足：
 
 - 使用 Python Playwright（`playwright` + `pytest-playwright`）。
-- 每个测试函数必须包含 Case ID（写入 docstring 或注释）。
+- **测试函数名必须以归一化 case_id 为前缀**，并用**双下划线** `__` 与描述分隔：`test_<case_id 小写>__<description>`。归一化 = 把 case.yaml 的 case_id 转小写（不含连字符）。例如 case_id `TC_ROLE_E2E_001` → `def test_tc_role_e2e_001__admin_create_edit_flow(page):`。这是**唯一强制的可追溯标记**，不依赖注释/docstring；`aws run` 的结果解析器据此从函数名回填 case_id（匹配无视大小写）。一个 case 拆成多个函数时，各函数共用同一 case_id 前缀。
 - 每个断言必须来自 `case.yaml` 或 `e2e-codegen-plan.md`，不得凭空添加。
 - 默认不生成 POM。
 - 默认不生成 `/tests/e2e/pages/*`。
@@ -391,6 +392,7 @@ qa/changes/<change-id>/codegen/e2e-codegen-summary.md
 
 - **Generated Files** — 实际生成或修改的文件列表（仅列出真实写入的文件；optional 文件若未生成则标注 N/A）
 - **Case → Test Function Mapping** — 表格：Case ID \| Test Function \| File
+- **Traceability Verification** — 粘贴 `pytest --collect-only -q` 输出，证明每个收集到的测试名都带 `test_<case_id 小写>__` 前缀（强制；缺少此段落的 summary 视为不完整）
 - **Data Setup Scripts Generated/Reused** — 脚本路径及来源
 - **Fixtures Generated/Reused** — fixture 名称和来源（或 "Reused existing — no new file"）
 - **Conftest Changes** — 变更摘要（如无则 None）
@@ -496,6 +498,8 @@ Rules:
 - Do not swallow failures with empty `try/except` or `except Exception: pass`.
 - Do not add fallback logic that hides product failures.
 - Do not use `skip`, `xfail`, `pytest.mark.skip`, or `test.fixme` to make generated tests green.
+  - **Only exception for `xfail`:** a known product issue explicitly decided at intake/case-design AND documented in `qa/changes/<change-id>/known-product-issues.md`; the xfail `reason` MUST reference the issue ID from that file. An xfail without a recorded issue is a violation.
+- Do not use conditional early `return` to bypass assertions (e.g. `if "/404" in page.url: return`) — assert the expected denial/behavior explicitly instead.
 - Do not loosen expected values after observing failures.
 - Do not mock the behavior under test unless the plan explicitly authorizes it.
 - Do not fall back to a generic locator if the primary locator fails — report the failure instead.

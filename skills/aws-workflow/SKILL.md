@@ -1,6 +1,6 @@
 ---
 name: aws-workflow
-description: "Run the full AWS QA workflow inline in the primary agent — loads each phase skill (case-design, case-reviewer, api-plan, e2e-plan, plan-reviewer, api-codegen, e2e-codegen, and—when in scope—fuzz-plan/-reviewer/-codegen and performance-plan/-reviewer/-codegen, then aws-run, aws-inspect, aws-fix-proposal, aws-api-codegen-fixer, aws-e2e-codegen-fixer, aws-report-generator) sequentially in the same context. No subagent skill loading. Phase state tracked via workflow-state.yaml."
+description: "Run the full AWS QA workflow. Phase 1.1 detects whether the task tool is available: if yes, uses subagent-dispatch (Scheme E) — each phase is delegated to a bounded task subagent except aws-explore (always inline in the primary agent); if no, falls back to inline execution in the primary agent. Orchestrator always owns aws status / aws gate check / workflow-state.yaml."
 ---
 
 # AWS Workflow
@@ -9,67 +9,102 @@ description: "Run the full AWS QA workflow inline in the primary agent — loads
 
 This is the **orchestrator entry skill** for running the full AWS QA workflow inside an OpenCode client.
 
+**Mode binding:** `aws-workflow` is the **full / autonomous** entrypoint. It runs the existing end-to-end workflow without planned Explore / case-design clarification dialogue. If the user wants design-time questions, use `aws-intake` first and then `aws-execute`.
+
 It is not a case design, review, or codegen skill. It coordinates the entire workflow by:
 
-- Loading other AWS skills phase by phase
-- Loading each phase skill inline in the primary agent (no subagent skill loading)
-- Verifying phase output files before advancing
-- Reading review JSON to make gate decisions
-- Enforcing retry policy for fix/review loops
-- Stopping on `reject`, missing files, `human_review_required`, or exceeded retries
-- Producing a structured final summary
+- Calling `aws status --change <id> --next --json` each iteration to get the deterministic dispatch list
+- Dispatching each ready phase to a bounded `task` subagent (the agent named by the schema) that loads the phase skill and writes only that phase's produces
+- After each dispatch hash check passes: running `aws gate check` for gated phases and applying state deltas to `workflow-state.yaml` (orchestrator-owned — subagents and phase CLI commands never touch it during dispatch)
+- Running CLI phases (`execution`, `healing-rerun`) directly via `aws run`
+- Stopping on terminal conditions (gate `stop`/`reject`, `aws status` terminal flag, or max-iteration guard)
+- Producing a structured final summary via `aws report`
 
 Do not perform detailed case design, review, fix, or codegen work directly inside this skill — load the appropriate phase skill and execute it inline.
 
 ---
 
-## Execution Mode
+## Execution Mode — Detection in Phase 1.1
 
-This workflow uses **inline skill orchestration**.
+This workflow supports two execution modes. **Phase 1.1 probes the `task` tool** and sets `execution_mode` in `workflow-state.yaml`:
 
-Do not rely on OpenCode subagents or tasks to inherit loaded skills or conversation context. OpenCode task agents do not reliably resolve project skills when invoked as subagents. This causes "Skills not found" failures in any phase delegated to a background task.
+| `execution_mode` | Condition | Behaviour |
+|---|---|---|
+| `subagent-dispatch` | `task` tool call succeeded in Phase 1.1 probe | Scheme E: each phase delegated to a bounded `task` subagent **except `explore`** (see below) |
+| `inline` | `task` tool unavailable or probe failed | All phases execute directly in the primary agent |
 
-The orchestrator must:
+Regardless of mode, the **orchestrator always owns** `aws status --next --json`, `aws gate check`, and `workflow-state.yaml`. Subagents (in dispatch mode) never touch these.
 
-1. Load each phase skill directly in the **primary agent**.
-2. Execute the phase inline (in the same agent context as the orchestrator).
-3. Persist all phase outputs to `qa/changes/<change-id>/` before advancing.
-4. Before entering the next phase, **re-read the required files from disk**.
-5. Treat `qa/changes/<change-id>/workflow-state.yaml` and phase output files as the **only source of truth** between phases.
-6. Never assume another skill shares in-memory context from a previous phase.
+---
 
-### Required Pattern
+## Execution Mode — Scheme E (subagent-dispatch)
+
+Used when `execution_mode == subagent-dispatch`. The primary agent is the orchestrator; it never does phase work itself **except Phase 1.2 (`aws-explore`)**, which always runs **inline in the primary agent** (see Explore inline-only rule below). All other ready phases are dispatched to bounded `task` subagents.
+
+### Explore inline-only rule (mandatory)
+
+`aws-explore` **MUST NOT** be dispatched to `aws-doc-author` (or any subagent), regardless of `execution_mode`.
+
+| Reason | Detail |
+|---|---|
+| Bash required | Explore Steps 1 and 6 call `aws risk context` / `aws risk validate-advisory` |
+| Subagent runtime | OpenCode `task` subagents typically receive **no Bash tool**; `permission.bash` cannot create one |
+| Authorized executor | Primary agent only — full `aws-explore` skill (Steps 1–7), including CLI + source read + `advisory.json` |
+
+When `aws status --next --json` returns `explore`, the orchestrator executes it inline, then applies `phases.explore` state delta to `workflow-state.yaml` before continuing the loop. Do **not** call `task(agent=aws-doc-author, skill=aws-explore)`.
+
+### Determinism boundary (invariant)
+
+| Owned by orchestrator (primary agent) | Owned by phase subagent |
+|---|---|
+| `aws status --next --json` (what runs next) | Load the named phase skill |
+| `aws gate check` (may it advance) | Produce only that phase's `produces` files |
+| Write `workflow-state.yaml` | Nothing else |
+| `aws run` for CLI phases | — |
+| **`aws-explore` (Phase 1.2) — full inline execution** | — |
+
+The subagent never runs `aws gate`, `aws status`, or any other gate-decision command, and never modifies `workflow-state.yaml`. These constraints are enforced by `.opencode/agents/*.md` permission floors (bash deny + explicit `workflow-state.yaml: deny`) and verified by the orchestrator's state-hash check (see Phase 0).
+
+### Orchestration loop (subagent-dispatch mode)
 
 ```text
-primary agent
-  → load aws-workflow
-  → load aws-case-design        ← in primary agent
-  → execute phase inline
-  → write files to disk
-  → update workflow-state.yaml
-  → load aws-case-reviewer      ← in primary agent
-  → read files from disk
-  → execute phase inline
-  → ...
+loop (max 50 iterations):
+  dispatch_list = aws status --change <id> --next --json  → .next[]
+  if terminal: break
+  H0 = sha256(workflow-state.yaml)         ← state corruption check
+  for each entry in dispatch_list:
+    if entry.phase == "explore":
+      # INLINE-ONLY — never dispatch; subagents lack Bash for aws risk CLI
+      Read aws-explore/SKILL.md from disk; set phases.explore.skill_loaded = true
+      Execute aws-explore inline in primary agent (Steps 1–7: risk context, source read, advisory.json, validate-advisory)
+      Verify explore/context.json and explore/advisory.json on disk
+      Apply phases.explore state delta to workflow-state.yaml
+      aws gate check --phase explore --change <id> --json   (only when schema gate applies)
+      H0 = sha256(workflow-state.yaml)     ← re-snapshot after orchestrator-owned explore state delta
+    else if entry.kind == "cli":
+      bash: aws run --change <id>          ← execution / healing-rerun; writes artifacts/events only
+    else:
+      task(subagent = entry.agent,
+           prompt  = "Call skill(name='<entry.skill>'). Produce only the
+                      outputs for phase <entry.phase> as described in the
+                      skill. Do NOT run aws gate/status. Do NOT modify
+                      workflow-state.yaml.")
+  assert sha256(workflow-state.yaml) == H0  ← HALT if any subagent dispatch body touched state
+  for each gated phase that just completed:
+    aws gate check --phase <phase> --change <id> --json
+  for each completed CLI phase:
+    aws state apply --change <id> --phase <phase>  ← execution / healing-rerun
+  for each completed CLI-backed agent phase:
+    aws state apply --change <id> --phase <phase>  ← inspect / report
+  apply subagent-reported state_delta to workflow-state.yaml
+after terminal: prompt user for archive
 ```
 
-### Forbidden Pattern
+Independent branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls within the same iteration. All others run sequentially.
 
-```text
-aws-workflow
-  → task / subagent
-      → load skill              ← FORBIDDEN
-```
+### Subagent retry on failure
 
-If parallel execution is genuinely needed, only **document-driven subagents** are permitted:
-
-```text
-subagent receives plan.md as input
-subagent executes the plan directly
-subagent MUST NOT be asked to load a skill
-```
-
-This restriction remains in effect until OpenCode explicitly supports reliable subagent skill inheritance.
+If a subagent returns without producing the expected `produces` files, `aws status` keeps the phase `ready`. The orchestrator retries the same phase at most **2 times**. On repeated failure, halt and report which phase failed and what files are missing.
 
 ---
 
@@ -109,13 +144,65 @@ false
 | `force_continue` | `false` | Bypass **only** `human_review_required` and `risk_level in ["high","critical"]` stops. **Must NOT** bypass codegen hard gates (see **Codegen Hard Gates** and **force_continue Boundaries**) |
 | `run_dashboard` | `false` | Whether to launch aws-dashboard after completion |
 | `run_tests` | `true` | Whether to execute tests via aws-run after codegen |
-| `max_healing_attempts` | `2` | Max healing attempts after inspect finds `fix_proposal_eligible` failures |
-| `auto_archive` | `false` | Whether to archive automatically after successful execution/healing (default: off) |
-| `auto_archive_with_fallback` | `false` | Allow auto-archive when `PASS_WITH_WARNINGS` was caused by fallback runner (requires inspect done/partial + explicit opt-in) |
+| `max_healing_attempts` | `3` | Max healing attempts after inspect finds `fix_proposal_eligible` failures |
+| `auto_archive` | `false` | Deprecated/ignored by `aws-workflow`: the workflow never archives automatically. Phase 14 only reports whether the change is archive-eligible. Run `aws-archive` separately only after an explicit user request. |
+| `auto_archive_with_fallback` | `false` | Deprecated/ignored by `aws-workflow`: fallback PASS_WITH_WARNINGS can be reported as archive-eligible only with explicit human confirmation outside the workflow. |
 | `e2e_framework` | `python-playwright` | Runtime parameter — E2E stack selection (`python-playwright` only; TS Playwright not supported). Maps to `phases.e2e_codegen.generated_tests.framework: pytest-playwright` in workflow-state. |
 
 
-Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above.
+Users may override any parameter in the OpenCode message. Parameters not provided use the defaults above. After resolving overrides, write the final values to `workflow-state.yaml.params`; all later `aws status` and `aws gate check` calls use that block as the deterministic runtime parameter source.
+
+After `workflow-state.yaml.params` exists, stamp this derived run context before any phase dispatch:
+
+```bash
+aws state stamp-run-context --change <change-id> --orchestrator aws-workflow
+```
+
+This writes `run_context.orchestrator_skill = aws-workflow`, `interaction_mode = autonomous`, and `active_scope = full`. Do not hand-write `run_context`; use the CLI so run_mode/scope consistency checks run.
+
+### State machine enforcement (CLI-authoritative)
+
+These fields are **CLI-only** — do not hand-write them in `workflow-state.yaml`:
+
+| Field | Command |
+|---|---|
+| `phases.healing.status` / `phases.healing.attempts` | `aws state heal --change <id> --to <status>` |
+| `phases.<review>.human_override` | `aws gate override --change <id> --phase <review-phase> --action <action> --reason "..."` |
+
+**Healing status transitions** (orchestrator calls after each step):
+
+```bash
+# After aws-fix-proposal writes fix-proposal.json
+aws state heal --change <id> --to proposal_created
+
+# After fixers + fixer-safety-gate pass
+aws state heal --change <id> --to applied
+
+# Before healing-rerun (aws run pre-check requires applied; only the test tree
+# pinned at --to applied is accepted — post-apply edits fail with HEAL-TREE-MISMATCH)
+aws run --change <id>
+aws state apply --change <id> --phase healing-rerun
+
+# After the re-inspect (validates source_batch_id freshness, records phases.healing_reinspect)
+aws state apply --change <id> --phase healing-reinspect
+
+# After healing-reinspect shows no eligible failures
+aws state heal --change <id> --to resolved
+
+# Rerun still FAIL with eligible failures and attempts < max: loop back for attempt N+1
+# (write a NEW fix-proposal against the latest batch first, else PROPOSAL-STALE)
+aws state heal --change <id> --to proposal_created
+```
+
+**Human review STOP recovery** — never hand-write `review/*.json` to `decision: pass`:
+
+```bash
+aws gate override --change <id> --phase e2e-plan-review \
+  --action fix_and_proceed --reason "<user decision>"
+# Then run fixer (human_approved mode) → reviewer re-review → aws gate check
+```
+
+`aws status` audits gate hash drift (`tampered`), illegal verdict migrations, and healing consistency on every call.
 
 ---
 
@@ -154,15 +241,61 @@ For `api-only`, `e2e-only`, `plan-only`, `codegen-only`, `review-case`, and `rev
 
 ---
 
-## Phase 0 — Skill Registry Check
+## Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
 
-Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**.
+Runs **once per project**, before Phase 1.1. Scaffolds the shared pytest/Locust test infrastructure that all later phases silently assume is on disk:
+
+- `tests/config.py` — unified settings shared by API / E2E / Fuzz / Performance.
+- `tests/conftest.py` — root conftest including the session-autouse `_verify_sut_ready` fixture (API / E2E / Fuzz; Performance has its own readiness contract in `aws-performance-codegen`).
+- `tests/schema_validation.py` — `assert_matches_schema` + `_LOCAL_SCHEMAS` registry used by `aws-api-codegen` happy-path tests.
+
+```yaml
+phases:
+  test_infra_bootstrap:
+    status: pending | done | skipped | failed
+    files:
+      - tests/config.py
+      - tests/conftest.py
+      - tests/schema_validation.py
+    created: []   # subset newly written this run
+    kept: []      # subset that already existed and passed the contract
+```
+
+### Steps
+
+```
+Load aws-test-infra-bootstrap
+  The skill:
+    - checks each of the 3 files against its per-file contract on disk
+    - CREATEs any missing file (with defaults sourced from run.py / web/.env / app/core/init_app.py — asks the user when a default cannot be verified)
+    - KEEPs any contract-conformant file untouched
+    - STOPs and asks the user if a file exists but does NOT match the contract (never silently overwrites)
+    - determines the phases.test_infra_bootstrap state delta (status, files, created, kept);
+      the orchestrator applies it to workflow-state.yaml (see State-delta convention)
+```
+
+### Gate
+
+- `status == done` and all 3 files present → Phase 1.1 may proceed.
+- `status == pending` → **STOP** (must run `aws-test-infra-bootstrap` or set `skipped` with explicit user override).
+- Any file BLOCKED by contract mismatch → **STOP**, surface the diff to the user.
+
+**Boundary:** Phase 0 only writes the 3 shared scaffold files under `tests/`. It must not generate fixtures, helpers, factories, or test code (those belong to the `aws-*-codegen` skills).
+
+---
+
+## Phase 1.1 — Skill Registry Check
+
+Before starting any workflow phase, verify all required skills can be loaded in the **primary agent**, then **detect the execution mode**.
 
 ```yaml
 required_skills:
+  - aws-test-infra-bootstrap
+  - aws-explore
   - aws-case-design
   - aws-case-reviewer
   - aws-case-fixer
+  - aws-fact-baseline
   - aws-api-plan
   - aws-e2e-plan
   - aws-api-plan-reviewer
@@ -174,62 +307,127 @@ required_skills:
   - aws-run
   - aws-inspect
   - aws-report-generator
-  - aws-archive
 
 conditional_skills:
-  # Loaded only when the scoped cases include the matching test type (see Phase 3.6 Layer Scan).
+  # Loaded only when the scoped cases include the matching test type (see Phase 2.5 Layer Scan).
   # Fuzz layer (cases with type == Fuzz):
-  - aws-fuzz-plan            # Phase 4C: schemathesis fuzz plan
-  - aws-fuzz-plan-reviewer   # Phase 5C: fuzz plan review
-  - aws-fuzz-codegen         # Phase 7C: fuzz test codegen
+  - aws-fuzz-plan            # Phase 3C: schemathesis fuzz plan
+  - aws-fuzz-plan-reviewer   # Phase 4C: fuzz plan review
+  - aws-fuzz-codegen         # Phase 6C: fuzz test codegen
   # Performance layer (cases with type == Performance):
-  - aws-performance-plan            # Phase 4D: Locust performance plan
-  - aws-performance-plan-reviewer   # Phase 5D: performance plan review
-  - aws-performance-codegen         # Phase 7D: performance test codegen
-  # If a layer is in scope but its skills are missing: STOP before Phase 4 and report
+  - aws-performance-plan            # Phase 3D: Locust performance plan
+  - aws-performance-plan-reviewer   # Phase 4D: performance plan review
+  - aws-performance-codegen         # Phase 6D: performance test codegen
+  # If a layer is in scope but its skills are missing: STOP before Phase 3 and report
   # the missing skill — do NOT silently drop the layer (that would understate quality).
 
 healing_skills:
-  - aws-fix-proposal        # Phase 10: generate fix proposals from failure-analysis.json
-  - aws-api-codegen-fixer   # Phase 11A: apply API test code fixes
-  - aws-e2e-codegen-fixer   # Phase 11B: apply E2E test code fixes
+  - aws-fix-proposal        # Phase 9: generate fix proposals from failure-analysis.json
+  - aws-api-codegen-fixer   # Phase 10A: apply API test code fixes
+  - aws-e2e-codegen-fixer   # Phase 10B: apply E2E test code fixes
   # Required for healing loop when max_healing_attempts > 0.
-  # Missing healing skills do NOT block Phases 1–9, but set gates.healing_available = false.
-  # If execution later FAIL and eligible failures exist: STOP after Phase 9 — cannot heal.
+  # Missing healing skills do NOT block Phases 2.1–8, but set gates.healing_available = false.
+  # If execution later FAIL and eligible failures exist: STOP after Phase 8 — cannot heal.
 ```
 
-After verifying required skills, **write `workflow-state.yaml`** with the initial `subagents` block:
+### Task-tool detection (determines execution_mode)
 
-```yaml
-subagents:
-  used: false
-  purpose: []
-  loaded_skills: false
-  affected_gates: false
+After skill loading, probe whether the `task` tool is callable:
+
+```
+Task Tool Detection:
+  → Attempt to call the task tool with a minimal no-op:
+      task(prompt  = "Reply with the single word: task-tool-available. Do nothing else.",
+           agent   = "aws-doc-author")   ← use a known bounded agent with minimal permissions
+  → If the call returns successfully (any response received):
+      task_tool_available = true
+      execution_mode = subagent-dispatch
+  → If the call errors / the task tool is not in the available tool list / the call is rejected:
+      task_tool_available = false
+      execution_mode = inline
+      Record warning: TASK-TOOL-UNAVAILABLE (see below)
 ```
 
-If explore agents were invoked **strictly before Phase 0** for source-only reading (the only permitted case — see **Conflict with analyze-mode / search-mode pre-exploration**):
+The probe response content is irrelevant — only whether the call itself succeeded without error. Do NOT retry the probe; a single failure is sufficient to set `execution_mode = inline`.
 
-- Set `subagents.used = true`
-- Add `source_exploration_only` to `subagents.purpose`
-- Confirm `subagents.loaded_skills = false` (they must not have loaded AWS skills)
-- Confirm `subagents.affected_gates = false` (they must not have written or substituted gate artifacts)
-
-**If search-mode or analyze-mode agents were launched at or after Phase 0** — this is a forbidden-pattern violation: STOP, set `subagents.affected_gates = true`.
-- Record in `agent_warnings`:
+**Warning written when task tool is unavailable:**
 
 ```yaml
-- id: AWS-SUBAGENT-EXPLORATION-ONLY
-  severity: info
-  title: Subagents used for source exploration only
+- id: TASK-TOOL-UNAVAILABLE
+  severity: low
+  title: task tool not available — falling back to inline execution
   detail: >
-    Explore agents or document-driven subagents were invoked for source/structure
-    exploration. No AWS skill was loaded by any subagent. No gate artifact was
-    produced by a subagent. All AWS phases executed inline in the primary agent.
+    The task tool could not be called successfully during Phase 1.1 detection.
+    This workflow will execute all phases inline in the primary agent instead
+    of using subagent dispatch (Scheme E). Parallel plan/codegen branches will
+    run sequentially in inline mode.
   status: acknowledged
 ```
 
-If a subagent is found to have **loaded an AWS skill** or **produced a gate artifact**, set `subagents.loaded_skills = true` or `subagents.affected_gates = true` and **STOP** — this is a forbidden pattern violation.
+After completing skill verification and detection, **write the initial `workflow-state.yaml`** with resolved runtime `params`, `execution_mode`, and `phases.skill_registry_check.status = pass`. Then immediately stamp the derived run context:
+
+```bash
+aws state stamp-run-context --change <change-id> --orchestrator aws-workflow
+```
+
+This marks the run as `interaction_mode: autonomous` and `active_scope: full`; downstream phase skills (`aws-explore`, `aws-case-design`) must read it before deciding whether to ask planned clarification questions.
+
+---
+
+## Phase 1.2 — Explore
+
+Runs **after Phase 1.1** and **before Phase 2.1** (`aws-case-design`) when `run_mode` is `full` or `case-only`.
+
+**Skip** when `run_mode == codegen-only` → set `phases.explore.status = skipped` and proceed to Phase 2.1 without advisory.
+
+### workflow-state (initial fields)
+
+```yaml
+params:
+  run_mode: full
+  test_types: [api, e2e]
+  run_tests: true
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 3
+
+phases:
+  explore:
+    status: pending | done | skipped | unavailable | failed
+    mode: advisory          # advisory | required — default advisory
+    weak_data_treat_as: done  # done | unavailable — default done
+    outputs: []
+    priority_hints_count: 0
+    watchlist_high_count: 0
+    degraded: false
+    validation_errors: []
+```
+
+### Steps
+
+**Executor:** primary agent **always** (inline), including when `execution_mode == subagent-dispatch`. Never dispatch to `aws-doc-author`.
+
+```
+Load aws-explore in primary agent
+  The skill owns the full pipeline internally:
+    - runs aws risk context (CLI) — requires Bash; reason explore is inline-only
+    - applies weak_data_treat_as branch
+    - shallow-reads source code structure
+    - writes explore/advisory.json only
+    - runs aws risk validate-advisory (CLI)
+    - reports an orchestrator-owned state delta for phases.explore (status, counts, validation_errors, skill_loaded)
+```
+
+See `aws-explore` SKILL.md for the step-by-step.
+
+**Boundary:** Phase 1.2 only produces `explore/` artifacts. Do not inline or simulate `aws-case-design`.
+
+### Phase 2.1 gate (summary)
+
+- `status == pending` → **STOP** (must run Phase 1.2 or explicit `skipped`)
+- `status == done` → Phase 2.1 **must read** advisory; missing files → STOP
+- `mode == required` and `status in [failed, unavailable]` → **STOP**
+- `mode == advisory` and `status in [skipped, unavailable, failed]` → warning + continue without advisory
 
 ---
 
@@ -264,11 +462,11 @@ Only **STOP** if the skill cannot be loaded **and** its `SKILL.md` does not exis
 
 If any **healing_skills** fail to load:
 
-- Do **not** stop at Phase 0 — phases 1–9 are unaffected.
+- Do **not** stop at Phase 1.1 — phases 2.1–8 are unaffected.
 - Record warning in `workflow-state.yaml` under `agent_warnings`:
   - `AWS-HEALING-SKILLS-UNAVAILABLE` (fixed ID — see below)
 - Set `gates.healing_available = false` in `workflow-state.yaml`.
-- If `phases.execution.status == FAIL` and `inspect/failure-analysis.json` contains `fix_proposal_eligible` failures, **STOP** after Phase 9 and report that healing skills are unavailable — do not proceed to archive.
+- If `phases.execution.status == FAIL` and `inspect/failure-analysis.json` contains `fix_proposal_eligible` failures, **STOP** after Phase 8 and report that healing skills are unavailable — do not proceed to archive.
 - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`, healing is not needed and can be skipped safely.
 
 **When `max_healing_attempts == 0`:** treat healing as disabled regardless of whether healing skills loaded. Set `gates.healing_available = false` and `phases.healing.status = skipped`.
@@ -281,50 +479,43 @@ If any **healing_skills** fail to load:
   title: Healing skills are unavailable or disabled
   impact:
     - healing loop cannot run if execution fails with eligible failures
-    - STOP after Phase 9 if FAIL with eligible failures
+    - STOP after Phase 8 if FAIL with eligible failures
   status: acknowledged
 ```
 
 ---
 
-## Inline Skill Routing
+## Phase Dispatch Table
 
-All phases load skills and execute **in the primary agent**. No subagents or tasks are used.
+The orchestrator does NOT hardcode a phase sequence. It calls `aws status --change <id> --next --json` each iteration and dispatches exactly what the schema engine returns. The table below shows the static mapping baked into `workflow-schema.yaml`; it is shown here for reference only.
 
-| Phase | Skill to Load |
-|---|---|
-| Phase 0: Registry Check | (verify all required skills above) |
-| Phase 1: Case Design | `aws-case-design` |
-| Phase 2: Case Review | `aws-case-reviewer` |
-| Phase 3: Case Fix | `aws-case-fixer` |
-| Phase 3.5: Fact Baseline | *(inline — no separate skill; primary agent reads seed/DB)* |
-| Phase 3.6: Layer Scan | *(inline — determine which test types are in scope)* |
-| Phase 4A: API Plan | `aws-api-plan` |
-| Phase 4B: E2E Plan | `aws-e2e-plan` |
-| Phase 4C: Fuzz Plan *(only if Fuzz cases exist)* | `aws-fuzz-plan` |
-| Phase 4D: Performance Plan *(only if Performance cases exist)* | `aws-performance-plan` |
-| Phase 5A: API Plan Review | `aws-api-plan-reviewer` |
-| Phase 5B: E2E Plan Review | `aws-e2e-plan-reviewer` |
-| Phase 5C: Fuzz Plan Review *(only if Fuzz cases exist)* | `aws-fuzz-plan-reviewer` |
-| Phase 5D: Performance Plan Review *(only if Performance cases exist)* | `aws-performance-plan-reviewer` |
-| Phase 6A: API Plan Fix | `aws-api-plan-fixer` |
-| Phase 6B: E2E Plan Fix | `aws-e2e-plan-fixer` |
-| Phase 7A: API Codegen | `aws-api-codegen` |
-| Phase 7B: E2E Codegen | `aws-e2e-codegen` |
-| Phase 7C: Fuzz Codegen *(only if Fuzz cases exist)* | `aws-fuzz-codegen` |
-| Phase 7D: Performance Codegen *(only if Performance cases exist)* | `aws-performance-codegen` |
-| Phase 8: Execution | `aws-run` |
-| Phase 9: Inspect / Failure Analysis | `aws-inspect` |
-| Phase 10: Fix Proposal *(healing, optional)* | `aws-fix-proposal` |
-| Phase 11A: API Codegen Fix *(healing, optional)* | `aws-api-codegen-fixer` |
-| Phase 11B: E2E Codegen Fix *(healing, optional)* | `aws-e2e-codegen-fixer` |
-| Phase 12: Re-run *(healing)* | `aws-run` |
-| Phase 13: Re-inspect *(healing)* | `aws-inspect` |
-| Phase 13.5: Report Generation *(terminal, non-gating)* | `aws-report-generator` |
-| Phase 14: Archive | `aws-archive` |
-| Post-workflow (optional): Dashboard | `aws-dashboard` (only when `run_dashboard = true`) |
+| Schema phase id | kind | skill | agent / executor |
+|---|---|---|---|
+| skill-registry-check | orchestrator-internal | — | — |
+| explore | **inline-only** | aws-explore | **primary agent** (never `task` / `aws-doc-author`) |
+| case-design | agent | aws-case-design | aws-doc-author |
+| case-review | agent | aws-case-reviewer | aws-reviewer |
+| case-fix | agent | aws-case-fixer | aws-doc-author |
+| fact-baseline | agent | aws-fact-baseline | aws-doc-author |
+| api-plan | agent | aws-api-plan | aws-doc-author |
+| api-plan-review | agent | aws-api-plan-reviewer | aws-reviewer |
+| api-plan-fix | agent | aws-api-plan-fixer | aws-doc-author |
+| api-codegen | agent | aws-api-codegen | aws-test-author |
+| e2e-plan | agent | aws-e2e-plan | aws-doc-author |
+| e2e-plan-review | agent | aws-e2e-plan-reviewer | aws-reviewer |
+| e2e-plan-fix | agent | aws-e2e-plan-fixer | aws-doc-author |
+| e2e-codegen | agent | aws-e2e-codegen | aws-test-author |
+| execution | cli | — | — |
+| inspect | agent | aws-inspect | aws-reviewer |
+| report | agent | aws-report-generator | aws-reporter |
+| fix-proposal | agent | aws-fix-proposal | aws-doc-author |
+| api-codegen-fix | agent | aws-api-codegen-fixer | aws-test-author |
+| e2e-codegen-fix | agent | aws-e2e-codegen-fixer | aws-test-author |
+| healing-rerun | cli | — | — |
+| healing-reinspect | agent | aws-inspect | aws-reviewer |
+| archive | agent | aws-archive | aws-archiver |
 
-After each phase, **update `workflow-state.yaml`** before loading the next skill.
+After each dispatch batch, the orchestrator first verifies the `workflow-state.yaml` hash is unchanged, then applies state deltas before calling `aws status` again. Dispatch-table CLI phases use `aws state apply --change <id> --phase execution|healing-rerun`; CLI-backed agent phases use `aws state apply --change <id> --phase inspect|report` after their artifacts are produced.
 
 ---
 
@@ -334,30 +525,98 @@ Loading a skill is **never** enough to mark a phase complete.
 
 A phase is complete only when **all** of the following are true:
 
-1. The phase skill executed **inline in the primary agent** — not in a subagent, not in a background task.
+0. **Skill Load Gate (mandatory, mode-aware)** — before any phase work executes, the phase's SKILL.md MUST be read from disk by the **phase executor** (not from memory, not from a prior conversation turn):
+   - `inline` mode **or `explore` phase**: the primary agent reads the SKILL.md itself, then sets `phases.<phase_name>.skill_loaded = true`, `skill_md_path = <absolute path read>`, `skill_loaded_at = <ISO 8601 timestamp>` in `workflow-state.yaml`.
+   - `subagent-dispatch` mode (all phases **except `explore`**): the dispatched phase subagent reads the SKILL.md (the dispatch prompt names the skill) and MUST report the absolute SKILL.md path it read in its final message. The **orchestrator** then writes the same three fields into `workflow-state.yaml` on the subagent's behalf. The subagent never writes them itself. If the subagent's report does not confirm the skill was read, treat the phase as not executed and retry per the subagent retry rule.
+   If `skill_loaded != true` when the phase's `status` is set to a terminal value (`done` / `pass` / `fail`), the workflow MUST treat the phase as **not complete** and STOP.
+   This gate exists because the executor can otherwise skip reading SKILL.md and execute from plan files alone — which has caused traceability gaps (e.g. case_id not embedded in test function names, missing `assert_matches_schema` calls, missing `codegen-summary.md`).
+1. The phase skill was loaded and executed by the assigned phase executor (primary agent in inline mode **and for `explore` in subagent-dispatch mode**; the dispatched subagent in subagent-dispatch mode for all other agent phases; for CLI phases, `aws run` / `aws report ...` completed successfully and wrote artifacts/events only).
 2. The expected output files exist on disk (verified by reading them).
 3. The output files were **re-read from disk** by the primary agent after the skill completed.
-4. `workflow-state.yaml` was updated for that phase (status set to the correct terminal value).
+4. The orchestrator applied the phase's `state_delta` to `workflow-state.yaml` (status set to the correct terminal value). In dispatch mode this write happens **after** the state-hash check passes — never inside the subagent or inside a phase CLI command. For `execution`, `healing-rerun`, `inspect`, and `report`, use `aws state apply --change <change-id> --phase <phase>` at this point.
 5. The next-phase gate was explicitly evaluated before advancing.
-6. **Shadow CLI status check ran after the phase update**:
-   - Run `aws status --change <change-id> --json` after every phase that writes or updates workflow artifacts.
-   - If the completed phase has a schema gate, also run `aws gate check --change <change-id> --phase <phase-id> --json`.
-   - These CLI commands do **not** run automatically; the primary agent must invoke them explicitly.
-   - In shadow mode, CLI output is **advisory only**. Do not replace the prose workflow gates or stop/advance rules with CLI output yet.
-   - If CLI output disagrees with this skill's prose decision, append an `AWS-ORCHESTRATION-SHADOW-DISAGREEMENT` entry to `workflow-state.yaml.agent_warnings[]` and report it in the final response.
-   - If the CLI command itself fails because the CLI is unavailable, schema validation fails, or the schema file is missing, append `AWS-ORCHESTRATION-SHADOW-UNAVAILABLE` to `agent_warnings[]`. Do not stop the workflow for shadow-only CLI failure unless the same condition is already a prose gate failure.
+6. **CLI status and gate check are authoritative** (not advisory):
+   - After writing each phase's outputs to disk, verifying the dispatch hash, and applying the state delta to `workflow-state.yaml`, run `aws status --change <change-id> --next --json` to determine whether the phase is `done` and which phase(s) run next.
+   - For gated phases, also run `aws gate check --change <change-id> --phase <phase-id> --json` and record the verdict in `workflow-state.yaml` before advancing.
+   - The CLI output is the ground truth — never override it with prose reasoning.
+   - If the CLI is unavailable (binary missing, schema validation fails), halt and report the error before proceeding.
 
 Do **not** report a phase as done based on:
 
 - skill loaded
-- subagent started
-- subagent completed
-- background task completed
+- subagent started but not yet returned
+- background task still running
 - chat summary from an agent
 - agent claim without file verification
 - partial output (some files present but not all required outputs)
 
-**Codegen phases are especially strict** — see Phase 7A and Phase 7B Inline Execution Rules.
+**Codegen phases are especially strict** — see Phase 6A and Phase 6B Phase-Local Execution Rules.
+
+---
+
+## Skill Load Gate (Phase Entry Check)
+
+Before executing **any** phase work (reading inputs, generating outputs, writing files):
+
+1. Identify the skill name for the phase from the table below.
+2. The **phase executor** reads the SKILL.md file from disk — not from conversation memory, not from a prior turn's context:
+   - `inline` mode **or `explore` phase**: the primary agent reads it with the `Read` tool.
+   - `subagent-dispatch` mode (phases **other than `explore`**): the dispatched subagent reads it (via `skill(...)` or `Read`) and reports the absolute path read in its final message.
+3. The **orchestrator** (primary agent) updates `workflow-state.yaml` `phases.<phase_name>` with:
+   - `skill_loaded: true`
+   - `skill_md_path: <absolute path to SKILL.md>`
+   - `skill_loaded_at: <ISO 8601 timestamp>`
+   In inline mode **and for `explore` in subagent-dispatch mode**, the orchestrator writes this before starting the phase work. In dispatch mode for other phases, it writes this together with the phase's `state_delta`, after the subagent returns and the state-hash check passes — the subagent never writes `workflow-state.yaml`.
+
+If the orchestrator attempts to set `phases.<phase_name>.status` to a terminal value (`done` / `pass` / `fail` / `skipped`) while `skill_loaded != true`, the workflow MUST STOP and report:
+
+```
+SKILL_LOAD_GATE_VIOLATION: phase <phase_name> cannot be marked <status> because skill_loaded is not true.
+Read the SKILL.md at <skill_md_path> first, set skill_loaded=true, then re-execute the phase.
+```
+
+### Phase → Skill Path Map
+
+The skill base directory is `/Users/lvqingquan/skills/assurance-workflow-skills/skills/`.
+
+| Phase | skill_name | SKILL.md relative path |
+|---|---|---|
+| test_infra_bootstrap | aws-test-infra-bootstrap | `aws-test-infra-bootstrap/SKILL.md` |
+| explore | aws-explore | `aws-explore/SKILL.md` |
+| case_design | aws-case-design | `aws-case-design/SKILL.md` |
+| case_review | aws-case-reviewer | `aws-case-reviewer/SKILL.md` |
+| fact_baseline | aws-fact-baseline | `aws-fact-baseline/SKILL.md` |
+| api_plan | aws-api-plan | `aws-api-plan/SKILL.md` |
+| e2e_plan | aws-e2e-plan | `aws-e2e-plan/SKILL.md` |
+| api_plan_review | aws-api-plan-reviewer | `aws-api-plan-reviewer/SKILL.md` |
+| e2e_plan_review | aws-e2e-plan-reviewer | `aws-e2e-plan-reviewer/SKILL.md` |
+| api_codegen | aws-api-codegen | `aws-api-codegen/SKILL.md` |
+| e2e_codegen | aws-e2e-codegen | `aws-e2e-codegen/SKILL.md` |
+| fuzz_plan | aws-fuzz-plan | `aws-fuzz-plan/SKILL.md` |
+| fuzz_plan_review | aws-fuzz-plan-reviewer | `aws-fuzz-plan-reviewer/SKILL.md` |
+| fuzz_codegen | aws-fuzz-codegen | `aws-fuzz-codegen/SKILL.md` |
+| performance_plan | aws-performance-plan | `aws-performance-plan/SKILL.md` |
+| performance_plan_review | aws-performance-plan-reviewer | `aws-performance-plan-reviewer/SKILL.md` |
+| performance_codegen | aws-performance-codegen | `aws-performance-codegen/SKILL.md` |
+| execution | aws-run | `aws-run/SKILL.md` |
+| inspect | aws-inspect | `aws-inspect/SKILL.md` |
+| healing (fix-proposal) | aws-fix-proposal | `aws-fix-proposal/SKILL.md` |
+| healing (api-fixer) | aws-api-codegen-fixer | `aws-api-codegen-fixer/SKILL.md` |
+| healing (e2e-fixer) | aws-e2e-codegen-fixer | `aws-e2e-codegen-fixer/SKILL.md` |
+| report | aws-report-generator | `aws-report-generator/SKILL.md` |
+| archive | aws-archive | `aws-archive/SKILL.md` |
+
+Phases that do not have a dedicated SKILL.md (e.g. `skill_registry_check`, `layers`) are exempt — set `skill_loaded: n/a` for those.
+
+### Why This Gate Exists
+
+Without this gate, the primary agent can skip reading a phase's SKILL.md and execute from plan files alone. This has caused:
+
+- **Traceability gaps**: `aws-api-codegen/SKILL.md` mandates `test_<case_id_lowercase>__<description>` function naming so the `aws` CLI can extract case_id from JUnit XML. Without reading the SKILL.md, the agent generated `test_list_roles_returns_paginated_envelope` — no case_id token, all 12 tests unmapped in execution results.
+- **Missing mandatory artifacts**: `aws-api-codegen/SKILL.md` requires `codegen/api-codegen-summary.md` and `assert_matches_schema()` calls. Without reading the SKILL.md, neither was generated.
+- **ORM field-length bugs**: `aws-api-codegen/SKILL.md` documents `Role.name max_length=20` and warns that overflow surfaces as HTTP 500, not 422. Without reading the SKILL.md, the agent generated names exceeding 20 chars and only discovered the bug after `aws run` failed with 500s.
+
+The gate makes the "did I read the contract?" check **explicit and auditable** in `workflow-state.yaml`, rather than relying on the agent's self-discipline.
 
 ---
 
@@ -365,33 +624,42 @@ Do **not** report a phase as done based on:
 
 Path: `qa/changes/<change-id>/workflow-state.yaml`
 
-This file is the **canonical cross-phase state source**. Every phase must read it at entry and update it at exit.
+This file is the **canonical cross-phase state source**. Every phase reads it at entry. At exit, phase executors report or materialize a state delta; only the orchestrator writes `workflow-state.yaml`, and in subagent-dispatch mode that write happens after the dispatch hash check passes.
 
 ```yaml
 schema_version: "1.0"
 change_id: <change-id>
 module: <module>
 
-execution_mode: inline
-subagent_skill_inheritance: disabled
+params:                      # resolved runtime parameters (defaults + user overrides)
+  run_mode: full
+  test_types: [api, e2e]
+  run_tests: true
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 3
 
-subagents:
-  used: false          # true if any subagent (explore / document-driven / forbidden) was invoked during this workflow run
-  purpose:             # list — valid values: source_exploration_only | document_driven_parallel | forbidden_codegen_attempt
-    []
-  loaded_skills: false          # MUST remain false — subagents MUST NOT successfully load AWS skills
-  attempted_skill_loading: false # true if any subagent attempted to load an AWS skill (success OR failure)
-  attempted_phase_execution: false # true if any subagent attempted to execute an AWS phase (success OR failure)
-  affected_gates: false         # MUST remain false — subagents MUST NOT produce or substitute gate artifacts
+execution_mode: subagent-dispatch | inline   # set by Phase 1.1 task-tool detection
 
 phases:
+  # ─── Skill Load Gate (common fields — see "Skill Load Gate" section above) ───
+  # Every phase below that has a dedicated SKILL.md MUST carry these three fields:
+  #   skill_loaded: false | true | n/a   # n/a for phases without a dedicated SKILL.md
+  #   skill_md_path: <absolute path>     # set when skill_loaded transitions to true
+  #   skill_loaded_at: <ISO 8601>        # set when skill_loaded transitions to true
+  # The workflow MUST NOT allow status to reach a terminal value while skill_loaded is false
+  # (for phases that have a SKILL.md). See Phase Completion Rule item 0.
+
   skill_registry_check:
     status: pass | fail | skipped
+    skill_loaded: n/a   # no dedicated SKILL.md — registry check is self-contained
     reason: <optional — e.g. standalone aws-case-design invocation>
+    task_tool_available: true | false   # set by Phase 1.1 detection probe
     checked_skills:
       - aws-case-design
       - aws-case-reviewer
       - aws-case-fixer
+      - aws-fact-baseline
       - aws-api-plan
       - aws-e2e-plan
       - aws-api-plan-reviewer
@@ -403,10 +671,37 @@ phases:
       - aws-run
       - aws-inspect
       - aws-report-generator
-      - aws-archive
+      - aws-explore
+      - aws-test-infra-bootstrap
+
+  test_infra_bootstrap:
+    status: pending | done | skipped | failed
+    skill_loaded: false       # → true after Read(aws-test-infra-bootstrap/SKILL.md)
+    skill_md_path: null       # → absolute path when skill_loaded=true
+    skill_loaded_at: null     # → ISO 8601 timestamp when skill_loaded=true
+    files: []      # tests/config.py, tests/conftest.py, tests/schema_validation.py
+    created: []
+    kept: []
+
+  explore:
+    status: pending | done | skipped | unavailable | failed
+    skill_loaded: false       # → true after Read(aws-explore/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
+    mode: advisory | required
+    weak_data_treat_as: done | unavailable
+    outputs: []
+    priority_hints_count: 0
+    watchlist_high_count: 0
+    degraded: false
+    validation_errors: []
 
   case_design:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-case-design/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
+    gate_file: .qa.yaml       # case-design-gate checks .qa.yaml.approval in interactive intake
     outputs:
       - .qa.yaml
       - proposal.md
@@ -414,16 +709,22 @@ phases:
 
   case_review:
     status: pending | pass | needs_fix | needs_human_review | reject
+    skill_loaded: false       # → true after Read(aws-case-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/case-review.json
     fix_attempts: []   # appended by aws-case-fixer each run
 
   fact_baseline:
-    status: pending | done | unavailable
+    status: pending | done | unavailable | failed
+    skill_loaded: false       # → true after Read(aws-fact-baseline/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     # unavailable = seed file not found AND db_probe not configured; planning continues with warning
     source: null      # seed_file | db_probe | both | unavailable
     file: facts/fact-baseline.json
 
-  # Phase 3.6 Layer Scan — which test layers are in scope (drives conditional phases 4C/4D/5C/5D/7C/7D)
+  # Phase 2.5 Layer Scan — which test layers are in scope (drives conditional phases 3C/3D/4C/4D/6C/6D)
   layers:
     api: true | false
     e2e: true | false
@@ -432,6 +733,9 @@ phases:
 
   api_plan:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-api-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs:
       - plans/api-plan.md
       - plans/api-test-data-plan.md
@@ -439,6 +743,9 @@ phases:
 
   e2e_plan:
     status: pending | done | failed
+    skill_loaded: false       # → true after Read(aws-e2e-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs:
       - plans/e2e-plan.md
       - plans/e2e-test-data-plan.md
@@ -446,6 +753,9 @@ phases:
 
   api_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject | stale
+    skill_loaded: false       # → true after Read(aws-api-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     # stale = review JSON was written before a fact correction; it cannot gate codegen until re-reviewed
     # reason: fact_correction_after_review | fact_mismatch_before_review
     stale_reason: null
@@ -454,15 +764,21 @@ phases:
 
   e2e_plan_review:
     status: pending | pass | needs_fix | needs_human_review | reject | stale
+    skill_loaded: false       # → true after Read(aws-e2e-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     stale_reason: null
     gate_file: review/plan-review.json
     fix_attempts: []   # appended by aws-e2e-plan-fixer each run
 
   api_codegen:
     status: pending | done | failed | stopped | needs_patch
+    skill_loaded: false       # → true after Read(aws-api-codegen/SKILL.md) — CRITICAL: this phase has the most hard rules that get skipped
+    skill_md_path: null
+    skill_loaded_at: null
     # needs_patch = codegen completed but generated tests contain stale facts (e.g. wrong role name)
-    # requires manual patch + re-collect before Phase 8 can proceed
-    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    # requires manual patch + re-collect before Phase 7 can proceed
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to nested/background worker; must execute in the assigned phase executor"
     needs_patch_reason: null  # set when status == needs_patch; e.g. "stale_role_name_fact"
     review_gate_file: review/api-plan-review.json
     codegen_readiness: ready | ready_with_warnings
@@ -478,7 +794,10 @@ phases:
 
   e2e_codegen:
     status: pending | done | failed | stopped | needs_patch
-    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to background subagent; must execute inline in primary agent"
+    skill_loaded: false       # → true after Read(aws-e2e-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
+    stop_reason: null   # set when status == stopped; e.g. "codegen delegated to nested/background worker; must execute in the assigned phase executor"
     needs_patch_reason: null
     review_gate_file: review/plan-review.json
     codegen_readiness: ready | ready_with_warnings
@@ -501,32 +820,59 @@ phases:
   # Fuzz layer phases — present only when layers.fuzz == true
   fuzz_plan:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md]
   fuzz_plan_review:
     status: pending | pass | needs_fix | reject | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/fuzz-plan-review.json
   fuzz_codegen:
     status: pending | done | failed | stopped | skipped
+    skill_loaded: false       # → true after Read(aws-fuzz-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     generated_tests: { files: [] }   # tests/fuzz/**
 
   # Performance layer phases — present only when layers.performance == true
   performance_plan:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-performance-plan/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     outputs: [plans/performance-plan.md, plans/performance-codegen-plan.md]
   performance_plan_review:
     status: pending | pass | needs_fix | reject | skipped
+    skill_loaded: false       # → true after Read(aws-performance-plan-reviewer/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     gate_file: review/performance-plan-review.json
   performance_codegen:
     status: pending | done | failed | stopped | skipped
+    skill_loaded: false       # → true after Read(aws-performance-codegen/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     generated_tests: { files: [] }   # tests/perf/**
 
   execution:
     status: pending | PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED
+    skill_loaded: false       # → true after Read(aws-run/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     batch_id: <YYYYMMDD-HHmmss>
     manifest: execution/execution-manifest.yaml
+    started_at: <ISO 8601 timestamp>       # from events.jsonl execution_start
+    completed_at: <ISO 8601 timestamp>     # from events.jsonl execution_end / phase_transition
+    duration_ms: 0                         # from events.jsonl execution_end
 
   inspect:
     status: pending | done | failed | partial   # partial = fallback mode without classification
+    skill_loaded: false       # → true after Read(aws-inspect/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     inspect_mode: primary | partial              # primary = CLI classified; partial = fallback summary only
     classification_performed: true | false
     outputs:
@@ -539,13 +885,20 @@ phases:
 
   healing:
     status: pending | not_needed | proposal_created | applied | resolved | exhausted | skipped | failed
+    skill_loaded: false       # → true after Read(aws-fix-proposal/SKILL.md) (Phase 9 entry)
+    skill_md_path: null
+    skill_loaded_at: null
+    # Phases 10A/10B each have their own SKILL.md (aws-api-codegen-fixer / aws-e2e-codegen-fixer);
+    # the orchestrator MUST Read each before invoking the corresponding fixer, but only one
+    # skill_loaded field is kept here for the healing phase as a whole. If granular tracking
+    # is needed, append to healing.attempts[].skill_loaded instead.
     # Status transitions:
     #   pending          → initial value
     #   not_needed       → no eligible failures after inspect, or eligible_count == 0 from fix-proposal
-    #   proposal_created → Phase 10 wrote fix-proposal.json with eligible_count > 0
-    #   applied          → Phase 11 fixers ran and Fixer Safety Gate passed (set by orchestrator)
-    #   resolved         → Phase 13 re-inspect shows PASS or PASS_WITH_WARNINGS (healing succeeded)
-    #   exhausted        → max_healing_attempts reached, still FAIL (set at end of Phase 13 loop)
+    #   proposal_created → Phase 9 wrote fix-proposal.json with eligible_count > 0
+    #   applied          → Phase 10 fixers ran and Fixer Safety Gate passed (set by orchestrator)
+    #   resolved         → Phase 12 re-inspect shows PASS or PASS_WITH_WARNINGS (healing succeeded)
+    #   exhausted        → max_healing_attempts reached, still FAIL (set at end of Phase 12 loop)
     #   skipped          → healing disabled (gates.healing_available == false or max_healing_attempts == 0)
     #   failed           → fixer hard error (forbidden file, patch mismatch, fixer-error.json written)
     attempts: []
@@ -560,8 +913,8 @@ phases:
     #   e2e_apply_status: applied | no_op | failed    # set by aws-e2e-codegen-fixer
     #   e2e_apply_summary: healing/e2e-apply-summary.json
     #   applied_files: [<path>, ...]                  # aggregate, set by orchestrator after safety gate
-    #   rerun_batch_id: <YYYYMMDD-HHmmss>             # set after Phase 12
-    #   result: PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED   # set after Phase 13
+    #   rerun_batch_id: <YYYYMMDD-HHmmss>             # set after Phase 11
+    #   result: PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED   # set after Phase 12
     #   stop_reason: <if result == stopped or failed>
     # NOTE: phases.healing.status = applied is set by the orchestrator ONLY after
     #       both fixers complete (api_apply_status and e2e_apply_status resolved)
@@ -569,10 +922,19 @@ phases:
 
   report:
     status: pending | done | failed | skipped
+    skill_loaded: false       # → true after Read(aws-report-generator/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
     quality_score: <int 0-100 | null>   # from report/quality-report.json (CLI-computed)
 
   archive:
-    status: pending | archived | archived_with_warnings | skipped
+    status: pending | eligible | not_eligible | skipped
+    skill_loaded: false       # → true after Read(aws-archive/SKILL.md)
+    skill_md_path: null
+    skill_loaded_at: null
+    can_archive: true | false
+    recommendation: <run aws-archive separately | do_not_archive | not_applicable>
+    blockers: []
 
 gates:
   data_knowledge:
@@ -583,19 +945,7 @@ gates:
 known_product_issues: []
 
 agent_warnings:
-  - id: OPENCODE-SKILL-RESOLUTION-001
-    severity: medium
-    title: OpenCode subagent skill inheritance is disabled
-    impact:
-      - no skill-based background subagent execution
-      - workflow phases run inline
-    workaround:
-      - use file-based phase contracts
-      - use document-driven subagents only if parallelism is needed
-    status: acknowledged
-  # Shadow-mode CLI orchestration warnings (written only when applicable).
-  # The CLI is advisory until the workflow explicitly migrates from prose gates
-  # to authoritative CLI gates.
+  # Authoritative CLI warnings (written when applicable).
   - id: AWS-ORCHESTRATION-SHADOW-DISAGREEMENT
     severity: medium | high
     phase: <phase-id>
@@ -622,7 +972,12 @@ agent_warnings:
 
 ## Phase Contracts
 
-### Phase 1 — Case Design
+**State-delta convention (applies to every contract below):** `workflow-state.yaml` has exactly **one writer — the orchestrator (primary agent)**. Each contract's `state_delta:` block lists the `workflow-state.yaml` fields whose values the phase determines; it is **not** a file the phase executor writes.
+
+- `inline` mode: the executor and the orchestrator are the same agent — it applies the delta itself immediately after producing the outputs.
+- `subagent-dispatch` mode: the phase subagent NEVER writes `workflow-state.yaml` (permission floor + state-hash guard). It reports the delta values in its final message; the orchestrator verifies the output files on disk, then applies the delta. If a delta value is missing from the subagent's report, the orchestrator derives it by reading the phase's output files.
+
+### Phase 2.1 — Case Design
 
 ```yaml
 inputs:
@@ -633,10 +988,13 @@ outputs:
   - qa/changes/<change-id>/.qa.yaml
   - qa/changes/<change-id>/proposal.md
   - qa/changes/<change-id>/cases/<module>/case.yaml
-  - qa/changes/<change-id>/workflow-state.yaml (create/update)
+state_delta:
+  - phases.case_design.status = done
+  - phases.case_design.outputs
+  # workflow-state.yaml itself is created by the orchestrator in Phase 1.1 if missing
 ```
 
-### Phase 2 — Case Review
+### Phase 2.2 — Case Review
 
 ```yaml
 inputs:
@@ -647,13 +1005,15 @@ inputs:
 outputs:
   - review/case-review.json
   - review/case-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.case_review.status = pass | fail
 gate: decision == "pass"
 ```
 
-### Phase 3.5 — Fact Baseline
+### Phase 2.4 — Fact Baseline
 
 ```yaml
+skill: aws-fact-baseline
 inputs:
   - workflow-state.yaml
   - app/core/init_app.py (or equivalent seed/fixture file)
@@ -661,8 +1021,12 @@ inputs:
   - live DB read-only probe (optional, if db_probe: true in config)
 outputs:
   - facts/fact-baseline.json
-  - workflow-state.yaml (updated: phases.fact_baseline.status)
-gate: facts/fact-baseline.json must exist before Phase 5A or 5B run
+state_delta:
+  - phases.fact_baseline.status
+  - phases.fact_baseline.source
+  - phases.fact_baseline.file
+  - phases.fact_baseline.warnings
+gate: facts/fact-baseline.json must exist before Phase 4A or 4B run
 ```
 
 **fact-baseline.json schema:**
@@ -690,17 +1054,17 @@ gate: facts/fact-baseline.json must exist before Phase 5A or 5B run
 }
 ```
 
-If the seed file cannot be found and db_probe is false, write `fact-baseline.json` with `"source": "unavailable"` and record a warning — do **not** STOP; continue to Phase 4 but planners must note that fact validation is skipped.
+If the seed file cannot be found and db_probe is false, write `fact-baseline.json` with `"source": "unavailable"` and record a warning — do **not** STOP; continue to Phase 3 but planners must note that fact validation is skipped.
 
-### Phase 3.6 — Layer Scan *(inline — determines which test layers run)*
+### Phase 2.5 — Layer Scan *(orchestrator-local in both modes — determines which test layers run)*
 
-Before dispatching plan phases, scan the finalized scoped cases to decide which of the four test layers are in scope. Each case has a single `type` (`API | E2E | Fuzz | Performance`) and an `automation.required` flag (see `aws-case-design`).
+Before dispatching plan phases, the orchestrator scans the finalized scoped cases to decide which of the four test layers are in scope. This step is never dispatched to a subagent. Each case has a single `type` (`API | E2E | Fuzz | Performance`) and an `automation.required` flag (see `aws-case-design`).
 
 ```yaml
 inputs:
-  - qa/changes/<change-id>/cases/**/case*.yaml   # finalized after Phase 3 (case fix)
-outputs:
-  - workflow-state.yaml (updated: layers block)
+  - qa/changes/<change-id>/cases/**/case*.yaml   # finalized after Phase 2.3 (case fix)
+state_delta:
+  - layers block (written directly by the orchestrator)
 ```
 
 ```yaml
@@ -715,10 +1079,10 @@ layers:
 Rules:
 - A layer is **in scope** when ≥1 finalized case has the matching `type` and `automation.required == true`.
 - For every in-scope layer, its plan / review / codegen phases (A=API, B=E2E, C=Fuzz, D=Performance) are **mandatory** — skipping an in-scope layer understates quality and is a gate violation.
-- If a layer is in scope but its `conditional_skills` are missing from the registry, **STOP** before Phase 4 and report the missing skill. Do **not** silently drop the layer.
+- If a layer is in scope but its `conditional_skills` are missing from the registry, **STOP** before Phase 3 and report the missing skill. Do **not** silently drop the layer.
 - Layers that are not in scope are skipped cleanly; their `aws run` results report `SKIPPED` (not a failure) and the report marks the dimension `N/A`.
 
-### Phase 4A — API Plan
+### Phase 3A — API Plan
 
 ```yaml
 inputs:
@@ -734,10 +1098,11 @@ outputs:
   - plans/api-test-data-plan.md
   - plans/api-codegen-plan.md
   - plans/m3-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.api_plan.status = done
 ```
 
-### Phase 4B — E2E Plan
+### Phase 3B — E2E Plan
 
 ```yaml
 inputs:
@@ -752,10 +1117,11 @@ outputs:
   - plans/e2e-test-data-plan.md
   - plans/e2e-codegen-plan.md
   - plans/m4-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.e2e_plan.status = done
 ```
 
-### Phase 5A — API Plan Review
+### Phase 4A — API Plan Review
 
 ```yaml
 inputs:
@@ -766,13 +1132,14 @@ inputs:
 outputs:
   - review/api-plan-review.json
   - review/api-plan-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.api_plan_review.status = pass | fail
 gate:
   - decision == "pass"
   - codegen_readiness in ["ready", "ready_with_warnings"]
 ```
 
-### Phase 5B — E2E Plan Review
+### Phase 4B — E2E Plan Review
 
 ```yaml
 inputs:
@@ -783,13 +1150,14 @@ inputs:
 outputs:
   - review/plan-review.json
   - review/plan-review-summary.md
-  - workflow-state.yaml (updated)
+state_delta:
+  - phases.e2e_plan_review.status = pass | fail
 gate:
   - decision == "pass"
   - codegen_readiness in ["ready", "ready_with_warnings"]
 ```
 
-### Phase 7A — API Codegen
+### Phase 6A — API Codegen
 
 ```yaml
 inputs:
@@ -804,48 +1172,51 @@ outputs:
   - files listed in api-codegen-plan.md Target Files only
     # helpers / fixtures / conftest are optional — only when plan + data-knowledge authorize
   - qa/changes/<change-id>/codegen/api-codegen-summary.md
-  - workflow-state.yaml (updated: review_gate_file, codegen_readiness, generated_tests.files, warnings_carried, known_product_issues)
+state_delta:
+  - phases.api_codegen: status, review_gate_file, codegen_readiness, generated_tests.files, warnings_carried, known_product_issues
 gate:
   - Codegen Hard Gates (API) — force_continue MUST NOT bypass
 ```
 
-### Phase 7A Inline Execution Rule
+### Phase 6A Phase-Local Execution Rule
 
-`aws-api-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+`aws-api-codegen` **MUST execute in the assigned phase executor**. In `execution_mode: inline`, that executor is the primary agent. In `execution_mode: subagent-dispatch`, that executor is the bounded `task` subagent created for Phase 6A.
+
+The executor must load and run `aws-api-codegen` itself. Loading the skill is not phase completion, and the executor must not delegate the codegen work to a nested subagent or background worker.
 
 **Forbidden:**
 
 ```text
-❌ delegate_task for aws-api-codegen
-❌ background API codegen agent
-❌ treating subagent or background task output as Phase 7A completion
+❌ nested delegate_task / task from inside the Phase 6A executor
+❌ background API codegen worker
+❌ treating nested subagent or background task output as Phase 6A completion
 ```
 
-If a subagent or background task is used to attempt API codegen — **regardless of whether skill loading succeeded** — STOP immediately:
+If a nested subagent or background task is used to attempt API codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `phases.api_codegen.status = stopped` and `phases.api_codegen.stop_reason = "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 - Update `subagents`:
   - `used = true`
   - `purpose = [forbidden_codegen_attempt]`
-  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
-  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
-  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `loaded_skills = true` only if the unauthorized worker **successfully** loaded an AWS skill; otherwise keep `false`
+  - `unauthorized_skill_loading = true` if the nested/background worker attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a nested/background worker is spawned for codegen)
   - `affected_gates = false`
 - Do **not** proceed to any later phase.
-- Require the primary agent to re-run the affected codegen phase inline.
+- Require the assigned phase executor to re-run the affected codegen phase directly.
 
-**Phase 7A is complete only when all are true:**
+**Phase 6A is complete only when all are true:**
 
-1. `aws-api-codegen` executed inline in the primary agent.
-2. No subagent or background task executed API codegen.
-3. All files listed in `api-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+1. `aws-api-codegen` executed directly in the assigned phase executor.
+2. No nested subagent or background task executed API codegen.
+3. All files listed in `api-codegen-plan.md` Target Files exist on disk (re-read by the orchestrator).
 4. `qa/changes/<change-id>/codegen/api-codegen-summary.md` exists on disk.
 5. `workflow-state.yaml` has `phases.api_codegen.status = done`.
 6. `workflow-state.yaml` lists `generated_tests.files`, `warnings_carried`, and `known_product_issues`.
 
 If any condition fails, **STOP** and report the exact missing condition.
 
-### Phase 7B — E2E Codegen
+### Phase 6B — E2E Codegen
 
 ```yaml
 inputs:
@@ -860,100 +1231,103 @@ outputs:
   - files listed in e2e-codegen-plan.md Target Files only
     # scripts / fixtures / conftest are optional — only when plan + data-knowledge authorize
   - qa/changes/<change-id>/codegen/e2e-codegen-summary.md
-  - workflow-state.yaml (updated: review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried, known_product_issues)
+state_delta:
+  - phases.e2e_codegen: status, review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried, known_product_issues
 gate:
   - Codegen Hard Gates (E2E) — force_continue MUST NOT bypass
 ```
 
-### Phase 7B Inline Execution Rule
+### Phase 6B Phase-Local Execution Rule
 
-`aws-e2e-codegen` **MUST execute inline in the primary agent**. Loading the skill is not phase completion.
+`aws-e2e-codegen` **MUST execute in the assigned phase executor**. In `execution_mode: inline`, that executor is the primary agent. In `execution_mode: subagent-dispatch`, that executor is the bounded `task` subagent created for Phase 6B.
+
+The executor must load and run `aws-e2e-codegen` itself. Loading the skill is not phase completion, and the executor must not delegate the codegen work to a nested subagent or background worker.
 
 **Forbidden:**
 
 ```text
-❌ delegate_task for aws-e2e-codegen
-❌ background E2E codegen agent
-❌ treating subagent or background task output as Phase 7B completion
+❌ nested delegate_task / task from inside the Phase 6B executor
+❌ background E2E codegen worker
+❌ treating nested subagent or background task output as Phase 6B completion
 ```
 
-If a subagent or background task is used to attempt E2E codegen — **regardless of whether skill loading succeeded** — STOP immediately:
+If a nested subagent or background task is used to attempt E2E codegen — **regardless of whether skill loading succeeded** — STOP immediately:
 
-- Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to background subagent; must execute inline in primary agent"`.
+- Set `phases.e2e_codegen.status = stopped` and `phases.e2e_codegen.stop_reason = "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 - Update `subagents`:
   - `used = true`
   - `purpose = [forbidden_codegen_attempt]`
-  - `loaded_skills = true` only if the subagent **successfully** loaded an AWS skill; otherwise keep `false`
-  - `attempted_skill_loading = true` if the subagent attempted to load any AWS skill (whether or not it succeeded)
-  - `attempted_phase_execution = true` (always set when a codegen subagent is spawned)
+  - `loaded_skills = true` only if the unauthorized worker **successfully** loaded an AWS skill; otherwise keep `false`
+  - `unauthorized_skill_loading = true` if the nested/background worker attempted to load any AWS skill (whether or not it succeeded)
+  - `attempted_phase_execution = true` (always set when a nested/background worker is spawned for codegen)
   - `affected_gates = false`
 - Do **not** proceed to any later phase.
-- Require the primary agent to re-run the affected codegen phase inline.
+- Require the assigned phase executor to re-run the affected codegen phase directly.
 
-**Phase 7B is complete only when all are true:**
+**Phase 6B is complete only when all are true:**
 
-1. `aws-e2e-codegen` executed inline in the primary agent.
-2. No subagent or background task executed E2E codegen.
-3. All files listed in `e2e-codegen-plan.md` Target Files exist on disk (re-read by primary agent).
+1. `aws-e2e-codegen` executed directly in the assigned phase executor.
+2. No nested subagent or background task executed E2E codegen.
+3. All files listed in `e2e-codegen-plan.md` Target Files exist on disk (re-read by the orchestrator).
 4. `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` exists on disk.
 5. `workflow-state.yaml` has `phases.e2e_codegen.status = done`.
 6. `workflow-state.yaml` lists `generated_tests.files`, `data_setup`, `fixtures`, `warnings_carried`, and `known_product_issues`.
 
 If any condition fails, **STOP** and report the exact missing condition.
 
-### Phases 4C / 5C / 7C — Fuzz Layer *(only when `layers.fuzz == true`)*
+### Phases 3C / 4C / 6C — Fuzz Layer *(only when `layers.fuzz == true`)*
 
 The fuzz layer mirrors the functional plan→review→codegen flow with schemathesis. It runs in parallel with API/E2E across the same milestone boundaries (plan → review → codegen).
 
 ```yaml
-# Phase 4C — Fuzz Plan (aws-fuzz-plan)
+# Phase 3C — Fuzz Plan (aws-fuzz-plan)
 inputs:  [workflow-state.yaml, cases with type==Fuzz, fact-baseline.json, OpenAPI schema source]
 outputs: [plans/fuzz-plan.md, plans/fuzz-codegen-plan.md, plans/fuzz-review-summary.md]
 
-# Phase 5C — Fuzz Plan Review (aws-fuzz-plan-reviewer)
+# Phase 4C — Fuzz Plan Review (aws-fuzz-plan-reviewer)
 outputs: [review/fuzz-plan-review.json]   # decision: approved | changes_requested
-gate: review/fuzz-plan-review.json must be approved before Phase 7C
+gate: review/fuzz-plan-review.json must be approved before Phase 6C
 
-# Phase 7C — Fuzz Codegen (aws-fuzz-codegen)
+# Phase 6C — Fuzz Codegen (aws-fuzz-codegen)
 inputs:  [plans/fuzz-codegen-plan.md, review/fuzz-plan-review.json (approved)]
 outputs: [tests/fuzz/** (schemathesis tests), codegen/fuzz-codegen-summary.md]
 gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for fuzz tests
 ```
 
-- Fuzz codegen, like all codegen, **MUST execute inline in the primary agent** (same Inline Execution Rule as 7A/7B).
+- Fuzz codegen, like all codegen, **MUST execute directly in the assigned phase executor** (same Phase-Local Execution Rule as 6A/6B).
 - Fuzz tests run under `aws run` via pytest (`tests/fuzz/`) and produce `execution/fuzz-result.json`.
 - A fuzz failure is **never** auto-healed: `fuzz_stateful_failure` → `needs_review`; `fuzz_configuration_error` → fix the setup and re-run.
 
-### Phases 4D / 5D / 7D — Performance Layer *(only when `layers.performance == true`)*
+### Phases 3D / 4D / 6D — Performance Layer *(only when `layers.performance == true`)*
 
 The performance layer mirrors the same flow with Locust and absolute thresholds (no baseline comparison).
 
 ```yaml
-# Phase 4D — Performance Plan (aws-performance-plan)
+# Phase 3D — Performance Plan (aws-performance-plan)
 inputs:  [workflow-state.yaml, cases with type==Performance (confirmed thresholds), fact-baseline.json]
 outputs: [plans/performance-plan.md, plans/performance-codegen-plan.md, plans/performance-review-summary.md]
 
-# Phase 5D — Performance Plan Review (aws-performance-plan-reviewer)
+# Phase 4D — Performance Plan Review (aws-performance-plan-reviewer)
 outputs: [review/performance-plan-review.json]   # decision: approved | changes_requested
-gate: review/performance-plan-review.json must be approved before Phase 7D
+gate: review/performance-plan-review.json must be approved before Phase 6D
 
-# Phase 7D — Performance Codegen (aws-performance-codegen)
+# Phase 6D — Performance Codegen (aws-performance-codegen)
 inputs:  [plans/performance-codegen-plan.md, review/performance-plan-review.json (approved)]
 outputs: [tests/perf/** (locustfiles), codegen/performance-codegen-summary.md]
 gate: Codegen Hard Gates apply — Test Failure Integrity (C5) enforced for locustfiles
 ```
 
-- Performance codegen **MUST execute inline in the primary agent** (same Inline Execution Rule as 7A/7B).
+- Performance codegen **MUST execute directly in the assigned phase executor** (same Phase-Local Execution Rule as 6A/6B).
 - Performance tests run under `aws run` via Locust headless and produce `execution/performance-result.json`. Each scenario's verdict is derived deterministically from measured p95 / error_rate vs. the case's absolute thresholds.
 - If Locust is unavailable or the target produced no measurements, the performance dimension is `SKIPPED` (a warning, not a failure).
 - A performance failure is **never** auto-healed: `perf_threshold_exceeded` → `needs_review`; `perf_environment` → environment issue; `perf_script_error` → fix the locustfile and re-run.
 
-### Phase 8 — Execution
+### Phase 7 — Execution
 
 ```yaml
 inputs:
   - workflow-state.yaml
-  - generated test files (from phases 7A/7B)
+  - generated test files (from phases 6A/6B)
   - .aws/config.yaml
 outputs:
   - execution/runs/<batch-id>/api-result.json       # only if manifest.selected_targets.api == true
@@ -971,7 +1345,9 @@ outputs:
   - execution/summary.md         (latest pointer — always required in primary mode)
   - execution/execution-manifest.yaml  (latest pointer, always)
   - execution/known-product-issues.md  (snapshot from qa/changes/<change-id>/known-product-issues.md if present)
-  - workflow-state.yaml (updated: phases.execution.status = PASS|PASS_WITH_WARNINGS|FAIL|SKIPPED)
+state_delta:
+  - phases.execution.status = PASS|PASS_WITH_WARNINGS|FAIL|SKIPPED   # orchestrator reads final_status from the manifest
+  - phases.execution.batch_id
 rules:
   - Do not fail because an unselected target result file is absent.
 runner:
@@ -985,7 +1361,7 @@ gate:
   - read final_status from manifest, not from chat or claim
 ```
 
-### Phase 9 — Inspect / Failure Analysis
+### Phase 8 — Inspect / Failure Analysis
 
 ```yaml
 inputs:
@@ -1003,7 +1379,8 @@ outputs:
   - execution/failure-analysis.json            # optional copy/pointer for downstream (primary mode)
   - execution/failure-summary.md               # optional copy/pointer for downstream
   - human-readable final report
-  - workflow-state.yaml (updated: phases.inspect.status, inspect_mode, classification_performed)
+state_delta:
+  - phases.inspect: status, inspect_mode, classification_performed
 status_update_rules:
   - primary mode: phases.inspect.status = done, inspect_mode = primary, classification_performed = true
   - partial mode: phases.inspect.status = partial, inspect_mode = partial, classification_performed = false
@@ -1012,7 +1389,7 @@ status_update_rules:
   - PASS_WITH_WARNINGS → never changed to PASS by inspect
 ```
 
-### Phase 10 — Fix Proposal *(healing, optional)*
+### Phase 9 — Fix Proposal *(healing, optional)*
 
 ```yaml
 trigger: inspect/failure-analysis.json contains failures with fix_proposal_eligible == true
@@ -1029,13 +1406,14 @@ inputs:
 outputs:
   - healing/fix-proposal.md
   - healing/fix-proposal.json
-  - workflow-state.yaml (updated: phases.healing.status = proposal_created)
+state_delta:
+  - phases.healing.status = proposal_created
 gate:
   - only failures where fix_proposal_eligible == true
   - known_product_issue / coverage_gap / business_logic_failure are NOT eligible
 ```
 
-### Phase 11A — API Codegen Fix *(healing)*
+### Phase 10A — API Codegen Fix *(healing)*
 
 ```yaml
 inputs:
@@ -1048,7 +1426,8 @@ outputs:
   - healing/api-apply-summary.json       (required)
   - healing/api-apply-summary.md         (required)
   - healing/api-fixer-error.json         (written only on hard error)
-  - workflow-state.yaml (updated: attempts[n].api_apply_status = applied | no_op | failed)
+state_delta:
+  - phases.healing.attempts[n].api_apply_status = applied | no_op | failed   # from api-apply-summary.json
 rules:
   - do NOT change product code (app/, web/, src/)
   - do NOT change assertion expected values
@@ -1060,7 +1439,7 @@ rules:
   - do NOT set phases.healing.status = applied (orchestrator's job)
 ```
 
-### Phase 11B — E2E Codegen Fix *(healing)*
+### Phase 10B — E2E Codegen Fix *(healing)*
 
 ```yaml
 inputs:
@@ -1073,13 +1452,14 @@ outputs:
   - healing/e2e-apply-summary.json       (required)
   - healing/e2e-apply-summary.md         (required)
   - healing/e2e-fixer-error.json         (written only on hard error)
-  - workflow-state.yaml (updated: attempts[n].e2e_apply_status = applied | no_op | failed)
+state_delta:
+  - phases.healing.attempts[n].e2e_apply_status = applied | no_op | failed   # from e2e-apply-summary.json
 rules:
-  - same as Phase 11A (with e2e-specific allowed file patterns)
+  - same as Phase 10A (with e2e-specific allowed file patterns)
   - do NOT set phases.healing.status = applied (orchestrator's job)
 ```
 
-### Phase 12 — Re-run *(healing)*
+### Phase 11 — Re-run *(healing)*
 
 ```yaml
 inputs:
@@ -1088,63 +1468,82 @@ inputs:
 outputs:
   - execution/runs/<new-batch-id>/   (full run archive)
   - execution/execution-manifest.yaml (updated, latest pointer)
-  - workflow-state.yaml (updated: phases.execution.status, phases.healing.attempts[n].rerun_batch_id)
+state_delta:
+  - phases.execution.status
+  - phases.healing.attempts[n].rerun_batch_id
 ```
 
-### Phase 13 — Re-inspect *(healing)*
+### Phase 12 — Re-inspect *(healing)*
 
 ```yaml
 inputs:
   - workflow-state.yaml
-  - execution/execution-manifest.yaml  (updated by Phase 12 — must have new batch_id)
+  - execution/execution-manifest.yaml  (updated by Phase 11 — must have new batch_id)
   - selected result files (per manifest.selected_targets)
 outputs:
   - inspect/failure-analysis.json   (updated, source of truth; must include source_batch_id)
   - inspect/failure-summary.md      (updated)
   - inspect/inspect-safety-check.json  (evidence file from Inspect Safety Gate)
-  - workflow-state.yaml (updated: phases.inspect.status, phases.healing.attempts[n].result,
-                         phases.healing.attempts[n].reinspect_batch_id)
+state_delta:
+  - phases.inspect.status
+  - phases.healing.attempts[n].result
+  - phases.healing.attempts[n].reinspect_batch_id
 gate:
   - inspect/failure-analysis.json.source_batch_id MUST equal phases.execution.batch_id
-    (re-inspect must be based on the Phase 12 re-run batch, not a prior batch)
+    (re-inspect must be based on the Phase 11 re-run batch, not a prior batch)
   - if final_status in [PASS, PASS_WITH_WARNINGS]:
       phases.healing.status = resolved → exit healing loop → advance to Phase 14
   - if final_status == FAIL and healing.attempts < max_healing_attempts and eligible failures remain:
-      → loop to Phase 10
+      → loop to Phase 9
   - if healing.attempts exhausted → phases.healing.status = exhausted → STOP
 ```
 
-### Phase 13.5 — Report Generation *(terminal, non-gating)*
+### Phase 13 — Report Generation *(terminal, non-gating)*
 
 ```yaml
 skill: aws-report-generator
 inputs:
   - workflow-state.yaml
-  - inspect/quality-gate-result.json   (required — produced by Phase 9 / Phase 13)
+  - inspect/quality-gate-result.json   (required — produced by Phase 8 / Phase 12)
   - inspect/failure-analysis.json
   - execution/api-result.json / e2e-result.json / coverage-result.json
 outputs:
   - report/quality-report.json    (CLI-written, deterministic quality_score)
   - report/quality-report.md
   - report/executive-summary.md
-  - workflow-state.yaml (updated: phases.report.status = done, phases.report.quality_score = <int>)
+state_delta:
+  - phases.report.status = done
+  - phases.report.quality_score = <int>   # from report/quality-report.json
 gate:
   - entry: phases.inspect.status == done AND inspect/quality-gate-result.json exists
            (after healing converges; if healing ran, use the converged re-inspect gate)
+  - PRECONDITION — healing decision must be recorded first:
+      phases.healing.status MUST be a terminal resting state
+      (not_needed | skipped | resolved | exhausted | failed) BEFORE running Report.
+      If it is still pending / applied / proposal_created, the healing entry decision
+      was skipped — go back to Phase 8 (or the healing loop); do NOT generate the report.
+      `aws status` enforces this: inspect done + report/terminal reached while
+      healing.status is pending/applied/proposal_created ⇒ HEAL-STATE-INCONSISTENT ⇒ stopped.
   - this phase is a TERMINAL ARTIFACT and does NOT make gate decisions —
     the release gate remains inspect/quality-gate-result.json.
-  - report generation does NOT block Phase 14 Archive; a report-generation
+  - report generation does NOT block Phase 14 archive eligibility recommendation; a report-generation
     failure sets phases.report.status = failed and records a warning, but does
     not change phases.execution.status or phases.inspect final_status.
   - the workflow final summary MUST reference report/executive-summary.md when present.
 notes:
   - Runs regardless of final_status (PASS / PASS_WITH_WARNINGS / FAIL) so a failing
-    change still gets a report; only Archive (Phase 14) is gated on PASS/PASS_WITH_WARNINGS.
+    change still gets a report; Phase 14 only reports whether archive would be allowed.
   - The CLI computes quality_score; the skill MUST NOT recompute or alter it, and
     MUST NOT say "safe to release" on FAIL or with unresolved product defects.
+  - The chat final response MUST read report/quality-report.json when present and
+    include its quality_score, risk_level, release_recommendation, and key counts
+    in the "Current Execution Result Statistics" block.
+  - If report/quality-report.json is missing or invalid, the chat final response
+    MUST show quality_score/risk_level/release_recommendation as "unknown" and
+    add a warning. Do not recompute the score from execution files in chat.
 ```
 
-### Phase 14 — Archive
+### Phase 14 — Archive Eligibility Recommendation
 
 ```yaml
 inputs:
@@ -1158,83 +1557,109 @@ inputs:
   - execution/execution-manifest.yaml
   - execution/known-product-issues.md (if present)
   - inspect/known-product-issues.md (if present)
-outputs:
-  - qa/cases/<module>/case.yaml (merged)
-  - qa/archive/<change-id>/  (all process artifacts copied)
-  - workflow-state.yaml (updated: phases.archive.status = archived | archived_with_warnings)
+state_delta:
+  - phases.archive.status = eligible | not_eligible | skipped
+  - phases.archive.can_archive = true | false
+  - phases.archive.recommendation
+  - phases.archive.blockers[]
 gate:
-  - user explicitly requests archive, or auto_archive == true
+  - evaluate eligibility only; NEVER load `aws-archive` inside `aws-workflow`
+  - `auto_archive` and `auto_archive_with_fallback` do not trigger archive execution
   - all applicable review JSON files have decision == "pass"
-  - phases.execution.status in [PASS, PASS_WITH_WARNINGS]  — NEVER archive when FAIL
-  - phases.healing.status in [not_needed, resolved, skipped] — NEVER archive when applied/exhausted/failed
-    NOTE: "applied" alone is NOT sufficient — rerun + re-inspect (Phase 12+13) must complete (→ resolved)
+  - phases.execution.status in [PASS, PASS_WITH_WARNINGS]  — not eligible when FAIL
+  - phases.healing.status in [not_needed, resolved, skipped] — not eligible when applied/exhausted/failed
+    NOTE: "applied" alone is NOT sufficient — rerun + re-inspect (Phase 11+12) must complete (→ resolved)
     NOTE: skipped is archive-eligible ONLY when phases.execution.status in [PASS, PASS_WITH_WARNINGS]
           (the execution gate above already enforces this, but the constraint is stated explicitly here)
   - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id
     (latest inspect must be based on latest execution batch, not a stale earlier run)
   - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
   - inspect/inspect-safety-check.json exists AND passed == true for latest inspect phase
-    (Phase 9 for no-healing path; Phase 13 for healing path)
+    (Phase 8 for no-healing path; Phase 12 for healing path)
   - if phases.healing.status == resolved:
       healing/fixer-safety-check.json exists AND passed == true
   - if phases.execution.status == PASS_WITH_WARNINGS caused by known product issues:
       require phases.inspect.status in [done, partial]
       known product issues must be explicitly listed and acknowledged
   - if phases.execution.status == PASS_WITH_WARNINGS caused by fallback runner (no standard result files):
-      require human confirmation OR explicit runtime parameter auto_archive_with_fallback == true
-      do NOT auto-archive fallback pass as formal regression assets when auto_archive == true alone
+      report `can_archive = false` unless the final response explicitly says human confirmation
+      is required before running `aws-archive` separately
   - if known product issues exist, require phases.inspect.status in [done, partial]
-never_archive_when:
+not_eligible_when:
   - phases.execution.status == FAIL
   - phases.healing.status == applied    # applied means fixer ran but rerun/re-inspect not yet done
   - phases.healing.status == exhausted
   - phases.healing.status == failed
   - inspect/failure-analysis.json.source_batch_id != phases.execution.batch_id  (stale inspect)
   - inspect/failure-analysis.json contains unresolved fix_proposal_eligible failures
+notes:
+  - Phase 14 is advisory inside `aws-workflow`. It answers: "Can this change be archived?"
+  - If eligible, final response should recommend: "Archive eligible — run `aws-archive` / use skill aws-archive only if you want to merge cases and copy artifacts."
+  - If not eligible, final response must list blockers and the next step to become eligible.
+  - Do not create or modify `qa/cases/` or `qa/archive/` in Phase 14.
 ```
 
 ---
 
 ## Workflow (run_mode = case-only)
 
-**Scope:** Phases 0 → 1 → 2 → 3 (conditional fix loop) → 3.5 → 3.6 → **STOP**.  
-**Does not run:** plan phases (4–6), codegen (7), execution (8), inspect/healing (9–13), archive (14).
+**Scope:** Phases 1.1 → 1.2 → 2.1 → 2.2 → 2.3 (conditional fix loop) → 2.4 → 2.5 → **STOP**.  
+**Does not run:** plan/review/fix phases (3–5), codegen (6), execution (7), inspect/healing (8–12), archive (14).
 
 **Required inputs before start:**
 
 - Valid `change_id`
 - `.aws/data-knowledge.yaml` (or promotable proposal) on disk under `qa/changes/<change-id>/`
-- For eval / bench runs: fixture tier **L0-case-seed** may pre-seed `proposal.md` and `.qa.yaml` only — case files are produced by Phase 1
 
-**Phase sequence (inline primary agent only):**
+**Phase sequence:**
+
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop (see "Execution Mode — Scheme E" section above). The loop calls `aws status --next --json` each iteration and dispatches ready phases to bounded `task` subagents — **except `explore`**, which always runs inline in the primary agent.
+
+**If `execution_mode == inline`:** execute each phase sequentially in the primary agent as described below.
 
 ```
-Phase 0 — Skill Registry Check
-  → Verify aws-case-design, aws-case-reviewer, aws-case-fixer load
-  → Write workflow-state.yaml (execution_mode: inline)
+Phase 0 — Test Infra Bootstrap (one-shot, idempotent)
+  → Load aws-test-infra-bootstrap
+  → CREATE / KEEP / BLOCK each of tests/config.py, tests/conftest.py, tests/schema_validation.py per per-file contract
+  → Update workflow-state.yaml: phases.test_infra_bootstrap (status, files, created, kept)
+  → STOP if any file is BLOCKED (contract mismatch requires user decision)
+
+Phase 1.1 — Skill Registry Check
+  → Verify aws-test-infra-bootstrap, aws-explore, aws-case-design, aws-case-reviewer, aws-case-fixer, aws-fact-baseline load
+  → Probe task tool; set execution_mode accordingly (inline if probe fails, subagent-dispatch if succeeds)
+  → Write workflow-state.yaml
   → STOP if any required case skill missing
 
-Phase 1 — Case Design
+Phase 1.2 — Explore
+  → Load aws-explore
+  → Execute inline (writes explore/context.json and advisory artifacts when available)
+  → Apply Phase 2.1 explore gate semantics
+  → Update workflow-state.yaml: phases.explore.status
+
+Phase 2.1 — Case Design
   → Load aws-case-design
-  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Execute inline (writes cases/<module>/case.yaml; .qa.yaml and proposal.md may be pre-seeded or co-written)
+  → Verify Phase 2.1 outputs on disk: .qa.yaml, proposal.md, cases/<module>/case.yaml
+  → Apply case-design-gate (interactive intake requires .qa.yaml.approval.approved_by/approved_approach/approved_at)
   → Update workflow-state.yaml: phases.case_design.status = done
 
-Phase 2 — Case Review (initial)
+Phase 2.2 — Case Review (initial)
   → Load aws-case-reviewer
   → Re-read case.yaml, proposal.md, workflow-state.yaml from disk
   → Write review/case-review.json
   → Apply case review gate
   → Update workflow-state.yaml: phases.case_review.status
 
-Phase 3 — Case Fix Loop (if gate requires it)
+Phase 2.3 — Case Fix Loop (if gate requires it)
   → Max attempts = max_case_fix_attempts
   → aws-case-fixer → aws-case-reviewer → re-apply gate until pass, reject, human_review_required, or exhausted
 
-Phase 3.5 — Fact Baseline (always after case review passes)
+Phase 2.4 — Fact Baseline (always after case review passes)
+  → Load aws-fact-baseline
   → Write facts/fact-baseline.json (or unavailable + warning)
-  → Update workflow-state.yaml: phases.fact_baseline.status = done
+  → Update workflow-state.yaml: phases.fact_baseline (status, source, file, warnings)
 
-Phase 3.6 — Layer Scan (inline)
+Phase 2.5 — Layer Scan (inline)
   → Scan finalized cases/**/case*.yaml
   → Write workflow-state.yaml layers.{api,e2e,fuzz,performance}
   → Record which test layers are in scope for downstream modes (informational only in case-only)
@@ -1245,15 +1670,13 @@ STOP — case-only complete
   → Report case count, review decision, and layers.* summary
 ```
 
-**Eval alignment (E0):** `eval-workflow-run.mjs --run-mode case-only` drives this path; scorers read archived `cases/`, `review/case-review.json`, and `workflow-state.yaml`.
-
 ---
 
 ## Workflow (run_mode = codegen-only)
 
-**Scope:** Phase 0 (codegen-related registry) → validate required upstream files → **7A / 7B / 7C / 7D** per `test_types` and `layers.*` → **Phase 7 Completion Gate** → STOP unless `run_tests == true` (then Phase 8 only — no inspect/healing/archive unless user opts in elsewhere).
+**Scope:** Phase 1.1 (codegen-related registry) → validate required upstream files → **6A / 6B / 6C / 6D** per `test_types` and `layers.*` → **Phase 6 Completion Gate** → STOP unless `run_tests == true` (then Phase 7 only — no inspect/healing/archive unless user opts in elsewhere).
 
-**Does not run:** case design/review (1–3.6), plan authoring/review/fix (4–6).
+**Does not run:** risk/case phases (1.2, 2.1–2.5), plan authoring/review/fix phases (3–5).
 
 **Required inputs before start:**
 
@@ -1267,8 +1690,12 @@ If any required file is missing, **STOP** and list paths — do not invoke plan 
 
 **Phase sequence:**
 
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop. The loop drives codegen phases (6A–6D) via bounded `task` subagents; Phase 7 is a CLI phase and is executed **directly by the orchestrator** via `aws run` (never dispatched). Codegen phases still carry the Phase-Local Execution Rule (see §6A/6B): the codegen `task` prompt must say "load and execute the codegen skill directly in this phase subagent; do not spawn nested/background workers; do not run aws gate/status; do not modify workflow-state.yaml."
+
+**If `execution_mode == inline`:** execute all phases directly in the primary agent as described below.
+
 ```
-Phase 0 — Skill Registry Check (codegen subset)
+Phase 1.1 — Skill Registry Check (codegen subset)
   → Verify skills for active layers only:
       api: aws-api-codegen (+ aws-api-codegen-fixer if healing context)
       e2e: aws-e2e-codegen (+ aws-e2e-codegen-fixer)
@@ -1282,29 +1709,29 @@ Validate codegen-only required files (orchestrator inline)
   → Confirm facts/fact-baseline.json exists (warning OK if unavailable)
   → If validation fails: STOP
 
-[Per active layer — same order as full workflow: API (7A) before E2E (7B) before Fuzz (7C) before Perf (7D)]
+[Per active layer — same order as full workflow: API (6A) before E2E (6B) before Fuzz (6C) before Perf (6D)]
 
-Phase 7A — API Codegen (if layers.api OR test_types includes api)
+Phase 6A — API Codegen (if layers.api OR test_types includes api)
   → Pre-check .aws/data-knowledge.yaml
   → Load aws-api-codegen inline
   → Apply Codegen Hard Gates (API)
   → Verify Target Files from api-codegen-plan.md + codegen/api-codegen-summary.md
   → Update workflow-state.yaml: phases.api_codegen
 
-Phase 7B — E2E Codegen (if layers.e2e OR test_types includes e2e)
+Phase 6B — E2E Codegen (if layers.e2e OR test_types includes e2e)
   → Pre-check .aws/data-knowledge.yaml
   → Load aws-e2e-codegen inline
   → Apply Codegen Hard Gates (E2E)
   → Verify Target Files + codegen/e2e-codegen-summary.md
   → Update workflow-state.yaml: phases.e2e_codegen
 
-Phase 7C — Fuzz Codegen (if layers.fuzz)
+Phase 6C — Fuzz Codegen (if layers.fuzz)
   → Load aws-fuzz-codegen inline → verify outputs → update phases.fuzz_codegen
 
-Phase 7D — Performance Codegen (if layers.performance)
+Phase 6D — Performance Codegen (if layers.performance)
   → Load aws-performance-codegen inline → verify outputs → update phases.performance_codegen
 
-Phase 7 Completion Gate
+Phase 6 Completion Gate
   → For each in-scope layer: phases.*_codegen.status == done, summary markdown exists, Target Files on disk
   → If any check fails: STOP
 
@@ -1313,36 +1740,44 @@ If run_tests == false:
   → STOP (codegen-only complete)
 
 If run_tests == true:
-  → Phase 8 — Test Execution (aws-run) ONLY
+  → Phase 7 — Test Execution (aws-run) ONLY
   → Verify execution/execution-manifest.yaml on disk
   → Update workflow-state.yaml: phases.execution
   → STOP — do not auto-enter inspect/healing/archive in codegen-only unless user explicitly requests
 ```
 
-**Eval alignment (E2a):** `eval-workflow-run.mjs --run-mode codegen-only --run-tests false` stops after Phase 7 Gate; `--test-types api` selects 7A path. Fixture tier **L2-api-codegen-seed** supplies plans/reviews; generated tests land under `tests/`.
-
 ---
 
 ## Full Workflow (run_mode = full)
 
-All phases execute **inline in the primary agent**. No subagents or tasks are used.
+**If `execution_mode == subagent-dispatch`:** follow the Scheme E orchestration loop above. Each ready phase is dispatched to a bounded `task` subagent **except `explore` (inline in primary agent)**; parallel branches (`api-plan`/`e2e-plan`, `api-codegen`/`e2e-codegen`) may run as parallel `task` calls in the same iteration.
+
+**If `execution_mode == inline`:** all phases execute sequentially in the primary agent as described below. No subagents or tasks are used. Parallel branches run sequentially.
 
 After every phase that writes artifacts or updates `workflow-state.yaml`, apply the **Phase Completion Rule** above, including the shadow-mode CLI calls (`aws status` always; `aws gate check` when the phase has a schema gate). The prose workflow remains authoritative during shadow mode; CLI disagreements are recorded, not used to override routing.
 
+**Inline mode phase sequence (when `execution_mode == inline`):**
+
 ```
-Phase 0 — Skill Registry Check
+Phase 1.1 — Skill Registry Check
   → Verify all required skills can load in primary agent
   → If any skill fails to load: STOP, report missing skill name
-  → Write workflow-state.yaml (create, set execution_mode: inline)
+  → Write workflow-state.yaml (create, set execution_mode per Phase 1.1 detection)
   → Record OPENCODE-SKILL-RESOLUTION-001 warning in workflow-state.yaml
 
-Phase 1 — Case Design
+Phase 1.2 — Explore
+  → Load skill aws-explore in primary agent
+  → Execute inline (runs risk context, writes explore artifacts, validates advisory)
+  → Apply Phase 2.1 explore gate semantics
+  → Update workflow-state.yaml: phases.explore.status
+
+Phase 2.1 — Case Design
   → Load skill aws-case-design in primary agent
-  → Execute inline
-  → Verify: .qa.yaml, proposal.md, cases/<module>/case.yaml exist on disk
+  → Execute inline (writes cases/<module>/case.yaml)
+  → Verify Phase 2.1 outputs on disk: .qa.yaml, proposal.md, cases/<module>/case.yaml
   → Update workflow-state.yaml: phases.case_design.status = done
 
-Phase 2 — Case Review (initial)
+Phase 2.2 — Case Review (initial)
   → Load skill aws-case-reviewer in primary agent
   → Re-read from disk: workflow-state.yaml, case.yaml, proposal.md
   → Execute inline
@@ -1350,7 +1785,7 @@ Phase 2 — Case Review (initial)
   → Apply case review gate
   → Update workflow-state.yaml: phases.case_review.status
 
-Phase 3 — Case Fix Loop (if gate requires it)
+Phase 2.3 — Case Fix Loop (if gate requires it)
   → For each attempt (max = max_case_fix_attempts):
       → Load skill aws-case-fixer in primary agent
       → Re-read from disk: case-review.json, case.yaml
@@ -1364,23 +1799,24 @@ Phase 3 — Case Fix Loop (if gate requires it)
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
-Phase 3.5 — Fact Baseline (always runs after Case Review passes)
+Phase 2.4 — Fact Baseline (always runs after Case Review passes)
+  → Load skill aws-fact-baseline in primary agent
   → Read seed/init sources: look for app/core/init_app.py, db/seed*.py, fixtures/, or equivalent
   → If live DB probe is configured (.aws/config.yaml has db_probe: true): run read-only probe
   → Capture: built-in role id/name, auth credentials, route prefix, token header mechanism
   → Write facts/fact-baseline.json
-  → Update workflow-state.yaml: phases.fact_baseline.status = done
+  → Update workflow-state.yaml: phases.fact_baseline (status, source, file, warnings)
 
 [API branch — run if test_types includes "api"]
 
-Phase 4A — API Plan
+Phase 3A — API Plan
   → Load skill aws-api-plan in primary agent
   → Re-read from disk: workflow-state.yaml, proposal.md, case.yaml
   → Execute inline
   → Verify api-plan.md, api-test-data-plan.md, api-codegen-plan.md exist on disk
   → Update workflow-state.yaml: phases.api_plan.status = done
 
-Phase 5A — API Plan Review (initial)
+Phase 4A — API Plan Review (initial)
   → Load skill aws-api-plan-reviewer in primary agent
   → Re-read from disk: workflow-state.yaml, api-plan.md, api-test-data-plan.md, api-codegen-plan.md
   → Execute inline
@@ -1388,7 +1824,7 @@ Phase 5A — API Plan Review (initial)
   → Apply API plan review gate
   → Update workflow-state.yaml: phases.api_plan_review.status
 
-Phase 6A — API Plan Fix Loop (if gate requires it)
+Phase 5A — API Plan Fix Loop (if gate requires it)
   → For each attempt (max = max_plan_fix_attempts):
       → Load skill aws-api-plan-fixer in primary agent
       → Re-read from disk: api-plan-review.json, api-plan.md
@@ -1402,12 +1838,12 @@ Phase 6A — API Plan Fix Loop (if gate requires it)
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
-Phase 7A — API Codegen pre-check
+Phase 6A — API Codegen pre-check
   → Verify `.aws/data-knowledge.yaml` exists on disk
   → If missing: STOP — tell user to create or promote data-knowledge.yaml
   → Update workflow-state.yaml: gates.data_knowledge
 
-Phase 7A — API Codegen
+Phase 6A — API Codegen
   → Load skill aws-api-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, api-plan.md, api-codegen-plan.md, api-plan-review.json, .aws/data-knowledge.yaml
   → Apply Codegen Hard Gates (API) — force_continue MUST NOT bypass
@@ -1418,14 +1854,14 @@ Phase 7A — API Codegen
 
 [E2E branch — run if test_types includes "e2e"]
 
-Phase 4B — E2E Plan
+Phase 3B — E2E Plan
   → Load skill aws-e2e-plan in primary agent
   → Re-read from disk: workflow-state.yaml, proposal.md, case.yaml
   → Execute inline
   → Verify e2e-plan.md, e2e-test-data-plan.md, e2e-codegen-plan.md exist on disk
   → Update workflow-state.yaml: phases.e2e_plan.status = done
 
-Phase 5B — E2E Plan Review (initial)
+Phase 4B — E2E Plan Review (initial)
   → Load skill aws-e2e-plan-reviewer in primary agent
   → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-test-data-plan.md, e2e-codegen-plan.md
   → Execute inline
@@ -1433,7 +1869,7 @@ Phase 5B — E2E Plan Review (initial)
   → Apply plan review gate
   → Update workflow-state.yaml: phases.e2e_plan_review.status
 
-Phase 6B — E2E Plan Fix Loop (if gate requires it)
+Phase 5B — E2E Plan Fix Loop (if gate requires it)
   → For each attempt (max = max_plan_fix_attempts):
       → Load skill aws-e2e-plan-fixer in primary agent
       → Re-read from disk: plan-review.json, e2e-plan.md
@@ -1447,12 +1883,12 @@ Phase 6B — E2E Plan Fix Loop (if gate requires it)
       → If reject or human_review_required → stop
       → If attempts exhausted → stop
 
-Phase 7B — E2E Codegen pre-check
+Phase 6B — E2E Codegen pre-check
   → Verify `.aws/data-knowledge.yaml` exists on disk
   → If missing: STOP — tell user to create or promote data-knowledge.yaml
   → Update workflow-state.yaml: gates.data_knowledge
 
-Phase 7B — E2E Codegen
+Phase 6B — E2E Codegen
   → Load skill aws-e2e-codegen in primary agent
   → Re-read from disk: workflow-state.yaml, e2e-plan.md, e2e-codegen-plan.md, plan-review.json, .aws/data-knowledge.yaml
   → Apply Codegen Hard Gates (E2E) — force_continue MUST NOT bypass
@@ -1463,7 +1899,7 @@ Phase 7B — E2E Codegen
   → Do NOT generate *.spec.ts files
   → Update workflow-state.yaml: phases.e2e_codegen (review_gate_file, codegen_readiness, generated_tests.files, data_setup, fixtures, warnings_carried)
 
-Phase 7 Completion Gate — verify before Phase 8
+Phase 6 Completion Gate — verify before Phase 7
   → If test_types includes "api":
       - phases.api_codegen.status MUST == done  (not stopped, not failed, not pending)
       - codegen/api-codegen-summary.md MUST exist on disk
@@ -1474,10 +1910,10 @@ Phase 7 Completion Gate — verify before Phase 8
       - codegen/e2e-codegen-summary.md MUST exist on disk
       - All Target Files from e2e-codegen-plan.md MUST exist on disk
       - If any condition fails: STOP — report which codegen output is missing
-  → If run_tests == false: skip Phase 8, record phases.execution.status = SKIPPED, advance to Phase 14 gate
+  → If run_tests == false: skip Phase 7, record phases.execution.status = SKIPPED, advance to Phase 14 eligibility recommendation
 
-Phase 8 — Test Execution (run_tests = true; MUST execute if Phase 7 gate passed)
-  → If run_tests == true and Phase 7 Completion Gate passed: this phase is MANDATORY — skipping it is a STOP condition
+Phase 7 — Test Execution (run_tests = true; MUST execute if Phase 6 gate passed)
+  → If run_tests == true and Phase 6 Completion Gate passed: this phase is MANDATORY — skipping it is a STOP condition
   → Load skill aws-run in primary agent
   → Re-read from disk: workflow-state.yaml, .aws/config.yaml
   → Execute inline: aws-run must attempt `aws run --change <change-id>` first (primary mode)
@@ -1492,7 +1928,7 @@ Phase 8 — Test Execution (run_tests = true; MUST execute if Phase 7 gate passe
   → Update workflow-state.yaml: phases.execution.status = final_status, phases.execution.batch_id
   → If run_tests == true but this phase is not reached: workflow status MUST be stopped, not completed
 
-Phase 9 — Inspect / Failure Analysis
+Phase 8 — Inspect / Failure Analysis
   → Load skill aws-inspect if: phases.execution.status in [FAIL, PASS_WITH_WARNINGS]
       OR qa/changes/<change-id>/known-product-issues.md exists
       OR qa/changes/<change-id>/execution/known-product-issues.md exists
@@ -1513,18 +1949,18 @@ Phase 9 — Inspect / Failure Analysis
   → Evaluate healing entry conditions:
       If phases.execution.status in [PASS, PASS_WITH_WARNINGS] AND no fix_proposal_eligible failures:
         Set phases.healing.status = not_needed
-        → Proceed to Phase 14 archive gate
+        → Proceed to Phase 14 archive eligibility recommendation
       If phases.execution.status == FAIL AND no fix_proposal_eligible failures:
         Set phases.healing.status = not_needed
         → STOP: no eligible auto-fix; require human intervention
       If phases.execution.status == FAIL AND fix_proposal_eligible failures exist:
         If gates.healing_available == false: STOP — report healing skills unavailable
         If phases.inspect.inspect_mode != primary: STOP — healing requires primary inspect mode
-        → Enter healing loop (Phase 10)
+        → Enter healing loop (Phase 9)
 
-[Healing loop — Phases 10–13]
+[Healing loop — Phases 9–12]
 
-Phase 10 — Fix Proposal
+Phase 9 — Fix Proposal
   → Load skill aws-fix-proposal in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, inspect/failure-analysis.json (required), inspect/failure-summary.md, execution/execution-manifest.yaml
   → Execute inline
@@ -1534,7 +1970,7 @@ Phase 10 — Fix Proposal
       Set phases.healing.status = not_needed
       If phases.execution.status == FAIL: STOP — no eligible fixes; require human intervention
   → Update workflow-state.yaml: phases.healing.status = proposal_created
-  → IMMEDIATELY allocate attempt index n and write attempt entry BEFORE Phase 11 starts:
+  → IMMEDIATELY allocate attempt index n and write attempt entry BEFORE Phase 10 starts:
       phases.healing.attempts[n]:
         attempt: <n>
         proposal_file: healing/fix-proposal.md
@@ -1543,28 +1979,41 @@ Phase 10 — Fix Proposal
         api_apply_status: pending
         e2e_apply_status: pending
         result: pending
-      This attempt counts toward max_healing_attempts even if Phase 11/12/13 subsequently fail.
+      This attempt counts toward max_healing_attempts even if Phase 10/11/12 subsequently fail.
 
-Phase 11 — Apply Fixes
+Phase 10 — Apply Fixes
+  Healing fixers support only API/E2E test-code targets. Fuzz and performance
+  failures are manual-review / separate-change outcomes unless a future
+  dedicated fixer target is added. Do not modify `tests/fuzz/**` or
+  `tests/perf/**` inside the API/E2E healing loop, and do not coerce a
+  fuzz/performance failure into an API/E2E proposal.
+
   [If fix-proposal.json contains API proposals (target == "api" AND eligible == true):]
   → Load skill aws-api-codegen-fixer in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
   → Execute inline
+  → Run `aws heal record-apply --change <id> --target api --proposal <applied proposal ids>`
   → Verify healing/api-apply-summary.json exists and is valid JSON
-  → Verify every file in api-apply-summary.json.modified_files is an allowed API test file
+  → Verify every file in api-apply-summary.json.files_modified is an allowed API test file
   → If healing/api-fixer-error.json was written: STOP — forbidden modification attempted
 
   [If fix-proposal.json contains E2E proposals (target == "e2e" AND eligible == true):]
   → Load skill aws-e2e-codegen-fixer in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, healing/fix-proposal.json, inspect/failure-analysis.json
   → Execute inline
+  → Run `aws heal record-apply --change <id> --target e2e --proposal <applied proposal ids>`
   → Verify healing/e2e-apply-summary.json exists and is valid JSON
-  → Verify every file in e2e-apply-summary.json.modified_files is an allowed E2E test file
+  → Verify every file in e2e-apply-summary.json.files_modified is an allowed E2E test file
   → If healing/e2e-fixer-error.json was written: STOP — forbidden modification attempted
+
+  `aws state heal --to applied` independently validates each API/E2E apply-summary:
+  required schema fields, every eligible proposal accounted for, files authorized by
+  fix-proposal.json, and actual changed test files matching the summary. A hand-written
+  minimal summary is not a valid substitute for running the fixer and `aws heal record-apply`.
 
   → Apply Fixer Safety Gate (see Fixer Safety Gate section)
       If product code changed, assertions weakened, tests deleted, skip/xfail added, or unrelated tests changed:
-        STOP — do NOT proceed to Phase 12
+        STOP — do NOT proceed to Phase 11
 
   → Orchestrator sets global apply status (after BOTH fixers complete and safety gate passes):
       Read api_apply_status from attempt entry (applied | no_op | failed)
@@ -1577,17 +2026,17 @@ Phase 11 — Apply Fixes
         → STOP: eligible proposals existed in fix-proposal.json but no fixer applied any change
         → reason: "eligible proposals listed but all fixers returned no_op — likely a proposal/file authorization mismatch"
         → phases.healing.status = failed
-        → Do NOT proceed to Phase 12 rerun (running unchanged code again is meaningless)
+        → Do NOT proceed to Phase 11 rerun (running unchanged code again is meaningless)
 
       If all statuses are in [applied, no_op] AND at least one status == applied:
         → phases.healing.status = applied
         → Update workflow-state.yaml: phases.healing.attempts[n].applied_files (aggregate from both fixers)
 
-Phase 12 — Re-run
+Phase 11 — Re-run
   → Load skill aws-run in primary agent   ← MUST be inline in primary agent
   → Re-read from disk: workflow-state.yaml, .aws/config.yaml
   → Execute inline: attempt `aws run --change <change-id>` (primary mode)
-  → Verify execution/runs/<new-batch-id>/ was created (new batch, different from Phase 8 batch)
+  → Verify execution/runs/<new-batch-id>/ was created (new batch, different from Phase 7 batch)
   → Verify execution/execution-manifest.yaml was updated with new batch_id
   → Read final_status from updated execution/execution-manifest.yaml (not from chat or claim)
   → Update workflow-state.yaml:
@@ -1595,55 +2044,60 @@ Phase 12 — Re-run
       phases.healing.attempts[n].rerun_batch_id = <new-batch-id>
   → If execution-manifest.yaml not updated with a new batch: STOP — do not claim rerun completed
 
-Phase 13 — Re-inspect
+Phase 12 — Re-inspect
   → Load skill aws-inspect in primary agent   ← MUST be inline in primary agent
-  → Re-read from disk: workflow-state.yaml, execution/execution-manifest.yaml (updated in Phase 12)
+  → Re-read from disk: workflow-state.yaml, execution/execution-manifest.yaml (updated in Phase 11)
   → Execute inline
   → Verify inspect/failure-analysis.json was updated:
       - Read inspect/failure-analysis.json.source_batch_id
       - Verify source_batch_id == phases.execution.batch_id (from latest execution-manifest.yaml)
-      - If mismatch: STOP — re-inspect analyzed a stale batch, not the Phase 12 re-run
+      - If mismatch: STOP — re-inspect analyzed a stale batch, not the Phase 11 re-run
   → Verify inspect/failure-summary.md was updated
   → Update workflow-state.yaml:
       phases.inspect.status
       phases.healing.attempts[n].result = final_status
       phases.healing.attempts[n].reinspect_batch_id = source_batch_id from failure-analysis.json
 
-  → Apply Inspect Safety Gate (same rules as Phase 9 safety gate)
+  → Apply Inspect Safety Gate (same rules as Phase 8 safety gate)
 
   → Apply healing loop gate:
       If phases.execution.status in [PASS, PASS_WITH_WARNINGS]:
         → Set phases.healing.status = resolved
         → Update attempt entry: phases.healing.attempts[n].result = PASS or PASS_WITH_WARNINGS
-        → Exit healing loop — proceed to Phase 14 archive gate
+        → Exit healing loop — proceed to Phase 14 archive eligibility recommendation
       If phases.execution.status == FAIL AND healing.attempts < max_healing_attempts AND fix_proposal_eligible failures remain:
         → Update attempt entry: phases.healing.attempts[n].result = FAIL
-        → Increment healing attempt counter
-        → Loop back to Phase 10 (re-read files from disk first)
+        → Loop back to Phase 9 (re-read files from disk first): write a NEW fix-proposal against
+          the latest batch, then `aws state heal --to proposal_created` (the CLI allocates the
+          next attempt via the applied → proposal_created loop-back edge; a stale proposal is
+          rejected with PROPOSAL-STALE, an over-budget loop-back with HEAL-ATTEMPTS-EXHAUSTED)
       If healing.attempts exhausted (count == max_healing_attempts):
         → Set phases.healing.status = exhausted
         → Update attempt entry: phases.healing.attempts[n].result = FAIL
         → STOP: healing attempts exhausted; require human intervention
         → Do NOT proceed to archive
 
-Phase 14 — Archive (only when user explicitly requests OR auto_archive == true)
-  → Verify archive gate before loading skill:
-      - phases.execution.status in [PASS, PASS_WITH_WARNINGS] — if FAIL: STOP
-      - phases.healing.status in [not_needed, resolved, skipped] — if applied/exhausted/failed: STOP
-        ("applied" alone is NOT sufficient — healing must have completed Phase 12+13 to reach "resolved")
+Phase 14 — Archive Eligibility Recommendation
+  → Evaluate archive eligibility only. Do NOT load aws-archive and do NOT write qa/archive/.
+  → Check:
+      - phases.execution.status in [PASS, PASS_WITH_WARNINGS] — if FAIL: can_archive=false
+      - phases.healing.status in [not_needed, resolved, skipped] — if applied/exhausted/failed: can_archive=false
+        ("applied" alone is NOT sufficient — healing must have completed Phase 11+12 to reach "resolved")
         ("skipped" is only archive-eligible when execution.status in [PASS, PASS_WITH_WARNINGS])
-      - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id — if stale: STOP
+      - inspect/failure-analysis.json.source_batch_id == phases.execution.batch_id — if stale: can_archive=false
       - no unresolved fix_proposal_eligible failures in latest inspect/failure-analysis.json
-      - inspect/inspect-safety-check.json exists and passed == true (latest phase) — if missing or failed: STOP
-      - if phases.healing.status == resolved: healing/fixer-safety-check.json exists and passed == true — if not: STOP
+      - inspect/inspect-safety-check.json exists and passed == true (latest phase)
+      - if phases.healing.status == resolved: healing/fixer-safety-check.json exists and passed == true
       - if PASS_WITH_WARNINGS from known product issues: require phases.inspect.status in [done, partial]; issues explicitly acknowledged
-      - if PASS_WITH_WARNINGS from fallback runner: require human confirmation OR auto_archive_with_fallback == true
+      - if PASS_WITH_WARNINGS from fallback runner: require separate human confirmation before archive
       - all applicable review JSON files have decision == "pass"
-  → Load skill aws-archive in primary agent
-  → Re-read from disk: workflow-state.yaml, review JSON files, execution result files
-  → Execute inline
-  → Archive case delta into qa/cases/, copy artifacts to qa/archive/<change-id>/
-  → Update workflow-state.yaml: phases.archive.status = archived | archived_with_warnings
+  → If all checks pass:
+      - Update workflow-state.yaml: phases.archive.status = eligible, can_archive = true,
+        recommendation = "run aws-archive separately only if the user wants to merge cases and copy artifacts"
+  → If any check fails:
+      - Update workflow-state.yaml: phases.archive.status = not_eligible, can_archive = false,
+        blockers = [specific failed checks], recommendation = "do_not_archive"
+  → Final response MUST include the archive eligibility recommendation and blockers (if any).
 ```
 
 ---
@@ -1665,7 +2119,7 @@ qa/changes/<change-id>/review/case-review.json
 qa/changes/<change-id>/review/case-review-summary.md
 ```
 
-### Fact Baseline outputs (Phase 3.5)
+### Fact Baseline outputs (Phase 2.4)
 
 ```text
 qa/changes/<change-id>/facts/fact-baseline.json
@@ -1708,11 +2162,12 @@ Only files listed in `api-codegen-plan.md` Target Files (helpers / fixtures / co
 qa/changes/<change-id>/codegen/api-codegen-summary.md   ← always
 tests/api/test_<module>_api.py                          ← when mapped in Target Files
 tests/api/helpers/<module>_api.py                       ← only if plan helper mapping non-empty
-tests/fixtures/<module>_fixtures.py                     ← only if plan + data-knowledge authorize
+tests/factories/test_<module>_<library>.py              ← required before domain-data fixture wrappers
+tests/fixtures/<module>_fixtures.py                     ← wrapper-only; calls make_* from tests/factories
 tests/api/conftest.py                                   ← only if plan explicitly requires
 ```
 
-Note: execution result files are written by `aws-run` in Phase 8, not by `aws-api-codegen`.
+Note: execution result files are written by `aws-run` in Phase 7, not by `aws-api-codegen`.
 
 ### E2E Codegen outputs
 
@@ -1728,9 +2183,9 @@ tests/fixtures/**/*.py                                  ← only if plan + data-
 tests/e2e/conftest.py                                   ← only if plan explicitly requires
 ```
 
-Note: execution result files are written by `aws-run` in Phase 8, not by `aws-e2e-codegen`.
+Note: execution result files are written by `aws-run` in Phase 7, not by `aws-e2e-codegen`.
 
-### Execution outputs (written by aws-run, Phase 8)
+### Execution outputs (written by aws-run, Phase 7)
 
 ```text
 qa/changes/<change-id>/execution/api-result.json              ← only if manifest.selected_targets.api == true
@@ -1743,7 +2198,7 @@ qa/changes/<change-id>/execution/runs/<batch-id>/             ← per-run archiv
 
 Do not fail because an unselected target result file is absent.
 
-### Inspect outputs (written by aws-inspect, Phase 9)
+### Inspect outputs (written by aws-inspect, Phase 8)
 
 ```text
 qa/changes/<change-id>/inspect/failure-analysis.json          ← primary mode only (source of truth)
@@ -1763,7 +2218,7 @@ qa/changes/<change-id>/execution/failure-summary.md           ← optional copy/
 | `primary` | `true` | `failure-analysis.json` |
 | `partial` | `false` | `inspection-partial.json` |
 
-Healing loop (Phases 10–13) requires `inspect_mode == primary` and `inspect/failure-analysis.json`.
+Healing loop (Phases 9–12) requires `inspect_mode == primary` and `inspect/failure-analysis.json`.
 
 **Directory semantics:**
 
@@ -1828,9 +2283,9 @@ Gate decision:
 - `decision == "needs_fix"` and `auto_fix_allowed == true` → run `aws-case-fixer`
 - otherwise → STOP
 
-### Fact Baseline Gate (before Phase 5A / 5B — Plan Review)
+### Fact Baseline Gate (before Phase 4A / 4B — Plan Review)
 
-Before running `aws-api-plan-reviewer` (Phase 5A) or `aws-e2e-plan-reviewer` (Phase 5B), verify:
+Before running `aws-api-plan-reviewer` (Phase 4A) or `aws-e2e-plan-reviewer` (Phase 4B), verify:
 
 - `facts/fact-baseline.json` exists
 - If `source != "unavailable"`: key facts (role names/ids, auth credentials, route prefix, token header) in the plan documents **must match** values in `fact-baseline.json`
@@ -1981,7 +2436,7 @@ Activate Fact Correction Mode if ANY of the following is true after Phase 4 or l
    ```json
    {
      "change_id": "<change-id>",
-     "triggered_at": "Phase 7B codegen pre-check",
+     "triggered_at": "Phase 6B codegen pre-check",
      "discovered_at": "<ISO timestamp>",
      "discovery_source": "live_db_probe | seed_file | code_inspection",
      "corrections": [
@@ -2011,9 +2466,9 @@ Activate Fact Correction Mode if ANY of the following is true after Phase 4 or l
        status: pass
        stale_reason: null
      api_codegen:
-       status: needs_patch   # remains until Phase 8 execution confirms semantics
+       status: needs_patch   # remains until Phase 7 execution confirms semantics
        generated_tests:
-         semantic_validity: stale   # updated to valid only after Phase 8 PASS
+         semantic_validity: stale   # updated to valid only after Phase 7 PASS
    ```
 
 ### Fact Correction Mode Is NOT a Substitute for Standard Fixers
@@ -2030,9 +2485,9 @@ Activate Fact Correction Mode if ANY of the following is true after Phase 4 or l
 
 ## Codegen Hard Gates
 
-Before **Phase 7A (API Codegen)** or **Phase 7B (E2E Codegen)**, verify in order — **STOP** on first failure. **`force_continue` MUST NOT bypass any item below.**
+Before **Phase 6A (API Codegen)** or **Phase 6B (E2E Codegen)**, verify in order — **STOP** on first failure. **`force_continue` MUST NOT bypass any item below.**
 
-### API Codegen (Phase 7A)
+### API Codegen (Phase 6A)
 
 Read `review/api-plan-review.json` and verify:
 
@@ -2043,8 +2498,9 @@ Read `review/api-plan-review.json` and verify:
 - no `needs_review` item has `blocking == true`
 - `.aws/data-knowledge.yaml` exists on disk
 - required plan files exist (`api-plan.md`, `api-test-data-plan.md`, `api-codegen-plan.md`, `m3-review-summary.md`)
+- generated fixtures follow **factory-first** rule in `aws-api-codegen` (no HTTP create in setup except create-focused cases; use `make_*` from `tests/factories/test_<module>_<library>.py` modules when present; cleanup preserves invariants and does not raw-delete M2M / closure / soft-delete entities)
 
-### E2E Codegen (Phase 7B)
+### E2E Codegen (Phase 6B)
 
 Read `review/plan-review.json` and verify:
 
@@ -2108,11 +2564,11 @@ Required transition:
 
 ## When to Ask the User
 
-**Do NOT ask the user to choose phase execution order.** The workflow routing table defines the sequence (Phase 4A → 5A → 6A → 7A for API; Phase 4B → 5B → 6B → 7B for E2E). This is not a user decision.
+**Do NOT ask the user to choose phase execution order.** The workflow routing table defines the sequence (Phase 3A → 4A → 5A → 6A for API; Phase 3B → 4B → 5B → 6B for E2E). This is not a user decision.
 
 **Do NOT ask** for:
 
-- Whether to run Phase 7A before or after Phase 7B — workflow defines: API first, then E2E
+- Whether to run Phase 6A before or after Phase 6B — workflow defines: API first, then E2E
 - Which phases to run — determined by **run_mode** (stage boundary) and **test_types** / **layers.*** (API/E2E/Fuzz/Perf subset). Eval prompt parameters override `.qa.yaml` defaults when they conflict.
 - Whether to proceed to the next phase after a `pass` — proceed automatically
 - What fix approach to use when `auto_fix_allowed == true` — run the designated fixer
@@ -2125,7 +2581,7 @@ Required transition:
 | `risk_level in ["high", "critical"]` (without `force_continue`) | Present risk, ask to proceed or stop |
 | Fact correction affects already-approved artifacts | Present the conflict, ask: in-place correction or rollback to planning |
 | Fallback runner risk (aws-run not found, test framework missing) | Present alternatives |
-| Archive confirmation when `auto_archive == false` | Ask before archiving |
+| User explicitly asks to archive after workflow completion | Explain the Phase 14 eligibility result; run `aws-archive` only as a separate, explicit action outside `aws-workflow` |
 | Healing exhausted, still FAIL | Ask: accept failures, re-plan, or stop |
 
 Any decision not in this list is made by the workflow itself. Do not surface it as a user question.
@@ -2134,7 +2590,21 @@ Any decision not in this list is made by the workflow itself. Do not surface it 
 
 ## Document-driven Parallel Work Does Not Bypass the Gate
 
-This workflow uses inline orchestration — it does not launch skill-loading subagents. The only permitted form of parallel work is **document-driven**: a subagent receives a plan document as input and executes it directly, without loading skills.
+In `inline` mode, this workflow does not launch skill-loading subagents; the only permitted form of parallel work is **document-driven**: a subagent receives a plan document as input and executes it directly, without loading skills. In `subagent-dispatch` mode, the orchestrator's bounded phase subagents are the authorized executors and DO load their assigned phase skill — but every gate below still applies identically, because gate decisions (`aws gate check`) and `workflow-state.yaml` writes remain orchestrator-only.
+
+### Conductor path (`aws conductor`)
+
+When context limits or headless automation require per-phase fresh contexts, use **`aws conductor`** instead of ad-hoc task delegation:
+
+```bash
+aws conductor brief --change <id> --phase <phase>   # compile + materialize one brief
+aws conductor run --change <id>                     # deterministic loop (default runtime: local)
+aws conductor graph --change <id>                   # rebuild execution-graph.json
+```
+
+Conductor reads phase skills / mapping config, writes `task-brief.json` + prompt under `qa/changes/<id>/orchestration/`, and (when `subagents.runtime: opencode-command`) spawns `opencode run` children that execute **only** the brief. After each dispatch, conductor validates outputs and may roll back out-of-bounds filesystem changes.
+
+**Policy unchanged for conductor children:** conductor-spawned workers execute only the materialized brief — they must not load AWS skills, must not mutate `workflow-state.yaml`, must not run gate checks, and must not decide PASS/FAIL. (This is stricter than Scheme E phase subagents, which are authorized to load their assigned phase skill.) Conductor adds runtime enforcement via agent permission files (`.opencode/agents/aws-*.md`) and the validator stack (required outputs → git-diff → self-report). Conductor is opt-in via `.aws/config.yaml`; without it, the workflow runs per `execution_mode` (Scheme E dispatch or inline).
 
 If optional document-driven parallel work fails or is unavailable, the workflow may continue inline only when the same required artifacts are produced:
 
@@ -2149,7 +2619,9 @@ Every gate listed in **Mandatory Review JSON Gate** applies identically whether 
 
 This section clarifies when subagent usage is **allowed** vs. **forbidden**, and how to record it unambiguously in `workflow-state.yaml`.
 
-### Allowed: exploration / document-driven subagents
+**Authorized vs. unauthorized:** in `subagent-dispatch` mode, bounded phase subagents dispatched by the orchestration loop are **authorized** executors for their assigned phases — **except `explore`**, which always runs inline in the primary agent (never `task(agent=aws-doc-author)`). Authorized subagents load their assigned phase skill and write that phase's output files. The rules below govern **unauthorized** subagents: anything spawned outside the orchestration loop, any nested worker spawned from inside a phase executor, and any subagent in `inline` mode (where no phase dispatch exists).
+
+### Allowed: exploration / document-driven subagents (both modes)
 
 ```text
 ✅ explore agent reads backend source files
@@ -2165,51 +2637,58 @@ subagents:
   purpose:
     - source_exploration_only        # if used for codebase exploration
     - document_driven_parallel       # if used for parallel document work
-  loaded_skills: false               # MUST remain false
-  attempted_skill_loading: false     # MUST remain false
-  attempted_phase_execution: false   # MUST remain false
-  affected_gates: false              # MUST remain false
+    - phase_dispatch                 # subagent-dispatch mode only: authorized bounded phase subagents
+  loaded_skills: false               # inline mode: MUST remain false.
+                                     # dispatch mode: true is expected for authorized phase subagents;
+                                     #   record which skills under loaded_skill_names.
+  unauthorized_skill_loading: false  # MUST remain false in both modes
+  attempted_phase_execution: false   # inline mode: MUST remain false.
+                                     # dispatch mode: authorized dispatches are recorded via purpose: phase_dispatch,
+                                     #   not via this flag.
+  affected_gates: false              # MUST remain false — gate decisions are orchestrator-only in both modes
 ```
 
-### Forbidden: skill-loading or gate-producing subagents
+### Forbidden: unauthorized skill-loading or gate-deciding subagents
 
 ```text
-❌ subagent is asked to load aws-case-design
-❌ subagent writes case-review.json
-❌ subagent writes api-plan-review.json
-❌ subagent produces any gate artifact substituting for an inline reviewer
+❌ (inline mode) any subagent is asked to load an aws-* skill
+❌ (inline mode) any subagent writes case-review.json / api-plan-review.json
+❌ (both modes) any subagent runs aws gate check / aws status, or decides pass/fail
+❌ (both modes) any subagent writes workflow-state.yaml
+❌ (dispatch mode) any subagent other than the dispatched phase subagent produces that phase's gate artifact
 ```
 
-If either of these occurs, set the corresponding flag and **STOP**:
+If any of these occurs, set the corresponding flag and **STOP**:
 
 ```yaml
 subagents:
   used: true
-  loaded_skills: true              # forbidden — subagent successfully loaded an AWS skill
-  attempted_skill_loading: true    # forbidden — subagent attempted skill loading
-  attempted_phase_execution: true  # forbidden — subagent was used to execute a phase
-  affected_gates: true             # forbidden — subagent produced or substituted a gate artifact
+  loaded_skills: true                # a subagent loaded an AWS skill without authorization
+  unauthorized_skill_loading: true   # subagent attempted/performed skill loading outside an authorized dispatch
+  attempted_phase_execution: true    # a subagent executed a phase without authorization
+  affected_gates: true               # a subagent produced a gate decision, substituted a gate artifact,
+                                     # or modified workflow-state.yaml
 ```
 
-### Forbidden: codegen subagents
+### Forbidden: nested / background codegen workers
 
-API/E2E codegen **MUST NOT** be delegated to subagents or background tasks.
+Codegen MUST execute directly in the **assigned phase executor** (primary agent in inline mode; the dispatched Phase 6A/6B/6C/6D subagent in dispatch mode). It must never be re-delegated.
 
 **Forbidden patterns:**
 
 ```text
-❌ delegate_task for aws-api-codegen
-❌ delegate_task for aws-e2e-codegen
-❌ background API codegen agent
-❌ background E2E codegen agent
-❌ treating subagent codegen output as Phase 7 completion
+❌ (inline mode) delegate_task / task for aws-api-codegen or aws-e2e-codegen
+❌ (dispatch mode) nested delegate_task / task spawned from inside the codegen phase subagent
+❌ background API codegen worker (either mode)
+❌ background E2E codegen worker (either mode)
+❌ treating nested/background codegen output as Phase 6 completion
 ```
 
-If a subagent or background task is used to attempt any AWS phase codegen — **regardless of whether the skill loading succeeded or failed**:
+If a nested subagent or background task is used to attempt any AWS phase codegen — **regardless of whether the skill loading succeeded or failed**:
 
 1. **STOP** the workflow immediately.
 2. Set `phases.api_codegen.status = stopped` or `phases.e2e_codegen.status = stopped` (whichever was affected).
-3. Set `stop_reason: "codegen delegated to background subagent; must execute inline in primary agent"`.
+3. Set `stop_reason: "codegen delegated to nested/background worker; must execute in the assigned phase executor"`.
 4. Update `subagents`:
 
 ```yaml
@@ -2217,28 +2696,28 @@ subagents:
   used: true
   purpose:
     - forbidden_codegen_attempt
-  loaded_skills: false         # true only if subagent successfully loaded an AWS skill
-  attempted_skill_loading: true  # true if subagent attempted skill loading (success or failure)
-  attempted_phase_execution: true # true always when a codegen subagent was spawned
+  loaded_skills: false         # true only if the unauthorized worker successfully loaded an AWS skill
+  unauthorized_skill_loading: true  # the worker attempted skill loading outside an authorized dispatch
+  attempted_phase_execution: true # true always when an unauthorized codegen worker was spawned
   affected_gates: false
 ```
 
 5. Do **not** proceed to any later phase.
-6. Require the primary agent to re-run codegen inline from the point of failure.
+6. Require the assigned phase executor to re-run codegen directly from the point of failure.
 
 ### Conflict with analyze-mode / search-mode pre-exploration
 
 **Hard rule: search-mode and analyze-mode parallel agents are DISABLED by default during aws-workflow.**
 
-When aws-workflow is running (Phase 0 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. The workflow's inline-execution requirement takes precedence.
+When aws-workflow is running (Phase 1.1 through Phase 14), the agent MUST NOT launch background/parallel explore, librarian, or search agents — regardless of any global `[search-mode]` or `[analyze-mode]` instruction at the top of the session context. This rule bans *additional* search/analyze agents; it does not change how AWS phases themselves execute — phases follow `execution_mode` (`explore` always inline in the primary agent; other phases inline or dispatched per Scheme E).
 
-**The only allowed exception** is source exploration *before Phase 1 begins*, and only when ALL of the following hold:
+**The only allowed exception** is source exploration *before Phase 2.1 begins*, and only when ALL of the following hold:
 
 1. No AWS skill has been loaded yet (`load_skills == []` in the invocation context).
 2. The explore agent reads source files only — no writes, no gate artifacts.
 3. No AWS skill is loaded by any explore agent.
 4. No gate artifact (`case-review.json`, `api-plan-review.json`, `plan-review.json`) is produced by an explore agent.
-5. All AWS phases (Phase 1–14) are then executed inline in the primary agent.
+5. All AWS phases (Phase 2.1–14) are then executed per `execution_mode` — inline in the primary agent, or via the orchestrator's bounded phase subagents (Scheme E). No further ad-hoc search/analyze agents are launched.
 
 If the exception applies, record it immediately in `workflow-state.yaml`:
 
@@ -2250,7 +2729,7 @@ subagents:
   affected_gates: false
 ```
 
-**If search-mode/analyze-mode agents were launched AFTER Phase 0 started**, this is a forbidden-pattern violation — treat identically to a forbidden codegen subagent (STOP, set `subagents.affected_gates = true`).
+**If search-mode/analyze-mode agents were launched AFTER Phase 1.1 started**, this is a forbidden-pattern violation — treat identically to a forbidden codegen subagent (STOP, set `subagents.affected_gates = true`).
 
 ---
 
@@ -2333,14 +2812,14 @@ Read `qa/changes/<change-id>/review/plan-review.json` and apply this gate:
 The healing loop is:
 
 ```
-aws-run (Phase 8)
-  → aws-inspect (Phase 9)
-  → aws-fix-proposal (Phase 10)
-  → aws-api-codegen-fixer / aws-e2e-codegen-fixer (Phase 11)
-  → aws-run (Phase 12: Re-run)
-  → aws-inspect (Phase 13: Re-inspect)
+aws-run (Phase 7)
+  → aws-inspect (Phase 8)
+  → aws-fix-proposal (Phase 9)
+  → aws-api-codegen-fixer / aws-e2e-codegen-fixer (Phase 10)
+  → aws-run (Phase 11: Re-run)
+  → aws-inspect (Phase 12: Re-inspect)
   → (repeat if still eligible failures and attempts < max)
-  → aws-archive (Phase 14)
+  → archive eligibility recommendation (Phase 14; no archive execution)
 ```
 
 **Eligible failure categories (fix_proposal_eligible == true):**
@@ -2362,7 +2841,7 @@ aws-run (Phase 8)
 - `unrelated_existing_failure`
 - `unknown`
 
-**Healing entry conditions (after Phase 9):**
+**Healing entry conditions (after Phase 8):**
 
 ```text
 IF phases.execution.status == FAIL
@@ -2370,14 +2849,16 @@ IF phases.execution.status == FAIL
    AND phases.inspect.inspect_mode == primary
    AND phases.inspect.classification_performed == true:
 
-  IF gates.healing_available == true → enter Phase 10
+  IF gates.healing_available == true → enter Phase 9
   IF gates.healing_available == false → STOP: report healing skills unavailable; do not archive
 
 IF no eligible failures exist (or all fix_proposal_eligible == false):
   Set phases.healing.status = not_needed
   IF phases.execution.status == FAIL → STOP: no auto-fix available; require human intervention
-  IF phases.execution.status in [PASS, PASS_WITH_WARNINGS] → proceed to Phase 14 archive gate
+  IF phases.execution.status in [PASS, PASS_WITH_WARNINGS] → proceed to Phase 14 archive eligibility recommendation
 ```
+
+**`pending` is not a resting state.** `phases.healing.status = pending` means "should be decided but not yet started". Once inspect has classified failures, the orchestrator MUST move healing.status off `pending` at this decision point — either by entering the loop or by recording `not_needed` / `skipped` (all via `aws state heal`). Never advance to Report/Phase 14 while healing.status is still `pending` (or mid-loop `applied` / `proposal_created`). `aws status` audits this as `HEAL-STATE-INCONSISTENT` and forces terminal `stopped`.
 
 **Healing hard rules:**
 
@@ -2385,27 +2866,32 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
 - **Never** fix product bugs by changing tests.
 - **Never** hide `known_product_issue` or `coverage_gap`.
 - **Never** change `FAIL` to `PASS` without a successful re-run from `aws-run` that produces `final_status == PASS`.
-- Every healing apply (Phase 11) must be followed by a re-run (Phase 12).
-- Every re-run (Phase 12) must be followed by a re-inspect (Phase 13).
-- **Never** allow a diagnostic probe from Phase 9/13 to count as an official re-run.
-- **Never** allow `phases.execution.status` to change from `FAIL` to `PASS` unless Phase 12 `aws-run` produced a new batch with `final_status == PASS`.
+- Every healing apply (Phase 10) must be followed by a re-run (Phase 11).
+- Every re-run (Phase 11) must be followed by a re-inspect (Phase 12).
+- **Never** allow a diagnostic probe from Phase 8/12 to count as an official re-run.
+- **Never** allow `phases.execution.status` to change from `FAIL` to `PASS` unless Phase 11 `aws-run` produced a new batch with `final_status == PASS`.
 - **Never** allow healing to modify product code (`app/`, `web/`, `src/`).
 - **Never** allow healing to modify unrelated tests outside the current change scope.
+- **Never** modify test files between official `aws run` batches outside the healing loop. `aws run` records `tests_tree_sha256` in `execution-manifest.yaml` and refuses changed tests unless `phases.healing.status == applied`. `--rerun-reason` is only for code-unchanged environment retries.
+- **Never** construct a command containing `--allow-test-changes` — this project's `execution-policy.json` sets `testChangesOverride: "forbidden"` and the CLI rejects it. It is a human-only override that requires the human to temporarily relax the policy file themselves; one authorization covers one batch. On `TESTS-CHANGED-WITHOUT-HEALING` / `ALLOW-TEST-CHANGES-FORBIDDEN`, enter the healing loop or STOP — never retry with an override flag.
+- `aws run` also records `product_tree_sha256`; during healing, product-code changes are mechanically rejected with `PRODUCT-CHANGED-DURING-HEALING` and have no bypass flag.
+- `healing/fixer-safety-check.json` is generated by `aws state heal --to applied`. Agent-authored versions are overwritten and must not be trusted as self-attestation.
+- If an `assertion_failure` is judged to be a test expected-value error, record that judgment with `aws report reclassify --change <id> --failure <id> --to assertion_expectation_error --evidence "<case/plan evidence>"`. Never edit `inspect/failure-analysis.json` directly.
 - If the healing skills (`aws-fix-proposal`, `aws-api-codegen-fixer`, `aws-e2e-codegen-fixer`) are not installed (`gates.healing_available == false`):
   - Set `phases.healing.status = skipped`.
   - If `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist in `inspect/failure-analysis.json`: **STOP** — report missing healing skills; do not archive a failed execution.
-  - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`: healing may be skipped; proceed to Phase 14.
-- Max healing attempts: controlled by `max_healing_attempts` (default: `2`).
+  - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`: healing may be skipped; proceed to Phase 14 archive eligibility recommendation.
+- Max healing attempts: controlled by `max_healing_attempts` (default: `3`).
 
 **Healing attempt counting rules:**
 
 ```text
-An attempt is STARTED when Phase 10 produces fix-proposal.json with eligible_count > 0.
-  → The attempt index MUST be allocated in workflow-state.yaml BEFORE Phase 11 starts.
+An attempt is STARTED when Phase 9 produces fix-proposal.json with eligible_count > 0.
+  → The attempt index MUST be allocated in workflow-state.yaml BEFORE Phase 10 starts.
   → From this point forward, the attempt counts toward max_healing_attempts.
   → There is NO mechanism to "undo" an attempt allocation.
 
-An attempt is COMPLETED only after Phase 13 (re-inspect) runs and sets attempt.result.
+An attempt is COMPLETED only after Phase 12 (re-inspect) runs and sets attempt.result.
 
 Attempt result values:
   - PASS | PASS_WITH_WARNINGS  → healed; exit loop; set phases.healing.status = resolved
@@ -2413,30 +2899,30 @@ Attempt result values:
   - failed                      → hard error; stop immediately regardless of remaining attempts
 
 The attempt ALWAYS counts even if:
-  - Phase 11 fixer fails (api-fixer-error.json / e2e-fixer-error.json written)
+  - Phase 10 fixer fails (api-fixer-error.json / e2e-fixer-error.json written)
   - Fixer Safety Gate fails (fixer-safety-check.json passed == false)
-  - Phase 12 rerun fails to produce a new batch
-  - Phase 13 re-inspect detects stale batch analysis
+  - Phase 11 rerun fails to produce a new batch
+  - Phase 12 re-inspect detects stale batch analysis
 
 In all hard-error cases:
   → Set attempt.result = failed
   → Set phases.healing.status = failed
-  → STOP immediately — do not loop back to Phase 10
+  → STOP immediately — do not loop back to Phase 9
 
-max_healing_attempts = 2 means at most two complete or attempted cycles of:
-  Phase 10 (fix-proposal) → Phase 11 (fixer) → Phase 12 (rerun) → Phase 13 (re-inspect)
+max_healing_attempts = 3 means at most three complete or attempted cycles of:
+  Phase 9 (fix-proposal) → Phase 10 (fixer) → Phase 11 (rerun) → Phase 12 (re-inspect)
 ```
 
 ---
 
 ## Inspect Safety Gate
 
-Apply this gate **after Phase 9 (initial inspect)** and **after Phase 13 (re-inspect)**:
+Apply this gate **after Phase 8 (initial inspect)** and **after Phase 12 (re-inspect)**:
 
 ```text
 Inspect Safety Gate:
 
-BEFORE aws-inspect runs (Phase 9 and Phase 13):
+BEFORE aws-inspect runs (Phase 8 and Phase 12):
   Record a filesystem baseline — either:
   a) Run: git diff --name-only HEAD  (if repo is git-tracked)
   b) Or: snapshot mtime/hash of all files under tests/, app/, web/, src/, .aws/,
@@ -2496,7 +2982,7 @@ IF passed == false OR file does not exist:
 
 ## Fixer Safety Gate
 
-Apply this gate **after Phase 11 (apply fixes)**:
+Apply this gate **after Phase 10 (apply fixes)**:
 
 ```text
 Fixer Safety Gate:
@@ -2585,27 +3071,26 @@ Stop the workflow immediately when any of the following is true:
 - Fix attempt count exceeds `max_case_fix_attempts` or `max_plan_fix_attempts`
 - Healing attempt count exceeds `max_healing_attempts` (`phases.healing.status == exhausted`)
 - `phases.execution.status == FAIL` and healing skills are unavailable (`gates.healing_available == false`) and `fix_proposal_eligible` failures exist
-- Archive attempted when `phases.execution.status == FAIL` or `phases.healing.status in [applied, exhausted, failed]`
-- Archive attempted when `inspect/failure-analysis.json.source_batch_id != phases.execution.batch_id` (stale inspect)
+- Archive is attempted inside `aws-workflow` instead of being left as a separate explicit `aws-archive` action
 - Codegen requires guessing unknown product behavior (route, auth, selector, factory)
 - Test execution environment is unavailable (`aws` CLI or uv/pytest not installed)
 - A document-driven optional subagent returns an unrecoverable error (inline orchestration does not use skill-loading subagents)
 - **Codegen subagent violations (always stops — no bypass):**
-  - Any AWS phase skill (`aws-api-codegen`, `aws-e2e-codegen`, or any other phase skill) is delegated to a subagent or background task
-  - `aws-api-codegen` or `aws-e2e-codegen` executes in a background agent instead of inline in the primary agent
-  - Phase 7A or Phase 7B codegen skill is loaded but not executed inline (skill loaded ≠ phase complete)
-  - Phase 7A codegen summary (`codegen/api-codegen-summary.md`) is missing after codegen was claimed complete
-  - Phase 7B codegen summary (`codegen/e2e-codegen-summary.md`) is missing after codegen was claimed complete
+  - Any AWS phase skill is loaded/executed by an **unauthorized** subagent or background task (in inline mode, that is any subagent; in dispatch mode, anything other than the orchestrator's dispatched phase subagent)
+  - `aws-api-codegen` or `aws-e2e-codegen` executes in a nested/background worker instead of directly in the assigned phase executor
+  - Phase 6A or Phase 6B codegen skill is loaded but not executed by the assigned phase executor (skill loaded ≠ phase complete)
+  - Phase 6A codegen summary (`codegen/api-codegen-summary.md`) is missing after codegen was claimed complete
+  - Phase 6B codegen summary (`codegen/e2e-codegen-summary.md`) is missing after codegen was claimed complete
   - `workflow-state.yaml` does not show `phases.api_codegen.status = done` or `phases.e2e_codegen.status = done` when required
-- **Phase 8 gate violations:**
-  - `run_tests == true` and Phase 7 Completion Gate passed, but Phase 8 `aws-run` is not executed
-  - Phase 8 executes but `execution/execution-manifest.yaml` is missing after the run
+- **Phase 7 gate violations:**
+  - `run_tests == true` and Phase 6 Completion Gate passed, but Phase 7 `aws-run` is not executed
+  - Phase 7 executes but `execution/execution-manifest.yaml` is missing after the run
 - **Healing loop violations:**
   - `phases.execution.status == FAIL` and no `fix_proposal_eligible` failures and `phases.healing.status == not_needed` (no auto-fix path; require human)
   - `gates.healing_available == false` and `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist
-  - Inspect safety gate triggered: `aws-inspect` modified forbidden files during Phase 9 or Phase 13
+  - Inspect safety gate triggered: `aws-inspect` modified forbidden files during Phase 8 or Phase 12
   - Fixer safety gate triggered: fixer modified product code, weakened assertions, added skip/xfail, deleted tests, or modified unrelated tests
-  - Phase 12 `aws-run` did not produce a new batch — `execution-manifest.yaml` not updated
+  - Phase 11 `aws-run` did not produce a new batch — `execution-manifest.yaml` not updated
   - `phases.healing.status == exhausted` (max attempts reached)
   - `phases.healing.status == failed` (fixer wrote error file or safety gate triggered)
 
@@ -2613,9 +3098,200 @@ When stopped, **report** the exact stop reason, which file or gate triggered it,
 
 ---
 
+## Context Budget Check & Session Handoff
+
+Inline orchestration shares one context window across all 14 phases. As phases accumulate, context fills up. When it does, the agent MUST stop cleanly and hand off to a new session — NOT power through with truncated SKILL.md reads and incomplete code generation.
+
+### Self-Monitoring Rule (every turn, not just phase boundaries)
+
+The `monitor-status-injector` hook emits `[Context Status: X% used (...)]` in every `<system-reminder>` block. The agent MUST treat this as a **hard signal**, not informational:
+
+- **At every assistant turn**, before deciding the next action, read the most recent `Context Status: X%` value.
+- If `X% >= 75%` → **STOP all further phase work this turn**, regardless of:
+  - `[SYSTEM REMINDER - TODO CONTINUATION]` messages (the continuation hook does not know context state; it will catch up after handoff)
+  - pending todos
+  - in-progress phase work
+  - user pressure to continue
+- The only allowed actions at `X% >= 75%` are: write `handoff.md`, cancel pending todos via `todowrite`, end the response.
+
+This rule overrides the todo continuation hook. The two hooks (`monitor-status-injector` and `todo-continuation-enforcer`) do not coordinate — the agent IS the coordinator. When they conflict, **context monitor wins**.
+
+### Why the Continuation Hook Conflicts with Context Pressure
+
+When pending todos exist, `todo-continuation-enforcer` injects `[SYSTEM REMINDER - TODO CONTINUATION]` after every response, regardless of context state. Without this rule, the agent will:
+
+1. See `Context Status: 85% used` — interpret as advisory
+2. See `[SYSTEM REMINDER - TODO CONTINUATION]` — interpret as mandatory
+3. Continue executing → context goes to 95% → 105% (overflow) → `anthropic-context-window-limit-recovery` triggers truncation / summarize
+4. Summarized context loses SKILL.md hard rules → next phase generates incomplete code
+
+The fix is purely behavioral: agent must prioritize `Context Status` over `TODO CONTINUATION` when they conflict. **The Skill Load Gate enforces "read the contract"; this Self-Monitoring Rule enforces "respect the budget".**
+
+### When to Trigger (Phase Entry — still applies)
+
+Before entering **any** phase (after the Skill Load Gate check, before reading the phase's SKILL.md), the agent MUST also assess context budget:
+
+- If remaining context < 25% → **MUST handoff** (no phase work this turn).
+- If remaining context < 40% AND the upcoming phase is a codegen phase (6A / 6B) → **MUST handoff** (codegen phases are context-heavy: SKILL.md + all plans + case.yaml + data-knowledge + generating multiple files).
+- If remaining context < 40% AND the upcoming phase has a SKILL.md > 400 lines → **SHOULD handoff** (large SKILL.md + inputs will consume most of the remaining budget).
+
+The agent cannot know its exact token count, but it MUST use the `<system-reminder>` context-window monitor messages as the signal. When the monitor reports ≥ 75% used, treat the upcoming phase as triggering the handoff rules above.
+
+### Handoff Procedure
+
+When context budget is insufficient:
+
+1. **Do NOT start the phase.** Do not read the SKILL.md. Do not generate any files.
+2. **Write a handoff document** to `qa/changes/<change-id>/handoff.md`:
+
+```markdown
+# Session Handoff — <change-id>
+
+**Date:** <ISO 8601>
+**Reason:** Context budget exhausted (<percentage>% used).
+**Next phase to execute:** <phase_name> (e.g. api_codegen)
+
+## Completed phases (status from workflow-state.yaml)
+
+| Phase | Status | skill_loaded |
+|---|---|---|
+| ... | ... | ... |
+
+## Remaining phases
+
+1. <next_phase> — NOT STARTED (this is where the next session picks up)
+2. <phase_after>
+3. ...
+
+## Resume instructions
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml` (sole source of truth).
+2. Read `qa/changes/<change-id>/handoff.md` (this file).
+3. Find the first phase with `status: pending` in workflow-state.yaml.
+4. Execute the Skill Load Gate for that phase (per execution_mode: primary reads the SKILL.md inline, or the dispatched phase subagent reads it).
+5. Continue the workflow per `execution_mode` recorded in workflow-state.yaml.
+```
+
+3. **Update `workflow-state.yaml`** with a handoff marker:
+
+```yaml
+handoff:
+  active: true
+  reason: "context_budget_exhausted"
+  next_phase: <phase_name>
+  handoff_file: qa/changes/<change-id>/handoff.md
+  written_at: <ISO 8601>
+```
+
+4. **Cancel all pending todos.** Do NOT leave `in_progress` or `pending` todos — the todo continuation hook will force the agent to resume in the same exhausted context. Use `todowrite` to mark ALL remaining items as `cancelled` with a note:
+
+```
+cancelled — context budget exhausted; see handoff.md for resume instructions
+```
+
+5. **End the response** with:
+
+```
+Context budget exhausted (<percentage>% used). Workflow paused at phase <next_phase>.
+
+Handoff document: qa/changes/<change-id>/handoff.md
+All pending todos cancelled (todo continuation hook suppressed).
+
+To resume in a new session:
+1. Start a new conversation
+2. Say: "Continue aws-workflow for change <change-id> from <next_phase>"
+3. The new session will read workflow-state.yaml + handoff.md and continue
+```
+
+### Why This Exists
+
+Without this mechanism, the agent faces two bad options when context fills up:
+
+- **Power through**: read truncated SKILL.md → miss hard rules → generate incomplete code (missing case_id prefixes, missing `assert_matches_schema`, missing `codegen-summary.md`) → discover defects only after `aws run` produces `unmapped_tests` or test failures.
+- **Stop abruptly**: leave pending todos → todo continuation hook forces resume in the same exhausted context → same truncation problem.
+
+The handoff procedure gives the agent a **third option**: stop cleanly, write a resume document, cancel todos so the hook doesn't fire, and let the next session pick up with a fresh context.
+
+### Resume Protocol (New Session)
+
+When a new session starts with "Continue aws-workflow for change `<change-id>`":
+
+1. Read `qa/changes/<change-id>/workflow-state.yaml`.
+2. If `handoff.active == true`:
+   - Read `qa/changes/<change-id>/handoff.md` for context.
+   - Set `handoff.active = false` in workflow-state.yaml (handoff consumed).
+   - Find the first phase with `status: pending` — this is the resume point.
+   - Execute the Skill Load Gate for that phase.
+   - Continue the workflow inline.
+3. If `handoff.active != true`:
+   - No handoff in progress; start from the beginning or ask the user.
+
+---
+
 ## Final Response Format
 
-After the workflow completes or stops, always output this structure:
+After the workflow completes or stops, always output a chat-visible execution result summary.
+The summary is part of the workflow contract, not an optional recap.
+
+Before writing the final response, re-read these artifacts from disk when they exist:
+
+- `qa/changes/<change-id>/workflow-state.yaml`
+- `qa/changes/<change-id>/execution/summary.md`
+- `qa/changes/<change-id>/execution/execution-manifest.yaml`
+- `qa/changes/<change-id>/report/quality-report.json`
+- `qa/changes/<change-id>/report/executive-summary.md`
+- `qa/changes/<change-id>/inspect/failure-analysis.json`
+- `qa/changes/<change-id>/inspect/failure-summary.md`
+- `qa/changes/<change-id>/execution/api-result.json`
+- `qa/changes/<change-id>/execution/e2e-result.json`
+- `qa/changes/<change-id>/execution/fuzz-result.json`
+- `qa/changes/<change-id>/execution/performance-result.json`
+
+Do not fabricate missing values. If an artifact is missing, show the corresponding
+field as `unknown`, `missing`, or `not_applicable` and include a warning. The only
+source for `quality_score`, `risk_level`, and `release_recommendation` is
+`report/quality-report.json`; if it is missing or invalid, do not recompute those
+fields from test counts.
+
+The final chat response MUST start with this block:
+
+```text
+Current Execution Result Statistics
+
+Overview:
+  Change ID: <change-id>
+  Workflow phases: <completed>/<expected> (<Phase X -> Phase Y summary>)
+  Workflow status: <completed | completed_with_warnings | failed | stopped>
+  Final status: <PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | unknown>
+  Quality score: <N/100 | unknown>
+  Risk level: <low | medium | high | critical | unknown>
+  Release recommendation: <release | release_with_warnings | do_not_release | unknown>
+
+Test statistics:
+  API: <passed>/<total> passed, <failed> failed, <skipped> skipped, duration <value | unknown>
+  E2E: <passed>/<total> passed, <failed> failed, <skipped> skipped, duration <value | unknown>
+  Fuzz: <passed>/<total> passed, <failed> failed, <skipped> skipped, duration <value | not_applicable | unknown>
+  Performance: <passed>/<total> passed, <failed> failed, <skipped> skipped, duration <value | not_applicable | unknown>
+
+Failure summary:
+  Failed cases: <N | unknown>
+  Main categories: <category=count list | none | unknown>
+  Fix-proposal eligible: <N | unknown>
+  Healing: <not_needed | proposal_created | applied | resolved | exhausted | failed | skipped | unknown>
+
+Artifacts:
+  Execution summary: execution/summary.md | missing
+  Quality report: report/quality-report.md | missing
+  Executive summary: report/executive-summary.md | missing
+  Failure summary: inspect/failure-summary.md | missing | not_applicable
+  Archive eligibility: eligible | not_eligible | skipped | unknown
+  Archive blockers: <count/list | none | unknown>
+
+Next action:
+  <one concrete recommendation based on status and gates>
+```
+
+Then include the detailed gate/status structure below when useful for debugging or audit:
 
 ```
 AWS workflow <completed | completed_with_warnings | failed | stopped>.
@@ -2665,7 +3341,7 @@ Codegen:
   stop_reason: <if api_codegen or e2e_codegen == stopped>
 
 Execution:
-  expected: true | false   # true when run_tests == true and Phase 7 gate passed
+  expected: true | false   # true when run_tests == true and Phase 6 gate passed
   executed: true | false   # true only if aws-run ran inline in primary agent
   runner: primary (aws run) | fallback (direct pytest) | —
   final_status: <PASS | PASS_WITH_WARNINGS | FAIL | SKIPPED | —>
@@ -2688,15 +3364,17 @@ Healing:
   applied_files: <list or —>
   latest_inspect_batch_id: <batch_id or —>   # must match phases.execution.batch_id before archive
 
-Execution mode: inline
-Subagent usage: <none | exploration_only>
+Execution mode: <inline | subagent-dispatch>
+Subagent usage: <none | exploration_only | phase_dispatch>
   used: <true | false>
-  purpose: <source_exploration_only | document_driven_parallel | none>
-  loaded_skills: <true | false>   # must be false
-  affected_gates: <true | false>  # must be false
+  purpose: <phase_dispatch | source_exploration_only | document_driven_parallel | none>
+  loaded_skills: <true | false>   # inline mode: must be false.
+                                  # subagent-dispatch mode: true is expected (authorized phase subagents).
+  unauthorized_skill_loading: <true | false>  # must be false in both modes
+  affected_gates: <true | false>  # must be false in both modes (gates are orchestrator-only)
 
 Agent Warnings:
-  - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable.
+  - OPENCODE-SKILL-RESOLUTION-001: workflow executed inline because subagent skill inheritance is unreliable (inline-fallback runs only).
   - AWS-HEALING-SKILLS-UNAVAILABLE: optional healing skills missing; healing loop unavailable on eligible failures.
 
 Warnings:
@@ -2712,11 +3390,11 @@ Do not claim the workflow succeeded if it stopped before Phase 9.
 
 If `run_tests == true`, do **not** report the workflow as `completed` or `completed_with_warnings` unless:
 
-- Phase 8 (`aws-run`) executed inline in the primary agent.
+- Phase 7 (`aws-run`) executed directly in the orchestrator (primary agent) — this holds in both modes, because CLI phases are never dispatched.
 - `execution/execution-manifest.yaml` exists on disk.
 - `final_status` was read from the manifest (not from chat or claim).
 
-If `run_tests == true` but Phase 8 did not execute, report `Workflow status: stopped` and include `Execution.stop_reason`.
+If `run_tests == true` but Phase 7 did not execute, report `Workflow status: stopped` and include `Execution.stop_reason`.
 
 **Workflow status mapping:**
 
@@ -2726,9 +3404,9 @@ If `run_tests == true` but Phase 8 did not execute, report `Workflow status: sto
 | All gates pass, execution `PASS_WITH_WARNINGS` or known issues exist | `completed_with_warnings` |
 | Execution `FAIL`, healing `exhausted`, or healing `failed` | `failed` |
 | Workflow stops before execution due to missing inputs, invalid gates, `human_review_required`, missing `.aws/data-knowledge.yaml`, unavailable environment, or missing required skill | `stopped` |
-| `run_tests == true` but Phase 8 was not executed (codegen stopped, subagent violation, or Phase 7 gate failed) | `stopped` |
-| `run_tests == true`, Phase 8 executed, but `execution/execution-manifest.yaml` is missing | `stopped` |
-| Codegen delegated to subagent or background task (`forbidden_codegen_attempt`) | `stopped` |
+| `run_tests == true` but Phase 7 was not executed (codegen stopped, subagent violation, or Phase 6 gate failed) | `stopped` |
+| `run_tests == true`, Phase 7 executed, but `execution/execution-manifest.yaml` is missing | `stopped` |
+| Codegen delegated from the assigned phase executor to a nested subagent or background task (`forbidden_codegen_attempt`) | `stopped` |
 
 Do not use `completed` when execution is `PASS_WITH_WARNINGS` or known product issues are present — use `completed_with_warnings`.
 
@@ -2779,7 +3457,6 @@ Use instead:
 ```text
 completed_with_warnings        (workflow-level status)
 PASS_WITH_WARNINGS             (execution final_status)
-archived_with_warnings         (archive status)
+archive eligible with warnings (Phase 14 recommendation, not an executed archive status)
 ```
-
 

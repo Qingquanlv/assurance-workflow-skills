@@ -4,16 +4,34 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { canonicalizeCaseId } from '../core/case_id';
 import { parseXml } from '../utils/xml_io';
 import { ApiCaseResult, ApiResult, E2eCaseResult, E2eResult, ExecutionStatus } from '../core/types';
 
 // ─── Case-ID extraction helpers ──────────────────────────────────────────────
 
-const CASE_ID_RE = /\b(TC-[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)(?=[^A-Z0-9-]|$)/;
+// Canonical case IDs use the underscore form TC_<MODULE>[_<LAYER>]_<NNN>
+// (e.g. TC_ROLE_API_001). Inside a test/locust function name the id is the
+// prefix, delimited from the human description by a DOUBLE separator
+// (test_tc_role_api_001__role_list_happy_path). The id terminates at its numeric
+// suffix; this avoids swallowing description words from older single-underscore
+// names such as test_tc_role_api_001_role_list.
+//
+// Degraded matching (per design): matching is case-insensitive and the legacy
+// hyphen form (TC-ROLE-API-001) is still accepted. The extracted id is
+// canonicalized to the underscore form so it matches case_id values in case.yaml.
+// A lookbehind (not \b) is required because `_` is a word char, so \b would
+// not fire between `test_` and `tc_...`.
+const CASE_ID_RE = /(?<![A-Z0-9])(TC[-_][A-Z0-9]+(?:[-_][A-Z0-9]+)*[-_][0-9]{3})(?=$|[^A-Z0-9])/i;
 
 function extractCaseId(text: string): string {
   const m = CASE_ID_RE.exec(text);
-  return m ? m[1] : '';
+  return m ? normalizeExtractedCaseId(m[1]) : '';
+}
+
+// Shared so name-derived and property-derived ids never diverge in casing.
+function normalizeExtractedCaseId(raw: string): string {
+  return canonicalizeCaseId(raw);
 }
 
 /**
@@ -31,8 +49,26 @@ function extractCaseIdFromProperties(t: Record<string, unknown>): string {
     const p = prop as Record<string, unknown>;
     const attrs = (p['$'] ?? p) as Record<string, string>;
     if (attrs.name === 'case_id' && attrs.value) {
-      return attrs.value;
+      return normalizeExtractedCaseId(attrs.value);
     }
+  }
+  return '';
+}
+
+/**
+ * Extract a human-readable message from a JUnit child node (failure/error/skipped).
+ * xml2js (mergeAttrs: false) puts attributes under `$`, so `message` must be read
+ * from `node.$.message`; the regex fallback parser flattens attrs onto the node.
+ * Never stringifies the node itself (that produced "[object Object]").
+ */
+function xmlNodeMessage(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (node === null || typeof node !== 'object') return '';
+  const n = node as Record<string, unknown>;
+  const attrs = (n['$'] ?? {}) as Record<string, unknown>;
+  const candidates = [n._, n.message, attrs.message, attrs.type];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
   }
   return '';
 }
@@ -100,16 +136,13 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
 
       if (t.failure) {
         status = 'failed';
-        const fail = (t.failure as Record<string, string>);
-        message = fail._ ?? fail.message ?? String(t.failure);
+        message = xmlNodeMessage(t.failure);
       } else if (t.error) {
         status = 'failed';
-        const err = (t.error as Record<string, string>);
-        message = err._ ?? err.message ?? String(t.error);
+        message = xmlNodeMessage(t.error);
       } else if (t.skipped) {
         status = 'skipped';
-        const sk = (t.skipped as Record<string, string>);
-        message = sk._ ?? sk.message ?? String(t.skipped);
+        message = xmlNodeMessage(t.skipped);
       }
 
       // Derive file path from classname (e.g. tests.api.test_auth → tests/api/test_auth.py)
@@ -252,16 +285,13 @@ export function parsePytestXmlForE2e(opts: ParsePytestE2eXmlOptions): E2eResult 
 
       if (t.failure) {
         status = 'failed';
-        const fail = (t.failure as Record<string, string>);
-        message = fail._ ?? fail.message ?? String(t.failure);
+        message = xmlNodeMessage(t.failure);
       } else if (t.error) {
         status = 'failed';
-        const err = (t.error as Record<string, string>);
-        message = err._ ?? err.message ?? String(t.error);
+        message = xmlNodeMessage(t.error);
       } else if (t.skipped) {
         status = 'skipped';
-        const sk = (t.skipped as Record<string, string>);
-        message = sk._ ?? sk.message ?? String(t.skipped);
+        message = xmlNodeMessage(t.skipped);
       }
 
       const filePath = classname ? classname.replace(/\./g, '/') + '.py' : '';

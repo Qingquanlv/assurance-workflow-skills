@@ -39,12 +39,12 @@ Do not rely on prior conversation context.
 2. Write optional pointers into `execution/` (for downstream consumers):
    - `qa/changes/<change-id>/execution/failure-analysis.json` (copy/pointer)
    - `qa/changes/<change-id>/execution/failure-summary.md` (copy/pointer)
-3. Update `workflow-state.yaml`:
-   - Set `phases.inspect.status = done`
-   - Set `phases.inspect.inspect_mode = primary`
-   - Set `phases.inspect.classification_performed = true`
-   - Update `phases.execution.status` only under **Status Update Rules**
-   - Append inspect-discovered issues to `phases.inspect.known_product_issues` (not change-level record unless promoted)
+3. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.inspect.status = done`
+   - `phases.inspect.inspect_mode = primary`
+   - `phases.inspect.classification_performed = true`
+   - `phases.execution.status` change only under **Status Update Rules**
+   - Inspect-discovered issues appended to `phases.inspect.known_product_issues` (not change-level record unless promoted)
 
 **After completing work (fallback partial mode):**
 
@@ -52,16 +52,16 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/inspect/failure-summary.md` (raw summary only)
    - `qa/changes/<change-id>/inspect/inspection-partial.json` (see **Fallback Partial Output**)
 2. Do **not** write `inspect/failure-analysis.json`.
-3. Update `workflow-state.yaml`:
-   - Set `phases.inspect.status = partial`
-   - Set `phases.inspect.inspect_mode = partial`
-   - Set `phases.inspect.classification_performed = false`
+3. Report the `workflow-state.yaml` state delta (same rule as primary mode — orchestrator applies it when dispatched):
+   - `phases.inspect.status = partial`
+   - `phases.inspect.inspect_mode = partial`
+   - `phases.inspect.classification_performed = false`
    - Do **not** upgrade `phases.execution.status` (see **Status Update Rules**)
 
 **After CLI failure (primary attempted, outputs missing):**
 
 1. Write `qa/changes/<change-id>/inspect/inspection-error.json` or `inspect/inspection-error.md`
-2. Set `phases.inspect.status = failed`
+2. Report state delta `phases.inspect.status = failed` (orchestrator applies it when dispatched)
 3. Do not classify manually
 
 ---
@@ -79,6 +79,23 @@ Inspect execution results and artifacts for a specific change, classify failures
 **Fallback partial mode:** The skill may summarize raw artifacts but **must not** assign failure categories or write `failure-analysis.json`.
 
 **Never:** Fabricate categories, overwrite `execution/known-product-issues.md` with inspect discoveries, or promote inspect findings to change-level records without explicit permission.
+
+## Assertion Expectation Reclassification
+
+Default `assertion_failure` remains non-fixable. If inspection determines the failure is a test expected-value error (not product behavior), the skill MUST use the CLI to record the judgment:
+
+```bash
+aws report reclassify --change <change-id> \
+  --failure <case_id-or-test-name> \
+  --to assertion_expectation_error \
+  --evidence "<case.yaml / plan evidence proving the expected value>"
+```
+
+Rules:
+
+- Evidence is mandatory and must cite the case or plan expectation.
+- Do not edit `inspect/failure-analysis.json` directly.
+- Reclassified failures become `fix_proposal_eligible=true` and `needs_review=true`; downstream fix proposals require human approval before apply.
 
 ## AWS CLI Identity Check
 
@@ -457,7 +474,7 @@ If the CLI completes but required primary output is missing (`inspect/failure-an
 9. Read `inspect/failure-summary.md`.
 10. Read `inspect/known-product-issues.md` if present — do **not** overwrite `execution/known-product-issues.md`.
 11. Present summary to user (category breakdown in primary mode; raw summary in partial mode).
-12. Update `workflow-state.yaml` per mode (see Context Contract **After completing work**).
+12. Report the state delta per mode (see Context Contract **After completing work** — orchestrator applies it to `workflow-state.yaml` when dispatched).
 13. Do **not** generate fix proposals in this skill — eligible failures are consumed by downstream healing skills.
 
 ## Status Update Rules

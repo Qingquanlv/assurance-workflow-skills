@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import { InitAnswers } from './types';
 import { buildConfigYaml } from '../templates/config-yaml';
 import { buildExecutionPolicy } from '../templates/execution-policy';
+import { buildModuleMapYaml } from '../templates/module-map-yaml';
+import { buildDataKnowledgeYaml } from '../templates/data-knowledge-yaml';
 import { safeWriteFile, fileExists } from '../utils/fs';
 
 
@@ -76,6 +78,9 @@ export function generateProject(root: string, answers: InitAnswers): GenerateRes
   // Core config files
   write('.aws/config.yaml', buildConfigYaml(answers));
   write('.aws/execution-policy.json', JSON.stringify(buildExecutionPolicy(answers), null, 2) + '\n');
+  write('.aws/module-map.yaml', buildModuleMapYaml());
+  // Human-maintained knowledge base — never overwrite a filled-in file.
+  write('.aws/data-knowledge.yaml', buildDataKnowledgeYaml(), false);
 
   // .gitkeep files
   for (const dir of GITKEEP_DIRS) {
@@ -107,6 +112,9 @@ export function repairProject(root: string, options: RepairOptions): GenerateRes
   for (const dir of GITKEEP_DIRS) {
     write(`${dir}/.gitkeep`, '');
   }
+
+  write('.aws/module-map.yaml', buildModuleMapYaml());
+  write('.aws/data-knowledge.yaml', buildDataKnowledgeYaml());
 
   // Note: repair does not re-run OpenCode registration to avoid overwriting user edits.
 
