@@ -33,16 +33,16 @@ Do not rely on prior conversation context.
    - `tests/api/conftest.py` — only if plan explicitly requires it (see conftest rules)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/api-codegen-summary.md` (create `codegen/` directory if missing)
-2. Update `workflow-state.yaml`:
-   - Set `phases.api_codegen.status = done`
-   - Set `phases.api_codegen.review_gate_file = review/api-plan-review.json`
-   - Set `phases.api_codegen.codegen_readiness` = value from review JSON
-   - List generated files under `phases.api_codegen.generated_tests.files`
-   - Set `phases.api_codegen.warnings_carried` = warning IDs or summaries from review JSON
-   - Set `phases.api_codegen.known_product_issues.present` = true|false
-   - Set `phases.api_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.api_codegen.status = done`
+   - `phases.api_codegen.review_gate_file = review/api-plan-review.json`
+   - `phases.api_codegen.codegen_readiness` = value from review JSON
+   - `phases.api_codegen.generated_tests.files` = list of generated files
+   - `phases.api_codegen.warnings_carried` = warning IDs or summaries from review JSON
+   - `phases.api_codegen.known_product_issues.present` = true|false
+   - `phases.api_codegen.known_product_issues.file` = `qa/changes/<change-id>/known-product-issues.md` (if present)
 
-Example `workflow-state.yaml` fragment:
+Example `workflow-state.yaml` fragment (as applied by the state owner):
 
 ```yaml
 phases:
@@ -229,7 +229,7 @@ Complete in order:
 - [ ] Check Mandatory Review JSON Gate (full gate + coverage gap rules)
 - [ ] Validate test data capabilities (reuse existing factory/fixture or create only when authorized)
 - [ ] Generate or append `tests/api/test_<module>_api.py`
-- [ ] Verify each test function name uses normalized case_id (lowercase) prefix + `__` separator; covers all case_ids in Case → Test Function Mapping (case-insensitive)
+- [ ] **Mechanical naming verification (mandatory, evidence required):** run `uv run pytest --collect-only -q <generated test files>` and confirm EVERY collected test id matches `test_<case_id lowercase>__<description>` and covers all case_ids in Case → Test Function Mapping (case-insensitive). Paste the collect-only output into the **Traceability Verification** section of `api-codegen-summary.md`. If the plan's Test Function Mapping itself lacks the case_id prefix, do NOT copy it verbatim — the naming rule in this skill overrides the plan; rename and note the correction in the summary.
 - [ ] Verify all config values reference `tests.config.settings`; no hardcoded URL / credentials / prefixes
 - [ ] Verify entities with M2M / closure / hash invariants use `make_*` from `tests/factories/` modules; no raw ORM `create()`
 - [ ] Verify every domain-data fixture has a corresponding `tests/factories/test_<module>_<library>.py` Target File; if missing, STOP instead of generating wrapper-only setup
@@ -239,7 +239,7 @@ Complete in order:
 - [ ] Generate `tests/fixtures/<module>_fixtures.py` only as a wrapper around `make_*` (only when plan + data-knowledge authorize)
 - [ ] Generate `tests/api/helpers/<module>_api.py` (when helper mapping non-empty)
 - [ ] Update `tests/api/conftest.py` (only when plan explicitly requires)
-- [ ] Update `workflow-state.yaml` (`phases.api_codegen` with review_gate_file, codegen_readiness, warnings_carried, known_product_issues)
+- [ ] Report the `phases.api_codegen` state delta (review_gate_file, codegen_readiness, warnings_carried, known_product_issues) — applied to `workflow-state.yaml` by the state owner per the Context Contract
 - [ ] Create `codegen/` directory (if missing), write `api-codegen-summary.md`
 - [ ] If any endpoint is not registered in `_LOCAL_SCHEMAS`, write **Schema Registration Required** section in `api-codegen-summary.md`
 - [ ] Output Codegen Summary (file list + next step)
@@ -459,6 +459,7 @@ Must include:
 
 - **Generated Files** — list of actually generated or modified files (optional files not generated marked N/A)
 - **Case → Test Function Mapping** — table: Case ID \| Test Function \| File
+- **Traceability Verification** — pasted `pytest --collect-only -q` output proving every collected test name carries its `test_<case_id lowercase>__` prefix (mandatory; a summary without this section is incomplete)
 - **Fixtures Generated** — fixture names and sources (or "Reused existing — no new file")
 - **Helpers Generated** — helper files and purpose (None if none)
 - **Schema Assertion Coverage** — table: Test Function \| Endpoint Key \| Registered in \_LOCAL\_SCHEMAS (✓/✗)
@@ -553,6 +554,7 @@ Rules:
 - Do not swallow failures with empty `try/except` or `except Exception: pass`.
 - Do not add fallback logic that hides product failures.
 - Do not use `skip`, `xfail`, or conditional early return to make generated tests green.
+  - **Only exception for `xfail`:** a known product issue that was explicitly decided at intake/case-design (e.g. `assert_ideal` on a documented product bug) AND is documented in `qa/changes/<change-id>/known-product-issues.md`. The xfail `reason` MUST reference the issue ID from that file (e.g. `KPI-001` / `PH-001`). An xfail whose issue is not recorded in `known-product-issues.md` is a violation — record the issue first (human/reviewer acknowledged), then mark xfail.
 - Do not loosen expected values after observing failures.
 - Do not mock the behavior under test unless the plan explicitly authorizes it.
 - Setup may be flexible; assertions must be strict.

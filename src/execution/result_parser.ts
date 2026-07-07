@@ -55,6 +55,24 @@ function extractCaseIdFromProperties(t: Record<string, unknown>): string {
   return '';
 }
 
+/**
+ * Extract a human-readable message from a JUnit child node (failure/error/skipped).
+ * xml2js (mergeAttrs: false) puts attributes under `$`, so `message` must be read
+ * from `node.$.message`; the regex fallback parser flattens attrs onto the node.
+ * Never stringifies the node itself (that produced "[object Object]").
+ */
+function xmlNodeMessage(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (node === null || typeof node !== 'object') return '';
+  const n = node as Record<string, unknown>;
+  const attrs = (n['$'] ?? {}) as Record<string, unknown>;
+  const candidates = [n._, n.message, attrs.message, attrs.type];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return '';
+}
+
 // ─── pytest (JUnit XML) parser ────────────────────────────────────────────────
 
 export interface ParsePytestXmlOptions {
@@ -118,16 +136,13 @@ export function parsePytestXml(opts: ParsePytestXmlOptions): ApiResult {
 
       if (t.failure) {
         status = 'failed';
-        const fail = (t.failure as Record<string, string>);
-        message = fail._ ?? fail.message ?? String(t.failure);
+        message = xmlNodeMessage(t.failure);
       } else if (t.error) {
         status = 'failed';
-        const err = (t.error as Record<string, string>);
-        message = err._ ?? err.message ?? String(t.error);
+        message = xmlNodeMessage(t.error);
       } else if (t.skipped) {
         status = 'skipped';
-        const sk = (t.skipped as Record<string, string>);
-        message = sk._ ?? sk.message ?? String(t.skipped);
+        message = xmlNodeMessage(t.skipped);
       }
 
       // Derive file path from classname (e.g. tests.api.test_auth → tests/api/test_auth.py)
@@ -270,16 +285,13 @@ export function parsePytestXmlForE2e(opts: ParsePytestE2eXmlOptions): E2eResult 
 
       if (t.failure) {
         status = 'failed';
-        const fail = (t.failure as Record<string, string>);
-        message = fail._ ?? fail.message ?? String(t.failure);
+        message = xmlNodeMessage(t.failure);
       } else if (t.error) {
         status = 'failed';
-        const err = (t.error as Record<string, string>);
-        message = err._ ?? err.message ?? String(t.error);
+        message = xmlNodeMessage(t.error);
       } else if (t.skipped) {
         status = 'skipped';
-        const sk = (t.skipped as Record<string, string>);
-        message = sk._ ?? sk.message ?? String(t.skipped);
+        message = xmlNodeMessage(t.skipped);
       }
 
       const filePath = classname ? classname.replace(/\./g, '/') + '.py' : '';

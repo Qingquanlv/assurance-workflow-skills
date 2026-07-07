@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { parseSchema, loadSchemaFromFile, Schema } from '../../../src/orchestration/schema';
-import { Engine, computeStatus, checkGate } from '../../../src/orchestration/engine';
+import { Engine, computeStatus, checkGate, resolveNextDispatch, PhaseDispatchEntry } from '../../../src/orchestration/engine';
 
 const REAL_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
 
@@ -46,6 +46,37 @@ gates:
     reads: [workflow-state.yaml]
     pass_when: "gate('review-gate').verdict == 'pass'"
     stop_when: "gate('review-gate').verdict == 'reject'"
+`;
+
+const SCOPE_MINI = `
+schema_version: "test-scope"
+name: scope-mini
+params:
+  run_mode: { type: enum, values: [full], default: full }
+  test_types: { type: list, default: [api] }
+  max_healing_attempts: { type: int, default: 0 }
+phases:
+  - id: explore
+    requires: []
+    produces: [explore/advisory.json]
+    owned_by: [full, intake]
+  - id: case-review
+    requires: [explore]
+    produces: [review/case-review.json]
+    gate: case-review-gate
+    owned_by: [full, intake]
+  - id: fact-baseline
+    requires: [case-review]
+    produces: [facts/fact-baseline.json]
+    owned_by: [full, execute]
+  - id: api-plan
+    requires: [fact-baseline]
+    produces: [plans/api-plan.md]
+    owned_by: [full, execute]
+gates:
+  case-review-gate:
+    reads: [review/case-review.json]
+    pass_when: "decision == 'pass'"
 `;
 
 let projectRoot: string;
@@ -155,6 +186,93 @@ describe('pruning via when', () => {
     expect(statusOf('build')!.status).toBe('pruned');
     // exec requires [build(pruned), codegen(done)] any_active → not blocked
     expect(statusOf('exec')!.status).toBe('ready');
+  });
+});
+
+describe('active_scope from run_context', () => {
+  let scopedSchema: Schema;
+
+  beforeEach(() => {
+    scopedSchema = parseSchema(SCOPE_MINI);
+  });
+
+  it('excludes ready phases outside the current scope from next dispatch', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'intake' } }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { ok: true });
+    writeJson('review/case-review.json', { decision: 'pass' });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    const fact = r.phases.find(p => p.id === 'fact-baseline')!;
+    expect(fact.status).toBe('out_of_scope');
+    expect(r.next).not.toContain('fact-baseline');
+    expect(r.terminal).toEqual({ kind: 'completed', reason: 'all in-scope phases done' });
+  });
+
+  it('marks phases outside the current scope out_of_scope before dependency blocking', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'intake' } }),
+      'utf-8'
+    );
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.phases.find(p => p.id === 'fact-baseline')!.status).toBe('out_of_scope');
+    expect(r.next).toEqual(['explore']);
+  });
+
+  it('allows execute-scope phases to use completed intake dependencies', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ run_context: { active_scope: 'execute' } }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { ok: true });
+    writeJson('review/case-review.json', { decision: 'pass' });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.phases.find(p => p.id === 'case-review')!.status).toBe('done');
+    expect(r.phases.find(p => p.id === 'fact-baseline')!.status).toBe('ready');
+    expect(r.next).toEqual(['fact-baseline']);
+  });
+
+  it('includes run_context and open question summary in the status report', () => {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+          stamped_at: '2026-07-04T00:00:00.000Z',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', {
+      open_questions_for_case_design: [
+        { id: 'OQ-001', status: 'answered' },
+        { id: 'OQ-002', status: 'deferred' },
+        { id: 'OQ-003', status: 'unanswered' },
+        { id: 'OQ-004', answer: 'legacy answer', answered_via: 'explore' },
+      ],
+    });
+
+    const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
+    expect(r.run_context).toMatchObject({
+      orchestrator_skill: 'aws-intake',
+      interaction_mode: 'interactive',
+      active_scope: 'intake',
+    });
+    expect(r.intake?.open_questions).toEqual({
+      total: 4,
+      answered: 2,
+      deferred: 1,
+      unanswered: 1,
+    });
   });
 });
 
@@ -316,7 +434,232 @@ describe('real workflow-schema.yaml smoke', () => {
     expect(r.phases.length).toBe(real.phases.length);
     expect(r.params.run_mode).toBe('full');
     // every phase has a valid status kind
-    const kinds = new Set(['pruned', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
+    const kinds = new Set(['pruned', 'out_of_scope', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
     expect(r.phases.every(p => kinds.has(p.status))).toBe(true);
+  });
+
+  it('stops interactive intake case-design when user approval metadata is missing', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        params: { run_mode: 'case-only', test_types: ['api', 'e2e'] },
+        phases: { skill_registry_check: { status: 'pass' } },
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { open_questions_for_case_design: [] });
+    writeChangeFile('.qa.yaml', yaml.dump({ change: { change_id: changeId } }));
+    writeChangeFile('proposal.md', '# proposal\n');
+    writeChangeFile('cases/role/case.yaml', 'schema_version: "1.0"\nadded: []\n');
+
+    const r = computeStatus({ schema: real, projectRoot, changeId });
+    const phase = r.phases.find(p => p.id === 'case-design')!;
+    expect(phase.status).toBe('stopped');
+    expect(phase.gate_verdict).toBe('stop');
+    expect(r.terminal).toMatchObject({ kind: 'stopped', phase: 'case-design' });
+  });
+
+  it('passes interactive intake case-design when approval metadata is present', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({
+        params: { run_mode: 'case-only', test_types: ['api', 'e2e'] },
+        phases: { skill_registry_check: { status: 'pass' } },
+        run_context: {
+          orchestrator_skill: 'aws-intake',
+          interaction_mode: 'interactive',
+          active_scope: 'intake',
+        },
+      }),
+      'utf-8'
+    );
+    writeJson('explore/advisory.json', { open_questions_for_case_design: [] });
+    writeChangeFile('.qa.yaml', yaml.dump({
+      approval: {
+        approved_by: 'user',
+        approved_approach: 'api_e2e_core',
+        approved_at: '2026-07-04T07:00:00.000Z',
+      },
+    }));
+    writeChangeFile('proposal.md', '# proposal\n');
+    writeChangeFile('cases/role/case.yaml', 'schema_version: "1.0"\nadded: []\n');
+
+    const r = computeStatus({ schema: real, projectRoot, changeId });
+    const phase = r.phases.find(p => p.id === 'case-design')!;
+    expect(phase.status).toBe('done');
+    expect(phase.gate_verdict).toBe('pass');
+  });
+});
+
+const HEAL_MINI = `
+schema_version: "test-heal"
+name: heal-mini
+params:
+  max_healing_attempts: { type: int, default: 3 }
+phases:
+  - id: inspect
+    requires: []
+    produces: [inspect.json]
+  - id: report
+    requires: [inspect]
+    ready_when: "state.phases.healing.status in ['not_needed', 'skipped', 'resolved', 'exhausted', 'failed']"
+    produces: [report.json]
+  - id: fix-proposal
+    requires: [inspect]
+    produces: [fix.json]
+    when: "gate('entry').verdict == 'enter'"
+gates:
+  entry:
+    reads: [workflow-state.yaml]
+    enter_when: >
+      state.phases.execution.status == 'FAIL'
+      and (not defined(state.phases.healing.attempts)
+           or len(state.phases.healing.attempts) < params.max_healing_attempts)
+    skip_when: "state.phases.execution.status == 'PASS'"
+`;
+
+describe('ready_when readiness guard', () => {
+  let healSchema: Schema;
+  beforeEach(() => { healSchema = parseSchema(HEAL_MINI); });
+
+  function healStatusOf(id: string) {
+    return computeStatus({ schema: healSchema, projectRoot, changeId }).phases.find(p => p.id === id);
+  }
+
+  it('blocks the phase (not ready) while the predicate is undefined — healing never recorded', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { execution: { status: 'PASS' } } }),
+      'utf-8'
+    );
+    const r = computeStatus({ schema: healSchema, projectRoot, changeId });
+    const report = healStatusOf('report')!;
+    expect(report.status).toBe('blocked');
+    expect(report.reason).toContain('ready_when');
+    expect(r.next).not.toContain('report');
+  });
+
+  it('blocks while healing.status is a mid-loop value', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { healing: { status: 'proposal_created', attempts: [{}] } } }),
+      'utf-8'
+    );
+    expect(healStatusOf('report')!.status).toBe('blocked');
+  });
+
+  it('becomes ready once the healing decision is a resting status', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { healing: { status: 'not_needed', attempts: [] } } }),
+      'utf-8'
+    );
+    const r = computeStatus({ schema: healSchema, projectRoot, changeId });
+    expect(healStatusOf('report')!.status).toBe('ready');
+    expect(r.next).toContain('report');
+  });
+
+  it('does not retroactively block a phase whose produces already exist', () => {
+    writeJson('inspect.json', { ok: true });
+    writeJson('report.json', { ok: true });
+    // healing.status left unrecorded — the audit layer flags this, not the router
+    expect(healStatusOf('report')!.status).toBe('done');
+  });
+
+  it('entry gate fires enter when phases.healing is absent (defined() hardening)', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { execution: { status: 'FAIL' } } }),
+      'utf-8'
+    );
+    const fix = healStatusOf('fix-proposal')!;
+    expect(fix.status).toBe('ready');
+  });
+
+  it('real schema: report stays blocked after inspect until aws state heal records a decision', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    const report = real.phasesById.get('report')!;
+    expect(report.ready_when).toContain('state.phases.healing.status');
+  });
+});
+
+const DISPATCH_MINI = `
+schema_version: "1"
+name: dispatch-test
+params:
+  run_mode: { type: enum, values: [full], default: full }
+  test_types: { type: list, default: [api] }
+  max_healing_attempts: { type: int, default: 0 }
+phases:
+  - id: design
+    skill: aws-case-design
+    agent: aws-doc-author
+    requires: []
+    produces: [design.json]
+  - id: run
+    skill: null
+    requires: [design]
+    produces: [run.json]
+loops: {}
+gates: {}
+`;
+
+describe('resolveNextDispatch', () => {
+  let dispatchSchema: Schema;
+  beforeAll(() => { dispatchSchema = parseSchema(DISPATCH_MINI); });
+
+  it('maps an agent phase to kind:agent with skill and agent', () => {
+    const result = resolveNextDispatch(['design'], dispatchSchema);
+    expect(result).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'design', kind: 'agent', skill: 'aws-case-design', agent: 'aws-doc-author' },
+    ]);
+  });
+
+  it('maps a CLI phase (skill: null) to kind:cli with null skill and agent', () => {
+    const result = resolveNextDispatch(['run'], dispatchSchema);
+    expect(result).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'run', kind: 'cli', skill: null, agent: null },
+    ]);
+  });
+
+  it('returns an empty array for an empty next list', () => {
+    expect(resolveNextDispatch([], dispatchSchema)).toEqual([]);
+  });
+
+  it('throws for an unknown phase id', () => {
+    expect(() => resolveNextDispatch(['ghost'], dispatchSchema))
+      .toThrow("resolveNextDispatch: unknown phase 'ghost'");
+  });
+
+  it('handles multiple phases in one call', () => {
+    const result = resolveNextDispatch(['design', 'run'], dispatchSchema);
+    expect(result).toHaveLength(2);
+    expect(result[0].kind).toBe('agent');
+    expect(result[1].kind).toBe('cli');
+  });
+
+  it('dispatches the real report phase to aws-reporter', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['report'], realSchema)).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'report', kind: 'agent', skill: 'aws-report-generator', agent: 'aws-reporter' },
+    ]);
+  });
+
+  it('dispatches the real archive phase to aws-archiver', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['archive'], realSchema)).toEqual<PhaseDispatchEntry[]>([
+      { phase: 'archive', kind: 'agent', skill: 'aws-archive', agent: 'aws-archiver' },
+    ]);
   });
 });

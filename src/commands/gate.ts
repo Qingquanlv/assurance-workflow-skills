@@ -1,12 +1,16 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
 } from '../orchestration/schema';
 import { checkGate } from '../orchestration/engine';
-import { logError, logHeader, logBlank } from '../utils/logger';
+import { appendEvents, buildGateVerdictEvent } from '../core/events';
+import { applyGateOverride, OverrideAction, recordExecutionTestChangesOverride } from '../core/gate_override';
+import { logError, logHeader, logBlank, logOk } from '../utils/logger';
 
 /** Exit codes per orchestration-cli-contract.md. */
 const VERDICT_EXIT: Record<string, number> = {
@@ -46,6 +50,12 @@ export function registerGateCommand(program: Command): void {
       const changeId: string = options.change;
       const phaseId: string = options.phase;
       const projectRoot = process.cwd();
+      const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+      if (!fs.existsSync(changeDir)) {
+        logError(`change '${changeId}' not found (expected: ${changeDir}). Check the change id, or run from the project root.`);
+        process.exit(1);
+        return;
+      }
 
       let report;
       try {
@@ -58,6 +68,7 @@ export function registerGateCommand(program: Command): void {
           process.exit(1);
         }
         report = checkGate({ schema, projectRoot, changeId, phaseId });
+        appendEvents(projectRoot, changeId, [buildGateVerdictEvent(projectRoot, changeId, report, schema)]);
       } catch (err) {
         logError(`gate check failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
@@ -82,5 +93,65 @@ export function registerGateCommand(program: Command): void {
       }
 
       process.exit(VERDICT_EXIT[report.verdict] ?? 1);
+    });
+
+  gateCmd
+    .command('override')
+    .description('Record a human decision after a human_review_required stop')
+    .requiredOption('--change <change-id>', 'Change ID')
+    .requiredOption('--phase <phase-id>', 'Review phase id (e.g. e2e-plan-review)')
+    .requiredOption('--action <action>', 'fix_and_proceed | skip_branch | accept_and_stop | allow_test_changes')
+    .requiredOption('--reason <text>', 'Human decision reason')
+    .option('--schema-file <path>', 'Override workflow schema file')
+    .action((options) => {
+      const changeId: string = options.change;
+      const phaseId: string = options.phase;
+      const action = String(options.action) as OverrideAction;
+      const reason: string = options.reason;
+      const projectRoot = process.cwd();
+      const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+
+      if (!fs.existsSync(changeDir)) {
+        logError(`change '${changeId}' not found (expected: ${changeDir}).`);
+        process.exit(1);
+        return;
+      }
+
+      const allowedActions = new Set(['fix_and_proceed', 'skip_branch', 'accept_and_stop', 'allow_test_changes']);
+      if (!allowedActions.has(action)) {
+        logError(`Unsupported action "${action}"`);
+        process.exit(1);
+      }
+
+      try {
+        if (phaseId === 'execution' || action === 'allow_test_changes') {
+          if (phaseId !== 'execution' || action !== 'allow_test_changes') {
+            throw new Error('Execution test-change override requires --phase execution --action allow_test_changes');
+          }
+          const token = recordExecutionTestChangesOverride(projectRoot, changeId, reason);
+          logHeader('aws gate override — execution');
+          logBlank();
+          logOk(`one-time test-change token recorded: ${token.relPath}`);
+          logBlank();
+          return;
+        }
+        const schemaFile = findSchemaFile(projectRoot, options.schemaFile);
+        const schema = loadSchemaFromFile(schemaFile);
+        const validation = validateSchema(schema);
+        if (!validation.ok) {
+          logError('Schema validation failed:');
+          for (const e of validation.errors) console.error('  - ' + e);
+          process.exit(1);
+        }
+        applyGateOverride(projectRoot, changeId, phaseId, action, reason, schema);
+        logHeader(`aws gate override — ${phaseId}`);
+        logBlank();
+        logOk(`human_override recorded: action=${action}`);
+        logBlank();
+      } catch (err) {
+        logError((err as Error).message);
+        if (process.env.AWS_DEBUG) console.error((err as Error).stack);
+        process.exit(1);
+      }
     });
 }

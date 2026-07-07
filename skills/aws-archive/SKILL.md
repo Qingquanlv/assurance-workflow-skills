@@ -27,8 +27,8 @@ Do not rely on prior conversation context.
 
 1. Write archived artifacts to `qa/archive/<change-id>/`.
 2. Merge case delta into `qa/cases/<module>/case.yaml`.
-3. Update `workflow-state.yaml`:
-   - Set `phases.archive.status` = `archived | archived_with_warnings | skipped`
+3. Report the `workflow-state.yaml` state delta (inline/standalone: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.archive.status` = `archived | archived_with_warnings | skipped`
    - Use `archived_with_warnings` if execution was `PASS_WITH_WARNINGS`, known product issues exist, or inspect recorded warnings
 
 ---

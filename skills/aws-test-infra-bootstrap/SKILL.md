@@ -41,7 +41,7 @@ Stand up the **shared pytest/Locust test infrastructure** that every other AWS p
 
 This skill is **one-shot and idempotent**:
 
-- Runs before `aws-risk-advisory` (Phase 1.2) and before `aws-case-design` (Phase 2.1).
+- Runs before `aws-explore` (Phase 1.2) and before `aws-case-design` (Phase 2.1).
 - If a file already exists and matches the contract, **leave it alone**.
 - Never writes test code under `tests/api/`, `tests/e2e/`, `tests/fuzz/`, `tests/perf/` — those belong to the codegen skills.
 - Never invents URLs, ports, or credentials silently. Defaults below are sourced from the repo's `run.py`, `web/.env`, and `app/core/init_app.py`; if the agent cannot verify them from those files, it MUST ask the user before writing.
@@ -126,5 +126,5 @@ If the file is missing, scaffold with an **empty** `_LOCAL_SCHEMAS` and a docstr
 
 After `aws-test-infra-bootstrap` succeeds:
 
-- Phase 1.1 `aws-workflow` registry check → Phase 1.2 `aws-risk-advisory` → Phase 2.1 `aws-case-design` proceeds normally.
+- Phase 1.1 `aws-workflow` registry check → Phase 1.2 `aws-explore` → Phase 2.1 `aws-case-design` proceeds normally.
 - Subsequent codegen skills (`aws-api-codegen`, `aws-e2e-codegen`, `aws-fuzz-codegen`, `aws-performance-codegen`) can safely assume the scaffolded files exist and follow the contracts above.

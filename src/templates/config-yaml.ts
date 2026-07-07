@@ -41,6 +41,9 @@ frameworks:
 workflow:
   primary_runner: skill
   agent: opencode
+  agents:
+    claude_code: false
+    codex: false
 
 mcp:
   enabled: ${answers.enableMcp}
@@ -61,6 +64,10 @@ execution:
   entry: cli
   policy_file: ./.aws/execution-policy.json
   ci_must_use_cli: true
+  product_code_roots:
+    - app
+    - web/src
+    - src
   self_healing:
     mode: proposal-only
     allow_assertion_change: false
@@ -78,10 +85,15 @@ archive:
 
 coverage:
   enabled: true
+  mode: pytest-cov             # pytest-cov | server-process
+  server_command: ""           # e.g. "uvicorn app:app --port 9999" when mode=server-process
+  server_port: 0                # set when mode=server-process
   target_package: app          # --cov=<target_package>
   threshold:
     line: 70
     branch: 60
+    module_line: 80
+    diff_line: 90
   gate_mode: warn              # warn: below threshold → PASS_WITH_WARNINGS (default). block: below → FAIL.
 
 # M3 — Fuzz layer (schemathesis via pytest). Tests live under tests/fuzz/.

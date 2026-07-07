@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
 1. Write output files:
    - `qa/changes/<change-id>/review/plan-review.json`
    - `qa/changes/<change-id>/review/plan-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.e2e_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
-   - Set `phases.e2e_plan_review.gate_file` = `review/plan-review.json`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.e2e_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
+   - `phases.e2e_plan_review.gate_file` = `review/plan-review.json`
 
 ---
 
@@ -163,6 +163,14 @@ Flag:
 - Plan scenario not linked to any case
 - Critical assertion missing from plan
 - Manual-only step included without automation strategy
+
+**Test function naming (mechanical, blocking):** for every row in `e2e-codegen-plan.md` **Test Function Mapping**, the Test Function MUST match:
+
+```
+^test_<case_id lowercase>__
+```
+
+i.e. the lowercase form of that row's Case ID as prefix, then a **double underscore** (e.g. `TC_USER_E2E_001` → `test_tc_user_e2e_001__...`). Any mismatch is a **finding with `blocking: true`** and `auto_fix_allowed: true` (fix = rename in the mapping table) — decision cannot be `pass` and `codegen_readiness` cannot be `ready`/`ready_with_warnings` until fixed. The `aws run` parser backfills case_id from this prefix; without it every executed test becomes an Unmapped Test and the gate is capped at PASS_WITH_WARNINGS.
 
 ### 2. E2E Flow Correctness
 

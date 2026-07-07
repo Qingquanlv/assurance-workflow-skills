@@ -16,11 +16,14 @@ Do not rely on prior conversation context.
    - `review_type == "case"`.
    - `change_id` matches the current `<change-id>`.
    - `decision == "needs_fix"`.
-   - `human_review_required == false`.
+   - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true`.
    - `auto_fix_plan` is non-empty.
    - `next_action == "run_case_fixer"`.
-   - No `auto_fix_plan` item references a `high` or `critical` severity finding.
+   - No `auto_fix_plan` item references a `high` or `critical` severity finding **unless** human_approved exception applies.
+
+**human_approved exception**: If `phases.case_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches current `review/case-review.json` SHA256, allow fixing blocker/high severity findings; record in apply-summary `human_approved_fixes[]`. Never write review JSON.
+
 5. Use files as the sole source of truth.
 
 **After completing work:**
@@ -29,7 +32,7 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/cases/<module>/case.yaml` (fixed version)
    - `qa/changes/<change-id>/proposal.md` (if fix requires proposal update)
    - `qa/changes/<change-id>/review/case-review-apply-summary.md`
-2. Update `workflow-state.yaml`:
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - Append to `phases.case_review.fix_attempts`: `{ attempt: N, files_modified: [...], timestamp: <now> }`
    - Do NOT change `phases.case_review.status` — only the reviewer can update the gate status
 
@@ -230,7 +233,7 @@ For `layering` findings specifically:
 5. Apply minimal edits to target files.
 6. Preserve existing style and ordering where possible.
 7. Write `case-review-apply-summary.md`.
-8. Update `workflow-state.yaml`:
+8. Report the state delta (applied to `workflow-state.yaml` per the Context Contract):
    - Append fix attempt record: `{ attempt: N, files_modified: [...] }`
    - Do NOT modify `phases.case_review.status` — gate status is reviewer-only.
 9. Tell the orchestrator to re-run `aws-case-reviewer`.

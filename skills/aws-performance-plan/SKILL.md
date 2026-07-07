@@ -24,9 +24,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/performance-plan.md`
    - `qa/changes/<change-id>/plans/performance-codegen-plan.md`
    - `qa/changes/<change-id>/plans/performance-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.performance_plan.status = done`
-   - List selected Performance case_ids under `phases.performance_plan.selected_cases`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.performance_plan.status = done`
+   - `phases.performance_plan.selected_cases` = selected Performance case_ids
 
 ---
 

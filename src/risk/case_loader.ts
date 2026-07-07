@@ -31,6 +31,37 @@ function collectCaseItems(root: Record<string, unknown>): unknown[] {
   return items;
 }
 
+function recoverCaseItemsFromText(content: string): Record<string, unknown>[] {
+  const cases: Record<string, unknown>[] = [];
+  let current: Record<string, unknown> | null = null;
+
+  for (const line of content.split(/\r?\n/)) {
+    const caseMatch = line.match(/^\s*(?:-\s*)?(?:case_id|id)\s*:\s*["']?([A-Za-z0-9_-]+)/);
+    if (caseMatch) {
+      current = { case_id: caseMatch[1] };
+      cases.push(current);
+      continue;
+    }
+    if (!current) continue;
+
+    const stringField = line.match(/^\s*(module|priority)\s*:\s*["']?([^"'\s#]+)/);
+    if (stringField) {
+      current[stringField[1]] = stringField[2];
+      continue;
+    }
+
+    const automationRequired = line.match(/^\s*required\s*:\s*(true|false)\s*$/);
+    if (automationRequired) {
+      current.automation = {
+        ...(typeof current.automation === 'object' && current.automation !== null ? current.automation : {}),
+        required: automationRequired[1] === 'true',
+      };
+    }
+  }
+
+  return cases;
+}
+
 export function loadCasesFromQa(projectRoot: string): LoadedCase[] {
   const casesRoot = path.join(projectRoot, 'qa', 'cases');
   const files = walkYamlFiles(casesRoot);
@@ -38,10 +69,11 @@ export function loadCasesFromQa(projectRoot: string): LoadedCase[] {
 
   for (const file of files) {
     let doc: unknown;
+    const content = fs.readFileSync(file, 'utf-8');
     try {
-      doc = yaml.load(fs.readFileSync(file, 'utf-8'));
+      doc = yaml.load(content);
     } catch {
-      continue;
+      doc = { cases: recoverCaseItemsFromText(content) };
     }
     if (!doc || typeof doc !== 'object') continue;
     const root = doc as Record<string, unknown>;

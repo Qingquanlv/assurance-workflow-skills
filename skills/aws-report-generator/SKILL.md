@@ -21,7 +21,8 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/report/quality-report.json`
    - `qa/changes/<change-id>/report/quality-report.md`
    - `qa/changes/<change-id>/report/executive-summary.md`
-2. Update `workflow-state.yaml`:
+   - `qa/changes/<change-id>/report/minimum-coverage-result.json` when advisory MRC exists
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - `phases.report.status = done`
    - `phases.report.quality_score = <int from quality-report.json>`
 3. Reference `report/executive-summary.md` in the workflow's final summary.
@@ -36,7 +37,7 @@ This skill runs **after M5 execution + inspect** in `aws-workflow` (Phase 10: re
 
 ## Purpose
 
-Produce a deterministic, research-and-dev-readable quality report for a change: a 0-100 Quality Score, dimension breakdown (Functional, Coverage, Fuzz, Performance), defect buckets, and a risk/recommendation conclusion. When fuzz and/or performance ran, the report adds a **Fuzz** functional line and a **Non-Functional (Performance)** chapter with per-scenario p95 / error-rate verdicts.
+Produce a deterministic, research-and-dev-readable quality report for a change: a 0-100 Quality Score, dimension breakdown (Functional, Coverage, Fuzz, Performance), Minimum Required Coverage (MRC) coverage status when advisory data exists, defect buckets, and a risk/recommendation conclusion. When fuzz and/or performance ran, the report adds a **Fuzz** functional line and a **Non-Functional (Performance)** chapter with per-scenario p95 / error-rate verdicts.
 
 ## Skill vs CLI Boundary
 
@@ -72,6 +73,7 @@ execution/runs/<batch-id>/performance-result.json  (if selected_targets.performa
 inspect/failure-analysis.json
 inspect/quality-gate-result.json     ← required (gate conclusion + final_status, incl. fuzz/non_functional when run)
 qa/changes/<change-id>/cases/**/case*.yaml   ← best-effort scope (cases + requirements)
+risk-advisory/advisory.json or explore/advisory.json ← minimum_required_coverage (optional)
 ```
 
 ## Quality Score (deterministic, CLI-computed)
@@ -102,7 +104,8 @@ quality_score = round(sum of active dimension points)
 qa/changes/<change-id>/report/
 ├── quality-report.json     ← structured (CLI-written, deterministic)
 ├── quality-report.md       ← full report (CLI-written)
-└── executive-summary.md    ← one-page conclusion (CLI-written)
+├── executive-summary.md    ← one-page conclusion (CLI-written)
+└── minimum-coverage-result.json ← MRC mapped/executed/verified status when advisory MRC exists
 ```
 
 ## Risk Level & Recommendation Boundary

@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { ChildProcess, spawn, spawnSync } from 'child_process';
 import { ensureDir } from '../utils/fs';
 import { runPytest } from './pytest_runner';
 import { runPlaywright } from './playwright_runner';
@@ -19,6 +20,8 @@ import { loadCoverageConfig, parseCoverage } from './coverage_parser';
 import { runPerformance } from './locust_runner';
 import { buildQualityGate } from '../report/quality_gate';
 import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FuzzResult, PerformanceResult, QualityGateResult, SelectedTargets } from '../core/types';
+import { hashProductTree, hashTestTree } from '../core/hash';
+import { loadProductCodeRoots } from '../core/healing_state';
 
 export interface RunnerOptions {
   changeId: string;
@@ -43,6 +46,14 @@ export interface RunnerResult {
 
 const TEST_FILE_RE = /(?:tests?\/[^\s,]+\.(?:py|ts|js))/gi;
 
+interface ServerCoverageArtifacts {
+  available: boolean;
+  coverageJsonPath: string;
+  coverageXmlPath: string;
+  coverageFile: string;
+  process: ChildProcess | null;
+}
+
 /** Generate a sortable timestamp-based batch ID: YYYYMMDD-HHmmss */
 function generateBatchId(): string {
   const now = new Date();
@@ -65,6 +76,8 @@ export function run(opts: RunnerOptions): RunnerResult {
   const batchId = generateBatchId();
   const batchDir = path.join(executionDir, 'runs', batchId);
   const selectedTargets = opts.selectedTargets ?? resolveSelectedTargets(projectRoot, changeId);
+  const testTreeHash = hashTestTree(projectRoot);
+  const productTreeHash = hashProductTree(projectRoot, loadProductCodeRoots(projectRoot));
 
   // Create per-batch subdirectories
   ensureDir(batchDir);
@@ -83,31 +96,79 @@ export function run(opts: RunnerOptions): RunnerResult {
 
   // Coverage config (M1): collected only during API pytest runs.
   const coverageConfig = loadCoverageConfig(projectRoot);
+  const serverCoverage = selectedTargets.api && coverageConfig.enabled && coverageConfig.mode === 'server-process'
+    ? startServerCoverage(projectRoot, batchDir, coverageConfig.server_command, coverageConfig.server_port)
+    : null;
 
   let apiResult: ApiResult | null = null;
   let coverageResult: CoverageResult | null = null;
   let e2eResult: E2eResult | null = null;
   let fuzzResult: FuzzResult | null = null;
   let performanceResult: PerformanceResult | null = null;
+  let pytestCoverage: ReturnType<typeof runPytest>['coverage'] | null = null;
+
+  try {
+    if (selectedTargets.api) {
+      const pytestResult = runPytest({
+        changeId,
+        batchId,
+        targets: apiTargets,
+        batchDir,
+        cwd: projectRoot,
+        coverage: {
+          enabled: coverageConfig.enabled && coverageConfig.mode !== 'server-process',
+          targetPackage: coverageConfig.target_package,
+        },
+      });
+      apiResult = pytestResult.result;
+      pytestCoverage = pytestResult.coverage;
+    }
+
+    if (selectedTargets.e2e) {
+      e2eResult = runPlaywright({
+        changeId,
+        batchId,
+        targets: e2eTargets,
+        batchDir,
+        cwd: projectRoot,
+      }).result;
+    }
+
+    if (selectedTargets.fuzz) {
+      const fuzzPytest = runPytest({
+        changeId,
+        batchId,
+        targets: fuzzTargets,
+        batchDir,
+        cwd: projectRoot,
+        kind: 'fuzz',
+      });
+      fuzzResult = { ...fuzzPytest.result, target: 'fuzz' };
+    }
+
+    if (selectedTargets.performance) {
+      performanceResult = runPerformance({
+        changeId,
+        batchId,
+        batchDir,
+        cwd: projectRoot,
+      });
+    }
+  } finally {
+    stopServerCoverage(projectRoot, serverCoverage);
+  }
 
   if (selectedTargets.api) {
-    const pytestResult = runPytest({
-      changeId,
-      batchId,
-      targets: apiTargets,
-      batchDir,
-      cwd: projectRoot,
-      coverage: { enabled: coverageConfig.enabled, targetPackage: coverageConfig.target_package },
-    });
-    apiResult = pytestResult.result;
+    const coverageArtifacts = serverCoverage ?? pytestCoverage;
     coverageResult = parseCoverage({
       changeId,
       batchId,
-      available: pytestResult.coverage.available,
-      coverageJsonPath: pytestResult.coverage.coverageJsonPath,
-      coverageXmlPath: pytestResult.coverage.coverageXmlPath,
+      available: coverageArtifacts?.available ?? false,
+      coverageJsonPath: coverageArtifacts?.coverageJsonPath ?? path.join(batchDir, 'raw', 'coverage.json'),
+      coverageXmlPath: coverageArtifacts?.coverageXmlPath ?? path.join(batchDir, 'raw', 'coverage.xml'),
       threshold: coverageConfig.threshold,
       targetPackage: coverageConfig.target_package,
+      projectRoot,
     });
   } else {
     // Coverage is derived from API pytest; write an explicit SKIPPED result so
@@ -126,37 +187,6 @@ export function run(opts: RunnerOptions): RunnerResult {
       uncovered_critical_files: [],
       source: { coverage_json: '', coverage_xml: '' },
     };
-  }
-
-  if (selectedTargets.e2e) {
-    e2eResult = runPlaywright({
-      changeId,
-      batchId,
-      targets: e2eTargets,
-      batchDir,
-      cwd: projectRoot,
-    }).result;
-  }
-
-  if (selectedTargets.fuzz) {
-    const fuzzPytest = runPytest({
-      changeId,
-      batchId,
-      targets: fuzzTargets,
-      batchDir,
-      cwd: projectRoot,
-      kind: 'fuzz',
-    });
-    fuzzResult = { ...fuzzPytest.result, target: 'fuzz' };
-  }
-
-  if (selectedTargets.performance) {
-    performanceResult = runPerformance({
-      changeId,
-      batchId,
-      batchDir,
-      cwd: projectRoot,
-    });
   }
 
   const qualityGate = buildQualityGate({
@@ -216,9 +246,13 @@ export function run(opts: RunnerOptions): RunnerResult {
     batch_id: batchId,
     selected_targets: selectedTargets,
     result_files: resultFiles,
+    tests_tree_sha256: testTreeHash.aggregate,
+    test_files_sha256: testTreeHash.files,
+    product_tree_sha256: productTreeHash.aggregate,
     final_status: qualityGate.final_status,
   };
   const batchManifestPath = path.join(batchDir, 'execution-manifest.yaml');
+  fs.writeFileSync(path.join(batchDir, 'product-files-sha256.json'), JSON.stringify(productTreeHash.files, null, 2), 'utf-8');
   fs.writeFileSync(batchManifestPath, yaml.dump(manifest), 'utf-8');
 
   // Write quality-gate to batch dir so inspector can read rather than re-compute.
@@ -267,6 +301,98 @@ export function run(opts: RunnerOptions): RunnerResult {
   };
 }
 
+function startServerCoverage(
+  projectRoot: string,
+  batchDir: string,
+  serverCommand: string | undefined,
+  serverPort: number | undefined,
+): ServerCoverageArtifacts | null {
+  if (!serverCommand?.trim()) return null;
+  const rawDir = path.join(batchDir, 'raw');
+  const coverageJsonPath = path.join(rawDir, 'coverage.json');
+  const coverageXmlPath = path.join(rawDir, 'coverage.xml');
+  const coverageFile = path.join(rawDir, '.coverage');
+
+  if (serverPort && portAcceptsConnection(serverPort)) {
+    throw new Error(`COVERAGE-SERVER-PORT-IN-USE: port ${serverPort} is already accepting connections. Stop the existing SUT and rerun so aws run can launch it under coverage.`);
+  }
+
+  const command = `uv run coverage run --branch -m ${serverCommand}`;
+  const proc = spawn(command, {
+    cwd: projectRoot,
+    shell: true,
+    detached: false,
+    stdio: 'ignore',
+    env: { ...process.env, COVERAGE_FILE: coverageFile },
+  });
+
+  if (serverPort && !waitForPort(serverPort, 20_000)) {
+    proc.kill('SIGTERM');
+    return { available: false, coverageJsonPath, coverageXmlPath, coverageFile, process: null };
+  }
+
+  return { available: false, coverageJsonPath, coverageXmlPath, coverageFile, process: proc };
+}
+
+function stopServerCoverage(projectRoot: string, artifacts: ServerCoverageArtifacts | null): void {
+  if (!artifacts) return;
+  if (artifacts.process && !artifacts.process.killed) {
+    // Uvicorn/coverage.py flushes reliably on Ctrl-C style shutdown. A plain
+    // SIGTERM can stop the wrapper before coverage writes the data file.
+    artifacts.process.kill('SIGINT');
+  }
+  waitForFile(artifacts.coverageFile, 5_000);
+  const json = spawnSync('uv', ['run', 'coverage', 'json', '-o', artifacts.coverageJsonPath], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    env: { ...process.env, COVERAGE_FILE: artifacts.coverageFile },
+  });
+  spawnSync('uv', ['run', 'coverage', 'xml', '-o', artifacts.coverageXmlPath], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    env: { ...process.env, COVERAGE_FILE: artifacts.coverageFile },
+  });
+  artifacts.available = json.status === 0 && fs.existsSync(artifacts.coverageJsonPath);
+}
+
+function waitForFile(filePath: string, timeoutMs: number): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(filePath)) return true;
+    spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 100)'], { timeout: 250 });
+  }
+  return fs.existsSync(filePath);
+}
+
+function waitForPort(port: number, timeoutMs: number): boolean {
+  const script = `
+const net = require('net');
+const port = Number(process.argv[1]);
+const deadline = Date.now() + Number(process.argv[2]);
+function once() {
+  const socket = net.createConnection({ port, host: '127.0.0.1' });
+  socket.once('connect', () => { socket.destroy(); process.exit(0); });
+  socket.once('error', () => {
+    socket.destroy();
+    if (Date.now() > deadline) process.exit(1);
+    setTimeout(once, 250);
+  });
+}
+once();
+`;
+  return spawnSync(process.execPath, ['-e', script, String(port), String(timeoutMs)], { timeout: timeoutMs + 1000 }).status === 0;
+}
+
+function portAcceptsConnection(port: number): boolean {
+  const script = `
+const net = require('net');
+const socket = net.createConnection({ port: Number(process.argv[1]), host: '127.0.0.1' });
+socket.once('connect', () => { socket.destroy(); process.exit(0); });
+socket.once('error', () => { socket.destroy(); process.exit(1); });
+`;
+  return spawnSync(process.execPath, ['-e', script, String(port)], { timeout: 1000 }).status === 0;
+}
+
 /**
  * Reads a codegen plan to extract test file paths. Falls back to defaults.
  */
@@ -293,7 +419,7 @@ function removeIfExists(filePath: string): void {
 
 const ALL_TARGETS: SelectedTargets = { api: true, e2e: true, fuzz: true, performance: true };
 
-function resolveSelectedTargets(projectRoot: string, changeId: string): SelectedTargets {
+export function resolveSelectedTargets(projectRoot: string, changeId: string): SelectedTargets {
   const fromState = readSelectedTargetsFromWorkflowState(projectRoot, changeId);
   if (fromState) return fromState;
 

@@ -1,15 +1,15 @@
 import * as path from 'path';
 import { assertChangeIdSafe, resolveInsideProject } from './safety';
 
-export function riskAdvisoryDir(projectRoot: string, changeId: string): string {
+export function exploreDir(projectRoot: string, changeId: string): string {
   assertChangeIdSafe(changeId);
-  return resolveInsideProject(projectRoot, 'qa', 'changes', changeId, 'risk-advisory');
+  return resolveInsideProject(projectRoot, 'qa', 'changes', changeId, 'explore');
 }
 
 export function contextJsonPath(projectRoot: string, changeId: string): string {
-  return path.join(riskAdvisoryDir(projectRoot, changeId), 'context.json');
+  return path.join(exploreDir(projectRoot, changeId), 'context.json');
 }
 
 export function advisoryJsonPath(projectRoot: string, changeId: string): string {
-  return path.join(riskAdvisoryDir(projectRoot, changeId), 'advisory.json');
+  return path.join(exploreDir(projectRoot, changeId), 'advisory.json');
 }

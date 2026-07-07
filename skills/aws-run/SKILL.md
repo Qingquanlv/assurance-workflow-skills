@@ -98,6 +98,45 @@ This skill **does not synthesize normalised result files itself**. It invokes th
 - Set `final_status = FAIL` (or apply fallback per **Runner Mode**)
 - **Never fabricate** `api-result.json` or `e2e-result.json`
 
+## Rerun Integrity
+
+`aws run` records a SHA256 snapshot of the full `tests/` tree in every `execution-manifest.yaml`:
+
+- `tests_tree_sha256` — aggregate hash of all test files.
+- `test_files_sha256` — per-file hashes for diagnostics.
+
+After a formal run exists, `--rerun-reason` is only for **code-unchanged** retries such as environment flake, SUT restart, transient timeout, or infrastructure validation. It is **not** permission to modify tests and rerun.
+
+If test files changed since the previous batch:
+
+- `aws run` hard-fails with `TESTS-CHANGED-WITHOUT-HEALING` unless `phases.healing.status == applied`.
+- The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
+
+**`--allow-test-changes` is forbidden for the agent — no exceptions.** This project's `.aws/execution-policy.json` sets `healing.testChangesOverride: "forbidden"`, so the CLI rejects the flag with `ALLOW-TEST-CHANGES-FORBIDDEN`. Rules:
+
+- The agent MUST NEVER construct a command containing `--allow-test-changes`, even when the user asks to "fix the tests and rerun" — that request routes through the healing loop.
+- On `TESTS-CHANGED-WITHOUT-HEALING` or `ALLOW-TEST-CHANGES-FORBIDDEN`, the correct reaction is to enter/continue the healing loop, or STOP and report — never to retry with an override flag.
+- The override exists only for a human who (a) verbatim authorizes a specific one-batch override in conversation, (b) temporarily relaxes `testChangesOverride` in `execution-policy.json` themselves, and (c) restores it to `"forbidden"` afterwards. One authorization covers exactly one batch. The CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
+- Note: before the first formal batch there is no `tests_tree_sha256` baseline, so infra backfill (factories, conftest) needs no override at all.
+
+## Product Tree Integrity
+
+`aws run` records `product_tree_sha256` in every `execution-manifest.yaml` and writes per-file hashes to `execution/runs/<batch-id>/product-files-sha256.json`.
+
+- Product roots come from `.aws/config.yaml` `execution.product_code_roots` (default: `app`, `web/src`, `src`; missing roots are skipped).
+- During healing, product code changes are a hard error: `PRODUCT-CHANGED-DURING-HEALING`.
+- There is no bypass flag for product code changes in healing. Revert the product change, or abandon healing via `aws state heal --to failed` and start a new formal run.
+- Outside healing, product tree changes are allowed and recorded as a `product_tree_changed` event; the new batch becomes the baseline.
+
+## Python SUT Coverage
+
+For Python projects, `aws run` records coverage in `execution/coverage-result.json`.
+
+- `coverage.mode: pytest-cov` collects coverage only for Python code imported by the pytest process.
+- `coverage.mode: server-process` is required when API/E2E tests call a running service over HTTP (for example `httpx.Client(base_url=...)`). In that mode the SUT must be launched under coverage by the runner; do not report coverage numbers from an already-running non-coverage server.
+- `coverage.scope` is derived from advisory `test_strategy.scope.in_scope` and reported separately from project-level coverage.
+- Missing or untrusted coverage must be reported as `SKIPPED`, never fabricated.
+
 ## AWS CLI Identity Check
 
 This skill calls the **Assurance Workflow Skills CLI** (`aws`) — **not** the Amazon Web Services CLI.

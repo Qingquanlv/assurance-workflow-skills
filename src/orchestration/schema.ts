@@ -40,11 +40,19 @@ export interface PhaseDef {
   requires: string[];
   requires_mode: RequiresMode;
   produces: string[];
+  owned_by?: string[];
   gate?: string;
   when?: string;
+  /**
+   * Readiness guard: unlike `when` (false → pruned, phase leaves the graph),
+   * a false/undefined `ready_when` keeps the phase in the graph but `blocked`,
+   * so the router never dispatches it until the predicate holds.
+   */
+  ready_when?: string;
   loop?: string;
   repair_of?: string;
   max_attempts_param?: string;
+  agent?: string;
 }
 
 export interface LoopDef {
@@ -172,12 +180,15 @@ function normalizePhase(raw: Record<string, unknown>): PhaseDef {
     requires: Array.isArray(raw.requires) ? (raw.requires as string[]) : [],
     requires_mode: raw.requires_mode === 'any_active' ? 'any_active' : 'all',
     produces: Array.isArray(raw.produces) ? (raw.produces as string[]) : [],
+    owned_by: Array.isArray(raw.owned_by) ? (raw.owned_by as string[]) : undefined,
     gate: typeof raw.gate === 'string' ? raw.gate : undefined,
     when: typeof raw.when === 'string' ? raw.when.trim() : undefined,
+    ready_when: typeof raw.ready_when === 'string' ? raw.ready_when.trim() : undefined,
     loop: typeof raw.loop === 'string' ? raw.loop : undefined,
     repair_of: typeof raw.repair_of === 'string' ? raw.repair_of : undefined,
     max_attempts_param:
       typeof raw.max_attempts_param === 'string' ? raw.max_attempts_param : undefined,
+    agent: typeof raw.agent === 'string' ? raw.agent : undefined,
   };
 }
 
@@ -250,14 +261,18 @@ export function loadSchemaFromFile(filePath: string): Schema {
 /**
  * Locate the workflow schema file for a project.
  * Precedence: explicit override → `.aws/workflow-schema.yaml` (project-local) →
- * `docs/design/workflow-schema.yaml` (the draft shipped with the repo).
+ * project `docs/design/workflow-schema.yaml` → package-shipped
+ * `docs/design/workflow-schema.yaml`.
  */
 export function findSchemaFile(projectRoot: string, override?: string): string {
+  const packageRoot = path.resolve(__dirname, '..', '..');
+  const packageSchema = path.join(packageRoot, 'docs', 'design', 'workflow-schema.yaml');
   const candidates = override
     ? [path.isAbsolute(override) ? override : path.join(projectRoot, override)]
     : [
         path.join(projectRoot, '.aws', 'workflow-schema.yaml'),
         path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'),
+        packageSchema,
       ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
@@ -269,11 +284,16 @@ export function findSchemaFile(projectRoot: string, override?: string): string {
 
 // ─── Static validation ───────────────────────────────────────────────────────
 
+export const ALLOWED_AGENTS = new Set(['aws-doc-author', 'aws-test-author', 'aws-reviewer', 'aws-reporter', 'aws-archiver']);
+export const ORCHESTRATOR_INTERNAL = new Set(['skill-registry-check']);
+export const ALLOWED_OWNED_BY_SCOPES = new Set(['full', 'intake', 'execute']);
+
 /** Every predicate string in the schema, tagged with its source location. */
 function allPredicates(schema: Schema): { loc: string; expr: string }[] {
   const out: { loc: string; expr: string }[] = [];
   for (const p of schema.phases) {
     if (p.when) out.push({ loc: `phase '${p.id}'.when`, expr: p.when });
+    if (p.ready_when) out.push({ loc: `phase '${p.id}'.ready_when`, expr: p.ready_when });
   }
   for (const loop of Object.values(schema.loops)) {
     if (loop.allocate_on) out.push({ loc: `loop '${loop.id}'.allocate_on`, expr: loop.allocate_on });
@@ -354,6 +374,31 @@ export function validateSchema(schema: Schema): ValidationResult {
     }
     if (p.loop && !schema.loops[p.loop]) {
       errors.push(`Phase '${p.id}' references unknown loop '${p.loop}'`);
+    }
+    for (const scope of p.owned_by ?? []) {
+      if (!ALLOWED_OWNED_BY_SCOPES.has(scope)) {
+        errors.push(
+          `Phase '${p.id}' owned_by scope '${scope}' is not in the allowed set: ${[...ALLOWED_OWNED_BY_SCOPES].join(', ')}`
+        );
+      }
+    }
+  }
+
+  // Agent field rules.
+  for (const p of schema.phases) {
+    if (ORCHESTRATOR_INTERNAL.has(p.id)) continue;
+    if (p.skill === null) {
+      if (p.agent) {
+        errors.push(`CLI phase '${p.id}' (skill: null) must not have an agent field`);
+      }
+    } else {
+      if (!p.agent) {
+        errors.push(`Agent phase '${p.id}' has a skill but no agent field`);
+      } else if (!ALLOWED_AGENTS.has(p.agent)) {
+        errors.push(
+          `Phase '${p.id}' agent '${p.agent}' is not in the allowed set: ${[...ALLOWED_AGENTS].join(', ')}`
+        );
+      }
     }
   }
 

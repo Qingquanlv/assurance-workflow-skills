@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
 1. Write output files:
    - `qa/changes/<change-id>/review/case-review.json`
    - `qa/changes/<change-id>/review/case-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.case_review.status` = `pass | needs_fix | needs_human_review | reject`
-   - Set `phases.case_review.gate_file` = `review/case-review.json`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.case_review.status` = `pass | needs_fix | needs_human_review | reject`
+   - `phases.case_review.gate_file` = `review/case-review.json`
 
 ---
 
@@ -110,17 +110,18 @@ Review the generated case artifacts for:
 - Preconditions and test data
 - Assertions
 - Traceability
+- Minimum Required Coverage (MRC) mapping from advisory to cases
 - Risk and ambiguity
 - Duplicate or conflicting cases
 - Test layer assignments (API vs E2E per the decision tree in `aws-case-design`)
 
-### Risk Advisory soft check (Phase 0.5 — warning only, not blocker)
+### Explore soft check (Phase 0.5 — warning only, not blocker)
 
-When `risk-advisory/advisory.json` exists and `phases.risk_advisory.status == done`:
+When `explore/advisory.json` exists and `phases.explore.status == done`:
 
 ```
 FOR EACH watchlist item WHERE confidence == high:
-  proposal.md ## Risk Advisory Input MUST list WL-* as disposition in [adopted, override]
+  proposal.md ## Explore Input MUST list WL-* as disposition in [adopted, override]
   IF override → reason required in table
 ELSE emit warning: RISK-ADVISORY-WATCHLIST-UNADDRESSED
 ```
@@ -132,11 +133,61 @@ Finding example:
   "id": "RISK-ADVISORY-WATCHLIST-UNADDRESSED",
   "severity": "low",
   "human_review_required": false,
-  "message": "High-confidence watchlist item WL-001 not addressed in proposal.md Risk Advisory Input"
+  "message": "High-confidence watchlist item WL-001 not addressed in proposal.md Explore Input"
 }
 ```
 
-Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `risk_advisory`, `WL-*` / `HS-*` as dedicated trace fields).
+Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `explore`, `risk_advisory` (legacy), `WL-*` / `PH-*` / `HS-*` (legacy) as dedicated trace fields).
+
+### Test Types Considered check (warning only, not blocker)
+
+`proposal.md` MUST contain a `## Test Types Considered` section listing **all four layers** (API / E2E / Fuzz / Performance), each marked `selected` or `declined` with a reason. This is the evidence that Fuzz/Performance were offered to the user during clarification (Category 3 hard rule in `aws-case-design`).
+
+```text
+IF proposal.md has no "## Test Types Considered" section
+   OR any of the four layers is missing from it
+   OR a declined layer has no reason
+→ emit warning: TEST-TYPES-NOT-CONSIDERED
+```
+
+Finding example:
+
+```json
+{
+  "id": "TEST-TYPES-NOT-CONSIDERED",
+  "severity": "low",
+  "human_review_required": false,
+  "message": "proposal.md Test Types Considered is missing or does not cover all four layers (API/E2E/Fuzz/Performance) with selected/declined decisions"
+}
+```
+
+### Minimum Required Coverage gate (hard)
+
+When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`:
+
+```text
+FOR EACH required MRC item:
+  It MUST appear in at least one case trace.minimum_required_coverage
+  It MUST appear in trace/minimum-coverage-matrix.yaml covered_by_cases
+  The covering case type/layer MUST match the MRC layer (api/e2e/both)
+```
+
+Violations:
+
+- required MRC item has no covering case → `needs_fix`
+- matrix and case.yaml trace disagree → `needs_fix`
+- e2e_if_enabled item is skipped without explicit skipped_by_scope + reason → `needs_human_review`
+
+`case-review.json` should include:
+
+```json
+"minimum_coverage": {
+  "total_required": 24,
+  "covered": 24,
+  "skipped_by_scope": 0,
+  "missing": []
+}
+```
 
 ---
 

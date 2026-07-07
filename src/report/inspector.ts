@@ -538,9 +538,15 @@ function buildRecommendedAction(category: string, changeId: string): string {
     case 'business_logic_failure':
       return 'File a bug against the product team. This is not a test issue.';
     case 'fuzz_configuration_error':
-      return 'Fix the fuzz setup (OpenAPI schema source, auth fixture, or hypothesis settings) and rerun. Not a product bug; do not generate a Fix Proposal.';
+      return 'Manual review required: fuzz/performance files are not supported by the healing auto-fix loop. If this is a fuzz harness issue, create a separate test-maintenance change or use an explicit human-approved test-change override; do not generate an API/E2E Fix Proposal.';
     case 'fuzz_stateful_failure':
       return 'Review the fuzz-discovered fault: confirm whether the endpoint mishandles generated/boundary input. If a real product robustness issue, file a bug. Do not auto-fix.';
+    case 'perf_script_error':
+      return 'Manual review required: performance test files are not supported by the healing auto-fix loop. Fix in a separate test-maintenance change or with an explicit human-approved test-change override; do not generate an API/E2E Fix Proposal.';
+    case 'perf_threshold_exceeded':
+      return 'Review the measured threshold breach with the product/performance owner. Tune thresholds or product code in a separate approved change; do not auto-fix in the API/E2E healing loop.';
+    case 'perf_environment':
+      return 'Fix the load-test environment and rerun. Performance environment changes are outside the API/E2E healing loop.';
     case 'test_code_error':
       return `Fix the syntax/import error in the test file and rerun. Run \`aws fix propose --change ${changeId}\`.`;
     case 'case_semantic_failure':

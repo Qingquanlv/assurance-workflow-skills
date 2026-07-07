@@ -20,9 +20,9 @@ Do not rely on prior conversation context.
 1. Write output files:
    - `qa/changes/<change-id>/review/fuzz-plan-review.json`
    - `qa/changes/<change-id>/review/fuzz-plan-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.fuzz_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
-   - Set `phases.fuzz_plan_review.gate_file = review/fuzz-plan-review.json`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.fuzz_plan_review.status` = `pass | needs_fix | needs_human_review | reject`
+   - `phases.fuzz_plan_review.gate_file = review/fuzz-plan-review.json`
 
 ---
 

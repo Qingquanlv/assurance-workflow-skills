@@ -18,8 +18,8 @@ Do not rely on prior conversation context.
 
 **After completing work:**
 
-1. Verify `qa/changes/<change-id>/healing/e2e-apply-summary.json` exists and is valid JSON.
-2. Verify `qa/changes/<change-id>/healing/e2e-apply-summary.md` exists.
+1. Run `aws heal record-apply --change <change-id> --target e2e --proposal <comma-separated applied proposal ids>`.
+2. Verify the CLI wrote `qa/changes/<change-id>/healing/e2e-apply-summary.json` and `.md`.
 3. Verify every modified file is in the allowed list.
 4. Update **only** the per-target status field in `workflow-state.yaml`:
 
@@ -55,6 +55,7 @@ This skill:
 - **Must NOT** skip or delete failing tests
 - **Must NOT** modify API test files
 - **Must NOT** modify unrelated test files outside the change scope
+- **Must NOT** hand-write `healing/e2e-apply-summary.json` or `.md`; only `aws heal record-apply` may create those files
 
 ---
 
@@ -119,7 +120,7 @@ If a proposal in `fix-proposal.json` requires modifying any forbidden file:
 2. Write `qa/changes/<change-id>/healing/e2e-fixer-error.json`.
 3. Do **not** apply any patch.
 4. Do **not** rerun.
-5. Update `workflow-state.yaml`: `phases.healing.status = failed`.
+5. Report state delta `phases.healing.status = failed` (inline mode: apply directly; dispatched subagent: report in your final message — the orchestrator applies it to `workflow-state.yaml`).
 
 ---
 
@@ -190,13 +191,19 @@ For each proposal in `fix-proposal.json` where `target == "e2e"`, `eligible == t
    - `refactor`: restructure existing code without changing behavior
    - `add_helper`: add a new helper function
 4. After each file modification, re-read the file to verify the patch applied correctly.
-5. Record the modification in `healing/e2e-apply-summary.json`.
+5. Record the modification with `aws heal record-apply --change <change-id> --target e2e --proposal <ids>`.
 
 ---
 
 ## Output Files
 
-Write after all eligible proposals are processed:
+Do not write these files by hand. After all eligible proposals are processed, run:
+
+```bash
+aws heal record-apply --change <change-id> --target e2e --proposal FIX-001,FIX-002
+```
+
+The CLI derives `files_modified` from the current test-tree diff, validates the files against `fix-proposal.json`, and writes:
 
 **`qa/changes/<change-id>/healing/e2e-apply-summary.json`:**
 
@@ -344,8 +351,8 @@ phases:
    a. For each validated proposal, apply each `patch_plan` step.
    b. Re-read each modified file to confirm patch applied correctly.
 7. Write `qa/changes/<change-id>/healing/e2e-apply-summary.json` and `qa/changes/<change-id>/healing/e2e-apply-summary.md`.
-8. Update `workflow-state.yaml` attempt entry: set `e2e_apply_status` and `e2e_apply_summary` only.
-   (`applied_files` is NOT written here — it is an orchestrator-only aggregate field)
+8. Report the attempt-entry state delta: `e2e_apply_status` and `e2e_apply_summary` only (orchestrator applies it to `workflow-state.yaml` when dispatched).
+   (`applied_files` is NOT part of this delta — it is an orchestrator-only aggregate field)
    - **Do NOT** set `phases.healing.status = applied`.
 9. Report summary to user.
 

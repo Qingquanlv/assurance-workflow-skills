@@ -24,9 +24,9 @@ Do not rely on prior conversation context.
    - `qa/changes/<change-id>/plans/fuzz-plan.md`
    - `qa/changes/<change-id>/plans/fuzz-codegen-plan.md`
    - `qa/changes/<change-id>/plans/fuzz-review-summary.md`
-2. Update `workflow-state.yaml`:
-   - Set `phases.fuzz_plan.status = done`
-   - List selected Fuzz case_ids under `phases.fuzz_plan.selected_cases`
+2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
+   - `phases.fuzz_plan.status = done`
+   - `phases.fuzz_plan.selected_cases` = selected Fuzz case_ids
 
 ---
 
