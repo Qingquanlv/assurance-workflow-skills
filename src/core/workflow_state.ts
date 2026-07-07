@@ -218,6 +218,14 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
     ],
   });
 
+  // Scaffold phases.healing so downstream predicates (healing-entry-gate's
+  // `len(state.phases.healing.attempts)`, report's `ready_when` on
+  // healing.status) evaluate against concrete values instead of undefined.
+  // Without this the entry gate falls to its fail-closed default and the
+  // router skips the healing loop entirely, dispatching report while
+  // healing.status was never recorded (HEAL-STATE-INCONSISTENT).
+  ensureHealingStateInitialized(projectRoot, changeId);
+
   if (phase === 'healing-rerun') {
     // Also record the healing_rerun phase key: `aws state heal --to resolved`
     // reads phases.healing_rerun.status, which mirroring into `execution`
@@ -227,6 +235,20 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
       batch_id: batchId,
     });
   }
+}
+
+/** Initialize phases.healing to its pending baseline when absent (idempotent). */
+function ensureHealingStateInitialized(projectRoot: string, changeId: string): void {
+  const file = getWorkflowStateFile(projectRoot, changeId);
+  const state = readWorkflowState(file);
+  if (!isRecord(state)) return;
+  const phases = isRecord(state.phases) ? state.phases as Record<string, unknown> : {};
+  const existing = isRecord(phases.healing) ? phases.healing as Record<string, unknown> : {};
+  if (typeof existing.status === 'string' && Array.isArray(existing.attempts)) return;
+
+  phases.healing = { status: 'pending', attempts: [], ...existing };
+  state.phases = phases;
+  fs.writeFileSync(file, yaml.dump(state, { lineWidth: 120 }), 'utf-8');
 }
 
 function applyInspectState(projectRoot: string, changeId: string, phase: 'inspect' | 'healing-reinspect'): void {

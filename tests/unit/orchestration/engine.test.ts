@@ -498,6 +498,102 @@ describe('real workflow-schema.yaml smoke', () => {
   });
 });
 
+const HEAL_MINI = `
+schema_version: "test-heal"
+name: heal-mini
+params:
+  max_healing_attempts: { type: int, default: 3 }
+phases:
+  - id: inspect
+    requires: []
+    produces: [inspect.json]
+  - id: report
+    requires: [inspect]
+    ready_when: "state.phases.healing.status in ['not_needed', 'skipped', 'resolved', 'exhausted', 'failed']"
+    produces: [report.json]
+  - id: fix-proposal
+    requires: [inspect]
+    produces: [fix.json]
+    when: "gate('entry').verdict == 'enter'"
+gates:
+  entry:
+    reads: [workflow-state.yaml]
+    enter_when: >
+      state.phases.execution.status == 'FAIL'
+      and (not defined(state.phases.healing.attempts)
+           or len(state.phases.healing.attempts) < params.max_healing_attempts)
+    skip_when: "state.phases.execution.status == 'PASS'"
+`;
+
+describe('ready_when readiness guard', () => {
+  let healSchema: Schema;
+  beforeEach(() => { healSchema = parseSchema(HEAL_MINI); });
+
+  function healStatusOf(id: string) {
+    return computeStatus({ schema: healSchema, projectRoot, changeId }).phases.find(p => p.id === id);
+  }
+
+  it('blocks the phase (not ready) while the predicate is undefined — healing never recorded', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { execution: { status: 'PASS' } } }),
+      'utf-8'
+    );
+    const r = computeStatus({ schema: healSchema, projectRoot, changeId });
+    const report = healStatusOf('report')!;
+    expect(report.status).toBe('blocked');
+    expect(report.reason).toContain('ready_when');
+    expect(r.next).not.toContain('report');
+  });
+
+  it('blocks while healing.status is a mid-loop value', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { healing: { status: 'proposal_created', attempts: [{}] } } }),
+      'utf-8'
+    );
+    expect(healStatusOf('report')!.status).toBe('blocked');
+  });
+
+  it('becomes ready once the healing decision is a resting status', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { healing: { status: 'not_needed', attempts: [] } } }),
+      'utf-8'
+    );
+    const r = computeStatus({ schema: healSchema, projectRoot, changeId });
+    expect(healStatusOf('report')!.status).toBe('ready');
+    expect(r.next).toContain('report');
+  });
+
+  it('does not retroactively block a phase whose produces already exist', () => {
+    writeJson('inspect.json', { ok: true });
+    writeJson('report.json', { ok: true });
+    // healing.status left unrecorded — the audit layer flags this, not the router
+    expect(healStatusOf('report')!.status).toBe('done');
+  });
+
+  it('entry gate fires enter when phases.healing is absent (defined() hardening)', () => {
+    writeJson('inspect.json', { ok: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ phases: { execution: { status: 'FAIL' } } }),
+      'utf-8'
+    );
+    const fix = healStatusOf('fix-proposal')!;
+    expect(fix.status).toBe('ready');
+  });
+
+  it('real schema: report stays blocked after inspect until aws state heal records a decision', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    const report = real.phasesById.get('report')!;
+    expect(report.ready_when).toContain('state.phases.healing.status');
+  });
+});
+
 const DISPATCH_MINI = `
 schema_version: "1"
 name: dispatch-test

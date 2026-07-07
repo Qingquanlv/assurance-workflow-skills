@@ -43,6 +43,12 @@ export interface PhaseDef {
   owned_by?: string[];
   gate?: string;
   when?: string;
+  /**
+   * Readiness guard: unlike `when` (false → pruned, phase leaves the graph),
+   * a false/undefined `ready_when` keeps the phase in the graph but `blocked`,
+   * so the router never dispatches it until the predicate holds.
+   */
+  ready_when?: string;
   loop?: string;
   repair_of?: string;
   max_attempts_param?: string;
@@ -177,6 +183,7 @@ function normalizePhase(raw: Record<string, unknown>): PhaseDef {
     owned_by: Array.isArray(raw.owned_by) ? (raw.owned_by as string[]) : undefined,
     gate: typeof raw.gate === 'string' ? raw.gate : undefined,
     when: typeof raw.when === 'string' ? raw.when.trim() : undefined,
+    ready_when: typeof raw.ready_when === 'string' ? raw.ready_when.trim() : undefined,
     loop: typeof raw.loop === 'string' ? raw.loop : undefined,
     repair_of: typeof raw.repair_of === 'string' ? raw.repair_of : undefined,
     max_attempts_param:
@@ -286,6 +293,7 @@ function allPredicates(schema: Schema): { loc: string; expr: string }[] {
   const out: { loc: string; expr: string }[] = [];
   for (const p of schema.phases) {
     if (p.when) out.push({ loc: `phase '${p.id}'.when`, expr: p.when });
+    if (p.ready_when) out.push({ loc: `phase '${p.id}'.ready_when`, expr: p.ready_when });
   }
   for (const loop of Object.values(schema.loops)) {
     if (loop.allocate_on) out.push({ loc: `loop '${loop.id}'.allocate_on`, expr: loop.allocate_on });

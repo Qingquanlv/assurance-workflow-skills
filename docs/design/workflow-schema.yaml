@@ -221,6 +221,11 @@ phases:
     skill: aws-report-generator
     agent: aws-reporter
     requires: [inspect]
+    # Runbook Phase 13 precondition, enforced at routing time: the healing
+    # decision must be recorded (via `aws state heal`) before report may run.
+    # Mirrors the HEAL-STATE-INCONSISTENT audit so router and audit agree.
+    ready_when: >
+      state.phases.healing.status in ['not_needed', 'skipped', 'resolved', 'exhausted', 'failed']
     produces: [report/quality-report.json, report/quality-report.md, report/executive-summary.md]
     owned_by: [full, execute]
 
@@ -391,7 +396,8 @@ gates:
       and any(failure_analysis.failures, fix_proposal_eligible == true)
       and state.phases.inspect.inspect_mode == 'primary'
       and state.gates.healing_available == true
-      and len(state.phases.healing.attempts) < params.max_healing_attempts
+      and (not defined(state.phases.healing.attempts)
+           or len(state.phases.healing.attempts) < params.max_healing_attempts)
     stop_when: >
       state.phases.execution.status == 'FAIL'
       and any(failure_analysis.failures, fix_proposal_eligible == true)

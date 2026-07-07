@@ -139,6 +139,42 @@ describe('workflow-state phase completion helper', () => {
     expect(readWorkflowState(projectRoot).phases.case_design).toBeUndefined();
   });
 
+  it('scaffolds phases.healing on execution apply so healing predicates are evaluable', () => {
+    const execDir = path.join(changeDir(projectRoot), 'execution');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump({
+      batch_id: 'batch-001',
+      final_status: 'FAIL',
+    }), 'utf-8');
+
+    applyPhaseState(projectRoot, changeId, 'execution');
+
+    expect(readWorkflowState(projectRoot).phases.healing).toEqual({
+      status: 'pending',
+      attempts: [],
+    });
+  });
+
+  it('does not clobber an existing phases.healing on execution re-apply', () => {
+    const execDir = path.join(changeDir(projectRoot), 'execution');
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump({
+      batch_id: 'batch-002',
+      final_status: 'FAIL',
+    }), 'utf-8');
+    writeWorkflowState(projectRoot, {
+      phases: {
+        execution: { status: 'pending' },
+        healing: { status: 'proposal_created', attempts: [{ attempt: 1 }] },
+      },
+    });
+
+    applyPhaseState(projectRoot, changeId, 'execution');
+
+    expect(readWorkflowState(projectRoot).phases.healing).toEqual({
+      status: 'proposal_created',
+      attempts: [{ attempt: 1 }],
+    });
+  });
+
   it('applies healing-rerun through execution state', () => {
     const execDir = path.join(changeDir(projectRoot), 'execution');
     fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), yaml.dump({

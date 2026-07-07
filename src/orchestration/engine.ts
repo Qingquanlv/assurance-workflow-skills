@@ -486,6 +486,18 @@ export class Engine {
     }
 
     if (!producesPresent) {
+      // Readiness guard: deps are done but a `ready_when` predicate must also
+      // hold before the router may dispatch this phase (three-state: false or
+      // undefined both block — fail closed).
+      if (phase.ready_when && this.evalPredicate(phase.ready_when, this.predicateScope()) !== true) {
+        return {
+          id: phase.id,
+          status: 'blocked',
+          gate,
+          missingDeps: [],
+          reason: `ready_when not satisfied: ${phase.ready_when}`,
+        };
+      }
       return { id: phase.id, status: 'ready', gate, produces_present: false };
     }
 
