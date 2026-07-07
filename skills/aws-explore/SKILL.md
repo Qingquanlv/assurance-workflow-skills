@@ -148,7 +148,7 @@ Read `context.json`, requirement text, **and source code evidence collected in S
 2. Every `priority_hint` / watchlist item **must** reference ≥1 evidence ID (`context.evidence[].id` or Step 3 `SC-*` ID) via `evidence_ids[]`.
 3. No `evidence_ids` → item MUST be `confidence: low`. Do not generate `priority_hint`/watchlist items with no evidence.
 4. `case_design_guidance` is an **evidence-anchored channel** — never write case files. `priority_hints` is the **sole channel for risk-area signals** (there is no separate `hotspots` array — every `priority_hint` carries its own `confidence`, following the same §5.7 rules as watchlist). When ALL evidence (historical AND source code) is empty, set `priority_hints`, `suggested_scenarios`, and `regression_focus` to `[]`. Do **not** fill them with generic advice — generic "at least cover" guidance belongs exclusively in `minimum_required_coverage`; degraded disclaimers belong exclusively in `executive_summary`.
-4a. `test_strategy` is the **macro plan channel** — scope / data focus / layer recommendation / approach. It is a **proposal**, not a decision: `aws-case-design` confirms or overrides it during its own clarifying questions. Never ask the user about scope/data/layer/approach as an `open_questions_for_case_design` item — that question belongs to `aws-case-design`, not explore. When evidence is empty, set `test_strategy.layer_recommendation` to `[]` and leave `scope`/`approach` unset rather than guessing.
+4a. `test_strategy` is the **macro plan channel** — scope / data focus / layer recommendation / approach. It is a **proposal**, not a decision: `aws-case-design` confirms or overrides it during its own clarifying questions. Never ask the user about scope/data/layer/approach as an `open_questions_for_case_design` item — that question belongs to `aws-case-design`, not explore. `test_strategy.layer_recommendation` MUST enumerate all four layers (`API`, `E2E`, `Fuzz`, `Performance`) with explicit `recommended: true|false` and `rationale`; when evidence is empty, emit all four as `recommended: false` with the evidence-limit reason and leave `scope`/`approach` unset rather than guessing.
 5. Respect `parse_confidence_cap` on evidence — do not exceed cap in item confidence. All `source: "source_code"` evidence has cap `medium`; do not assign `high` confidence to any item backed only by SC-* evidence.
 6. Use `evidence[]` IDs only — do not use unstable path expressions like `context.test_health[menus].pass_rate`.
 7. If `context.staleness.stale == true` → cap all confidence at `medium`; add staleness disclaimer to Executive Summary.
@@ -223,12 +223,21 @@ See `schemas/explore-advisory.schema.json` for the MVP advisory shape.
 |-------|-------------|
 | `scope.in_scope` / `scope.out_of_scope` | Diff-changed modules/files (`context.json` `impact.modules`) + requirement text scope; uncertain areas go to `out_of_scope` with a note in `executive_summary`, not a guess |
 | `data_focus` | Model/entity fields read in Step 3 (SC-* `model_field` evidence) that are central to the change |
-| `layer_recommendation` | One entry per `API/E2E/Fuzz/Performance`: `recommended: true` only when evidence supports it (e.g. user-input schema found → recommend Fuzz; high-frequency query route found → recommend Performance); always cite `evidence_ids` |
+| `layer_recommendation` | Exactly one entry per `API/E2E/Fuzz/Performance`: `recommended: true` only when evidence supports it; `recommended: false` when evidence does not support the layer; cite `evidence_ids` for supported recommendations and give a concrete evidence-limit reason for declined ones |
 | `approach` | One sentence combining the recommended layers, e.g. "API + E2E，并对 UserCreate/UserUpdate schema 增加 Fuzz 覆盖" |
 
 `depth` (`smoke | core | exhaustive`) reflects how much evidence supports broad coverage — `low`/no evidence caps depth at `smoke`.
 
-If evidence is insufficient to recommend a layer, omit that layer's entry entirely rather than emitting `recommended: false` with no rationale.
+Layer recommendation triggers:
+
+| Layer | Recommend when |
+|-------|----------------|
+| API | REST/RPC endpoints exist for the change scope |
+| E2E | A user-facing page/flow exists for the change scope |
+| Fuzz | Endpoints accept user-input schemas (create/update bodies, query parsers, file/import input) |
+| Performance | A high-frequency, core, or heavy-query path is identified in scope |
+
+Silent omission of a layer is invalid. If evidence is insufficient to recommend a layer, include it as `recommended: false` with the reason. These are advisory recommendations only — `aws-case-design` still owns the user-facing test-type decision and must offer Fuzz/Performance opt-in regardless of what is recommended here.
 
 ### Required degraded-output metadata
 

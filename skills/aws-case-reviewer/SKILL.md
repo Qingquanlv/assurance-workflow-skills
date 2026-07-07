@@ -139,6 +139,28 @@ Finding example:
 
 Also **warn** (non-blocker) if `case.yaml` contains advisory trace metadata (`evidence_ids`, `explore`, `risk_advisory` (legacy), `WL-*` / `PH-*` / `HS-*` (legacy) as dedicated trace fields).
 
+### Test Types Considered check (warning only, not blocker)
+
+`proposal.md` MUST contain a `## Test Types Considered` section listing **all four layers** (API / E2E / Fuzz / Performance), each marked `selected` or `declined` with a reason. This is the evidence that Fuzz/Performance were offered to the user during clarification (Category 3 hard rule in `aws-case-design`).
+
+```text
+IF proposal.md has no "## Test Types Considered" section
+   OR any of the four layers is missing from it
+   OR a declined layer has no reason
+→ emit warning: TEST-TYPES-NOT-CONSIDERED
+```
+
+Finding example:
+
+```json
+{
+  "id": "TEST-TYPES-NOT-CONSIDERED",
+  "severity": "low",
+  "human_review_required": false,
+  "message": "proposal.md Test Types Considered is missing or does not cover all four layers (API/E2E/Fuzz/Performance) with selected/declined decisions"
+}
+```
+
 ### Minimum Required Coverage gate (hard)
 
 When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`:

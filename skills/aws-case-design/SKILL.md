@@ -111,7 +111,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
    - `interactive`: ask clarifying questions one at a time — cover 8 categories; **prioritize watchlist / `exception_scenarios`** when advisory exists; lead macro categories with the `test_strategy` proposal (confirm/override) when present; treat advisory answered OQs as already-resolved for that specific pitfall; surface unresolved OQs as part of their category's question.
    - `autonomous`: skip planned user questions. Adopt `test_strategy` where supported by evidence, choose conservative defaults for missing macro categories, and keep `deferred` / `undecided` pitfalls neutral.
 5. **Reconcile internally** — map advisory to `adopted[]`, `override[]` (with reason), `gap[]`; **do NOT dump risk report to user**; in `interactive` mode, gap-only follow-up max 1–2 questions; in `autonomous` mode, record unresolved gaps in `proposal.md` instead of asking.
-6. **Propose 2–3 QA coverage approaches** — `interactive` only; each must cite adopted / override / gap from Reconcile.
+6. **Propose 2–3 QA coverage approaches** — `interactive` only; each must cite adopted / override / gap from Reconcile; the option list MUST include an explicit Fuzz/Performance opt-in entry (Category 3 hard rule).
 7. **Get user approval** — `interactive` only; wait for explicit confirmation. `autonomous` skips this step and relies on `aws-case-reviewer` as the gate artifact.
 8. **Write `.qa.yaml` approval metadata** — in `interactive` mode, persist the approved coverage approach before writing cases:
    ```yaml
@@ -122,7 +122,7 @@ Maintain a visible checklist for each item, or use the available task/todo tool 
      approved_at: <ISO timestamp>
    ```
    `aws status` enforces this through `case-design-gate`; `cases/` existing on disk is not enough for case-design to be `done`.
-9. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Layer Rationale`; include `generation_mode: autonomous` when no user approval was requested.
+9. **Write `proposal.md`** — must include `## Explore Input` when advisory `done`; `_skipped` placeholder otherwise; plus `## Test Types Considered` (all four layers, selected/declined + reason) and `## Layer Rationale`; include `generation_mode: autonomous` when no user approval was requested.
 10. **Write case delta YAML** — to `qa/changes/<change-id>/cases/<module>/case.yaml`
 11. **Self-review case delta YAML** — validate schema; **case.yaml MUST NOT contain advisory metadata** (see below)
 12. **Hand off** — report completion; orchestrator invokes `aws-case-reviewer`
@@ -202,6 +202,12 @@ The user's confirm/override response is what gets recorded as `adopted[]` / `ove
 | 8 | Out of scope | Explicit exclusions |
 
 > When the user selects **Fuzz**, ask which input endpoints need robustness testing. When the user selects **Performance**, ask which capability is high-frequency/core and what the acceptable P95 latency and error-rate thresholds are (no defaults — thresholds must be user-confirmed).
+
+**Category 3 hard rule — all four layers must be offered, not just recommended ones:**
+
+- The coverage-approach options presented to the user MUST include an explicit Fuzz/Performance opt-in entry (like option E in the example below), **even when Explore does not recommend those layers**. Presenting only API/E2E depth variants (e.g. 方案 A/B/C all within API+E2E) without a Fuzz/Performance entry is a process deviation.
+- When the user declines a layer, record the decision — silence is not a decision. `proposal.md` `## Test Types Considered` captures all four layers with `selected | declined + reason`.
+- An Explore `test_strategy.layer_recommendation` with `recommended: false` is a lead-in for the question ("Explore 不建议 Fuzz，理由是 X — 是否同意？"), never a reason to skip asking.
 
 ### Test Layer Decision Tree
 
@@ -450,6 +456,8 @@ Present 2–3 options with trade-offs and your recommendation. Lead with your re
 
 In `autonomous` mode, skip this section: select one conservative approach from `test_strategy` + evidence, record the rationale and `generation_mode: autonomous` in `proposal.md`, and continue directly to writing outputs.
 
+The option list MUST include an explicit Fuzz/Performance opt-in option even if the recommended approach does not include them. If Explore recommends `recommended: false` for Fuzz or Performance, cite that rationale and ask the user to confirm or override it.
+
 **Example:**
 
 > **A. E2E only**
@@ -466,6 +474,11 @@ In `autonomous` mode, skip this section: select one conservative approach from `
 > - Best regression coverage for high-risk features.
 > - Requires more data setup and more cases.
 > - Appropriate when this feature is critical path or has a history of regressions.
+>
+> **D. Add Fuzz and/or Performance**
+> - Fuzz hardens user-input endpoints such as create/update schemas.
+> - Performance validates high-frequency or heavy-query paths with user-confirmed P95/error-rate thresholds.
+> - Add only when these non-functional targets are in scope for this change.
 >
 > Recommendation: **B**, because this is a state-changing workflow.
 
@@ -530,6 +543,17 @@ Example:
 
 - API
 - E2E
+
+## Test Types Considered
+
+All four layers must appear — this table is the evidence that Fuzz/Performance were offered to the user.
+
+| Layer | Decision | Reason |
+|---|---|---|
+| API | selected | <why> |
+| E2E | selected | <why> |
+| Fuzz | declined | <user's reason, e.g. 输入 schema 简单，本期不做健壮性测试> |
+| Performance | declined | <user's reason, e.g. 无高频路径，无性能指标要求> |
 
 ## Layer Rationale
 
