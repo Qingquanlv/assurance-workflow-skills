@@ -59,6 +59,14 @@ Before dispatching any phase, verify the intake artifacts and shared test infra 
    - `tests/config.py`, `tests/conftest.py`, and `tests/schema_validation.py` must exist under the project root and pass the per-file contract in `aws-test-infra-bootstrap/SKILL.md`.
    - If `phases.test_infra_bootstrap.status == done` in `workflow-state.yaml`, treat as satisfied when all 3 files still pass contract.
    - If any file is missing or non-conformant → **STOP** with: `Test infra not ready. Run aws-intake (Phase 0 bootstrap) or aws-test-infra-bootstrap manually. Execute mode does not ask for config.`
+6. **Skill Registry Check (execute subset)** — same mechanics and rules as `aws-workflow` Phase 1.1, scoped to execute-phase skills. `aws-intake` only checks intake-scope skills, so this is the first (and only) registry check the execute-scope skills get — do not skip it because `phases.skill_registry_check.status == pass` from intake.
+   - Verify these skills load (narrowed by `test_types` / `layers.*`): `aws-fact-baseline`; API layer — `aws-api-plan`, `aws-api-plan-reviewer`, `aws-api-codegen`; E2E layer — `aws-e2e-plan`, `aws-e2e-plan-reviewer`, `aws-e2e-codegen`; fuzz/performance equivalents when those layers are in scope; `aws-run`, `aws-inspect`, `aws-report-generator`; healing_skills — `aws-fix-proposal`, `aws-api-codegen-fixer`, `aws-e2e-codegen-fixer`.
+   - Any missing **non-healing** execute skill → **STOP** and report the missing skill (same rule as Phase 1.1).
+   - **Derive `gates.healing_available`** — this check is the field's owner in execute mode. The intake scaffold value is a placeholder and MUST be overwritten by this derivation, never trusted:
+     - all 3 healing_skills load AND `params.max_healing_attempts > 0` → set `gates.healing_available = true`
+     - otherwise → set `gates.healing_available = false` AND record the reason in `agent_warnings` (`AWS-HEALING-SKILLS-UNAVAILABLE` for missing skills; a note for `max_healing_attempts == 0`). A `false` with no corresponding `agent_warnings` entry is invalid state.
+     - `healing_available` states capability only; whether healing actually runs is decided later by the healing-entry-gate (FAIL + eligible failures + primary inspect + attempts remaining). To disable healing as policy, set `params.max_healing_attempts: 0` — never hand-edit `gates.healing_available`.
+   - Append the verified skills to `phases.skill_registry_check.checked_skills` in `workflow-state.yaml`.
 
 This preflight replaces a separate intake handoff file. Do not create `intake-approved.yaml`.
 

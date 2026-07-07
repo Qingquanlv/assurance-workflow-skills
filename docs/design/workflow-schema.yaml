@@ -17,8 +17,8 @@ params:
   run_mode: { type: enum, values: [full, case-only, api-only, e2e-only, plan-only, codegen-only, review-case, review-plan], default: full }
   test_types: { type: list, values: [api, e2e, fuzz, performance], default: [api, e2e] }
   run_tests: { type: bool, default: true }
-  max_case_fix_attempts: { type: int, default: 2 }
-  max_plan_fix_attempts: { type: int, default: 2 }
+  max_case_fix_attempts: { type: int, default: 3 }
+  max_plan_fix_attempts: { type: int, default: 3 }
   max_healing_attempts: { type: int, default: 3 }
   auto_archive: { type: bool, default: false }
 
