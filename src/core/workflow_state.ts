@@ -16,7 +16,7 @@ export interface PhaseCompletionOptions {
   transitionTo?: PhaseTransitionStatus;
 }
 
-export type ApplyPhase = 'execution' | 'healing-rerun' | 'inspect' | 'report';
+export type ApplyPhase = 'execution' | 'healing-rerun' | 'inspect' | 'healing-reinspect' | 'report';
 export type OrchestratorSkill = 'aws-workflow' | 'aws-intake' | 'aws-execute';
 
 interface RunContext {
@@ -35,8 +35,8 @@ export function applyPhaseState(projectRoot: string, changeId: string, phase: Ap
     applyExecutionState(projectRoot, changeId, phase);
     return;
   }
-  if (phase === 'inspect') {
-    applyInspectState(projectRoot, changeId);
+  if (phase === 'inspect' || phase === 'healing-reinspect') {
+    applyInspectState(projectRoot, changeId, phase);
     return;
   }
   applyReportState(projectRoot, changeId);
@@ -217,15 +217,39 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
       'execution/performance-result.json',
     ],
   });
+
+  if (phase === 'healing-rerun') {
+    // Also record the healing_rerun phase key: `aws state heal --to resolved`
+    // reads phases.healing_rerun.status, which mirroring into `execution`
+    // alone would leave unset.
+    updateWorkflowStatePhase(projectRoot, changeId, 'healing_rerun', {
+      status,
+      batch_id: batchId,
+    });
+  }
 }
 
-function applyInspectState(projectRoot: string, changeId: string): void {
+function applyInspectState(projectRoot: string, changeId: string, phase: 'inspect' | 'healing-reinspect'): void {
   const analysis = readJsonRecord(changeFile(projectRoot, changeId, 'inspect/failure-analysis.json'));
   if (!analysis) throw new Error('inspect/failure-analysis.json not found; run aws report inspect before state apply');
 
+  if (phase === 'healing-reinspect') {
+    // A healing re-inspect must be based on the healing-rerun batch, not a
+    // stale analysis of an earlier one.
+    const manifest = readYamlRecord(changeFile(projectRoot, changeId, 'execution/execution-manifest.yaml'));
+    const latestBatch = asString(manifest?.batch_id);
+    const sourceBatch = asString(analysis.source_batch_id);
+    if (latestBatch && sourceBatch && latestBatch !== sourceBatch) {
+      throw new Error(
+        `healing-reinspect requires failure-analysis.source_batch_id == latest execution batch ` +
+        `(${latestBatch}), got ${sourceBatch}; re-run aws report inspect`,
+      );
+    }
+  }
+
   const status = inspectPhaseStatus(analysis);
   recordPhaseCompletion(projectRoot, changeId, {
-    phase: 'inspect',
+    phase,
     state: {
       status,
       inspect_mode: asString(analysis.inspect_mode) ?? 'primary',
@@ -247,6 +271,19 @@ function applyInspectState(projectRoot: string, changeId: string): void {
       'inspect/inspection-error.json',
     ],
   });
+
+  if (phase === 'healing-reinspect') {
+    // The re-inspect also refreshes the canonical inspect phase state and
+    // records which batch it analyzed.
+    updateWorkflowStatePhase(projectRoot, changeId, 'healing_reinspect', {
+      batch_id: asString(analysis.source_batch_id),
+    });
+    updateWorkflowStatePhase(projectRoot, changeId, 'inspect', {
+      status,
+      inspect_mode: asString(analysis.inspect_mode) ?? 'primary',
+      classification_performed: Boolean(analysis.classification_performed),
+    });
+  }
 }
 
 function applyReportState(projectRoot: string, changeId: string): void {

@@ -20,8 +20,12 @@ export type HealingStatus =
 const LEGAL_TRANSITIONS: Record<string, HealingStatus[]> = {
   pending: ['proposal_created', 'not_needed', 'skipped'],
   proposal_created: ['applied', 'failed'],
-  applied: ['resolved', 'exhausted', 'failed'],
+  // applied → proposal_created is the loop-back edge for attempt N+1
+  // (rerun FAILed, re-inspect found eligible failures, attempts < max).
+  applied: ['proposal_created', 'resolved', 'exhausted', 'failed'],
 };
+
+export const DEFAULT_MAX_HEALING_ATTEMPTS = 3;
 
 const APPLY_SUMMARIES = [
   'healing/api-apply-summary.json',
@@ -85,8 +89,15 @@ export function transitionHealingStatus(
   validatePreconditions(projectRoot, changeId, state, from, to);
 
   const nextHealing: Record<string, unknown> = { ...healing, status: to };
-  if (from === 'pending' && to === 'proposal_created') {
+  if (to === 'proposal_created') {
     const attempts = Array.isArray(healing.attempts) ? [...healing.attempts] : [];
+    if (from === 'applied' && attempts.length > 0) {
+      // Loop-back: close out the previous attempt as unresolved before
+      // allocating the next one.
+      const last = { ...(attempts[attempts.length - 1] as Record<string, unknown>) };
+      if (last.resolved == null) last.resolved = 'unresolved';
+      attempts[attempts.length - 1] = last;
+    }
     attempts.push({
       attempt: attempts.length + 1,
       started_at: new Date().toISOString(),
@@ -94,6 +105,15 @@ export function transitionHealingStatus(
       resolved: null,
     });
     nextHealing.attempts = attempts;
+    // A new proposal invalidates the previous apply authorization.
+    delete nextHealing.applied_tests_tree_sha256;
+  }
+
+  if (from === 'proposal_created' && to === 'applied') {
+    // Pin the exact test tree the fixers produced. `aws run` only accepts
+    // this tree while healing.status == applied — one authorization covers
+    // one fixed tree, so post-apply manual edits are rejected.
+    nextHealing.applied_tests_tree_sha256 = hashTestTree(projectRoot).aggregate;
   }
 
   if (to === 'resolved' || to === 'exhausted') {
@@ -126,11 +146,38 @@ function validatePreconditions(
 ): void {
   const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
 
-  if (from === 'pending' && to === 'proposal_created') {
+  if (to === 'proposal_created') {
     const proposal = readJson(changeDir, 'healing/fix-proposal.json');
     if (!proposal) throw new Error('healing/fix-proposal.json missing or invalid');
     if (typeof proposal.summary !== 'object' || proposal.summary === null) {
       throw new Error('healing/fix-proposal.json missing summary');
+    }
+    // Freshness: the proposal must be based on an inspect of the latest
+    // formal batch, not a stale analysis from an earlier one.
+    const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
+    const manifest = readLatestExecutionManifest(projectRoot, changeId);
+    const latestBatch = typeof manifest?.batch_id === 'string' ? manifest.batch_id : null;
+    const sourceBatch = typeof analysis?.source_batch_id === 'string' ? analysis.source_batch_id : null;
+    if (latestBatch && sourceBatch && latestBatch !== sourceBatch) {
+      throw new Error(
+        `PROPOSAL-STALE: inspect/failure-analysis.json source_batch_id=${sourceBatch} does not match ` +
+        `the latest execution batch ${latestBatch}. Re-run aws report inspect before creating a fix proposal.`,
+      );
+    }
+  }
+
+  if (from === 'applied' && to === 'proposal_created') {
+    // Loop-back for attempt N+1 requires: the previous fix was actually
+    // verified by a rerun, and the attempt budget is not exhausted.
+    assertPhaseDone(state, 'healing_rerun', 'healing-rerun', 'proposal_created (loop-back)');
+    const healing = getHealingPhase(state);
+    const attempts = Array.isArray(healing.attempts) ? healing.attempts : [];
+    const maxAttempts = getMaxHealingAttempts(state);
+    if (attempts.length >= maxAttempts) {
+      throw new Error(
+        `HEAL-ATTEMPTS-EXHAUSTED: ${attempts.length}/${maxAttempts} healing attempts used. ` +
+        'Run aws state heal --to exhausted and surface the decision to the user.',
+      );
     }
   }
 
@@ -146,9 +193,8 @@ function validatePreconditions(
 
   if (from === 'pending' && to === 'skipped') {
     const gates = isRecord(state.gates) ? state.gates as Record<string, unknown> : {};
-    const params = isRecord(state.params) ? state.params as Record<string, unknown> : {};
     const healingAvailable = gates.healing_available !== false;
-    const maxAttempts = typeof params.max_healing_attempts === 'number' ? params.max_healing_attempts : 2;
+    const maxAttempts = getMaxHealingAttempts(state);
     if (healingAvailable && maxAttempts > 0) {
       throw new Error('skipped requires gates.healing_available == false or max_healing_attempts == 0');
     }
@@ -166,6 +212,18 @@ function validatePreconditions(
         throw new Error('apply-summary requires files_modified or no_op: true');
       }
     }
+    // Every target with an eligible proposal must have its own apply-summary
+    // (no_op: true is acceptable) — one summary must not silently cover both.
+    const proposal = readJson(changeDir, 'healing/fix-proposal.json');
+    for (const target of eligibleProposalTargets(proposal)) {
+      const summaryRel = `healing/${target}-apply-summary.json`;
+      if (!readJson(changeDir, summaryRel)) {
+        throw new Error(
+          `applied requires ${summaryRel}: fix-proposal has an eligible ${target} proposal ` +
+          `but the ${target} fixer wrote no apply-summary`,
+        );
+      }
+    }
     const safety = readJson(changeDir, 'healing/fixer-safety-check.json');
     if (!safety || safety.passed !== true) {
       throw new Error('applied requires healing/fixer-safety-check.json with passed == true');
@@ -181,8 +239,8 @@ function validatePreconditions(
   }
 
   if (from === 'applied' && to === 'resolved') {
-    assertPhaseDone(state, 'healing_rerun', 'healing-rerun');
-    assertPhaseDone(state, 'healing_reinspect', 'healing-reinspect');
+    assertPhaseDone(state, 'healing_rerun', 'healing-rerun', 'resolved');
+    assertPhaseDone(state, 'healing_reinspect', 'healing-reinspect', 'resolved');
     const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
     if (hasEligibleFailures(analysis)) {
       throw new Error('resolved requires no fix_proposal_eligible failures in failure-analysis');
@@ -200,8 +258,7 @@ function validatePreconditions(
   if (from === 'applied' && to === 'exhausted') {
     const healing = getHealingPhase(state);
     const attempts = Array.isArray(healing.attempts) ? healing.attempts : [];
-    const params = isRecord(state.params) ? state.params as Record<string, unknown> : {};
-    const maxAttempts = typeof params.max_healing_attempts === 'number' ? params.max_healing_attempts : 2;
+    const maxAttempts = getMaxHealingAttempts(state);
     const allNoOp = APPLY_SUMMARIES.every(p => {
       const summary = readJson(changeDir, p);
       return summary?.no_op === true;
@@ -316,7 +373,28 @@ export function assertTestTreeUnchangedOrHealing(
 
   const changedFiles = diffTestFiles(previous.test_files_sha256 ?? {}, current.files);
   const status = readHealingStatus(projectRoot, changeId);
-  if (status === 'applied' || allowTestChanges) {
+  if (allowTestChanges) {
+    // Explicit human override (policy-gated, evidence-logged) wins.
+    return {
+      testsChanged: true,
+      current,
+      previousBatchId: previous.batch_id,
+      changedFiles,
+    };
+  }
+  if (status === 'applied') {
+    // `applied` only authorizes the exact tree pinned at `heal --to applied`.
+    // Manual edits after apply must go through a new proposal cycle.
+    const healing = getHealingPhase(readWorkflowState(projectRoot, changeId));
+    const pinned = healing.applied_tests_tree_sha256;
+    if (typeof pinned === 'string' && pinned !== current.aggregate) {
+      throw new Error(
+        `HEAL-TREE-MISMATCH: test tree differs from the tree authorized at 'aws state heal --to applied' ` +
+        `(pinned ${pinned.slice(0, 12)}…, current ${current.aggregate.slice(0, 12)}…). ` +
+        'Tests were modified after the fixers ran. Start a new healing cycle: ' +
+        'aws report inspect → aws-fix-proposal → aws state heal --to proposal_created → fixers → --to applied.',
+      );
+    }
     return {
       testsChanged: true,
       current,
@@ -464,13 +542,31 @@ function findAssertionExpectedValueChanges(diff: string): string[] {
     );
 }
 
-function assertPhaseDone(state: Record<string, unknown>, stateKey: string, label: string): void {
+function assertPhaseDone(state: Record<string, unknown>, stateKey: string, label: string, target: string): void {
   const phases = isRecord(state.phases) ? state.phases as Record<string, unknown> : {};
   const phase = isRecord(phases[stateKey]) ? phases[stateKey] as Record<string, unknown> : {};
   const status = phase.status;
   if (status !== 'done' && status !== 'PASS' && status !== 'PASS_WITH_WARNINGS' && status !== 'FAIL') {
-    throw new Error(`${label} must be done before healing.status=resolved`);
+    throw new Error(`${label} must be done before healing.status=${target}`);
   }
+}
+
+function getMaxHealingAttempts(state: Record<string, unknown>): number {
+  const params = isRecord(state.params) ? state.params as Record<string, unknown> : {};
+  return typeof params.max_healing_attempts === 'number'
+    ? params.max_healing_attempts
+    : DEFAULT_MAX_HEALING_ATTEMPTS;
+}
+
+function eligibleProposalTargets(proposal: Record<string, unknown> | null): string[] {
+  const proposals = Array.isArray(proposal?.proposals) ? proposal.proposals : [];
+  const targets = new Set<string>();
+  for (const item of proposals) {
+    if (!isRecord(item) || item.eligible !== true) continue;
+    const target = item.target;
+    if (target === 'api' || target === 'e2e') targets.add(target);
+  }
+  return [...targets];
 }
 
 function readLatestExecutionManifest(projectRoot: string, changeId: string): ExecutionManifest | null {

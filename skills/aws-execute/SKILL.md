@@ -156,21 +156,34 @@ Phase 8 — Inspect  (if execution FAIL / PASS_WITH_WARNINGS, or known-product-i
 
 [Healing loop — Phases 9–12; healing.status is CLI-only via aws state heal]
 Phase 9  — Fix Proposal   → dispatch aws-fix-proposal → healing/fix-proposal.json (+ .md)
+  → the proposal MUST target the latest batch: failure-analysis.source_batch_id must equal the
+    latest execution batch or the CLI rejects with PROPOSAL-STALE (re-run aws report inspect first)
   → if summary.eligible_count == 0: aws state heal --to not_needed ; FAIL → STOP
   → aws state heal --change <id> --to proposal_created        ← allocates attempts[n]
+    (legal from `pending` for attempt 1, and from `applied` for attempt N+1 loop-back;
+     the loop-back edge requires healing-rerun done + attempts < max_healing_attempts,
+     otherwise the CLI rejects with HEAL-ATTEMPTS-EXHAUSTED)
 Phase 10 — Apply Fixes    → dispatch aws-api-codegen-fixer and/or aws-e2e-codegen-fixer (INLINE)
   → verify healing/*-apply-summary.json ; if *-fixer-error.json written → STOP
+  → every target with an eligible proposal MUST have its own apply-summary (no_op: true allowed);
+    `aws state heal --to applied` rejects when one is missing
   → Fixer Safety Gate (healing/fixer-safety-check.json): produced by `aws state heal --to applied` (CLI computed; agent hand-written safety files are overwritten). If product code / unauthorized assertions / deletions touched → STOP or human-review gate.
   → all fixers no_op → STOP (proposal/authorization mismatch); any failed → aws state heal --to failed ; STOP
-  → aws state heal --change <id> --to applied                 ← required before rerun
+  → aws state heal --change <id> --to applied                 ← required before rerun;
+    pins the exact fixed test tree (applied_tests_tree_sha256) — one authorization, one tree
 Phase 11 — Re-run         → bash: aws run --change <id>       ← changed tests are allowed only because healing.status == applied
+  → aws run only accepts the tree pinned at `--to applied`; editing tests after apply is rejected
+    with HEAL-TREE-MISMATCH — new edits require a new proposal cycle (back to Phase 9), never ad-hoc reruns
   → If `--allow-test-changes` was used outside healing, verify `execution/runs/<batch-id>/test-changes-override.json` exists and is referenced from events/report.
   → verify a new batch id ; aws state apply --change <id> --phase healing-rerun
 Phase 12 — Re-inspect     → dispatch aws-inspect
   → verify failure-analysis.json.source_batch_id == latest execution batch, else STOP (stale)
+  → ⟶ state (CLI-backed, mandatory): aws state apply --change <id> --phase healing-reinspect
+    (validates source_batch_id freshness and records phases.healing_reinspect)
   → Inspect Safety Gate again
   → PASS / PASS_WITH_WARNINGS → aws state heal --to resolved → Phase 14
   → FAIL and attempts < max and eligible remain → loop back to Phase 9
+    (aws state heal --to proposal_created after the new fix-proposal is written)
   → attempts exhausted → aws state heal --to exhausted → STOP (needs human)
 
 Phase 13 — Report  (terminal, non-gating)

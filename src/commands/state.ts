@@ -3,7 +3,7 @@ import { applyPhaseState, ApplyPhase, OrchestratorSkill, stampRunContext } from 
 import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
-const APPLY_PHASES = new Set(['execution', 'healing-rerun', 'inspect', 'report']);
+const APPLY_PHASES = new Set(['execution', 'healing-rerun', 'inspect', 'healing-reinspect', 'report']);
 const ORCHESTRATOR_SKILLS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
 const HEAL_STATUSES = new Set([
   'proposal_created', 'applied', 'resolved', 'exhausted', 'not_needed', 'failed', 'skipped',
@@ -18,7 +18,7 @@ export function registerStateCommand(program: Command): void {
     .command('apply')
     .description('Apply a completed phase state delta after dispatch hash verification')
     .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
-    .requiredOption('--phase <phase>', 'Phase to apply: execution, healing-rerun, inspect, or report')
+    .requiredOption('--phase <phase>', 'Phase to apply: execution, healing-rerun, inspect, healing-reinspect, or report')
     .action((options) => {
       const changeId: string = options.change;
       const phase = String(options.phase);

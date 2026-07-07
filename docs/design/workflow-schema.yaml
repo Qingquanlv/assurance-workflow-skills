@@ -19,7 +19,7 @@ params:
   run_tests: { type: bool, default: true }
   max_case_fix_attempts: { type: int, default: 2 }
   max_plan_fix_attempts: { type: int, default: 2 }
-  max_healing_attempts: { type: int, default: 2 }
+  max_healing_attempts: { type: int, default: 3 }
   auto_archive: { type: bool, default: false }
 
 phases:

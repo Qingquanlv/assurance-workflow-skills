@@ -144,7 +144,7 @@ false
 | `force_continue` | `false` | Bypass **only** `human_review_required` and `risk_level in ["high","critical"]` stops. **Must NOT** bypass codegen hard gates (see **Codegen Hard Gates** and **force_continue Boundaries**) |
 | `run_dashboard` | `false` | Whether to launch aws-dashboard after completion |
 | `run_tests` | `true` | Whether to execute tests via aws-run after codegen |
-| `max_healing_attempts` | `2` | Max healing attempts after inspect finds `fix_proposal_eligible` failures |
+| `max_healing_attempts` | `3` | Max healing attempts after inspect finds `fix_proposal_eligible` failures |
 | `auto_archive` | `false` | Deprecated/ignored by `aws-workflow`: the workflow never archives automatically. Phase 14 only reports whether the change is archive-eligible. Run `aws-archive` separately only after an explicit user request. |
 | `auto_archive_with_fallback` | `false` | Deprecated/ignored by `aws-workflow`: fallback PASS_WITH_WARNINGS can be reported as archive-eligible only with explicit human confirmation outside the workflow. |
 | `e2e_framework` | `python-playwright` | Runtime parameter — E2E stack selection (`python-playwright` only; TS Playwright not supported). Maps to `phases.e2e_codegen.generated_tests.framework: pytest-playwright` in workflow-state. |
@@ -178,12 +178,20 @@ aws state heal --change <id> --to proposal_created
 # After fixers + fixer-safety-gate pass
 aws state heal --change <id> --to applied
 
-# Before healing-rerun (aws run pre-check requires applied)
+# Before healing-rerun (aws run pre-check requires applied; only the test tree
+# pinned at --to applied is accepted — post-apply edits fail with HEAL-TREE-MISMATCH)
 aws run --change <id>
 aws state apply --change <id> --phase healing-rerun
 
+# After the re-inspect (validates source_batch_id freshness, records phases.healing_reinspect)
+aws state apply --change <id> --phase healing-reinspect
+
 # After healing-reinspect shows no eligible failures
 aws state heal --change <id> --to resolved
+
+# Rerun still FAIL with eligible failures and attempts < max: loop back for attempt N+1
+# (write a NEW fix-proposal against the latest batch first, else PROPOSAL-STALE)
+aws state heal --change <id> --to proposal_created
 ```
 
 **Human review STOP recovery** — never hand-write `review/*.json` to `decision: pass`:
@@ -381,7 +389,7 @@ params:
   run_tests: true
   max_case_fix_attempts: 2
   max_plan_fix_attempts: 2
-  max_healing_attempts: 2
+  max_healing_attempts: 3
 
 phases:
   explore:
@@ -629,7 +637,7 @@ params:                      # resolved runtime parameters (defaults + user over
   run_tests: true
   max_case_fix_attempts: 2
   max_plan_fix_attempts: 2
-  max_healing_attempts: 2
+  max_healing_attempts: 3
 
 execution_mode: subagent-dispatch | inline   # set by Phase 1.1 task-tool detection
 
@@ -2046,8 +2054,10 @@ Phase 12 — Re-inspect
         → Exit healing loop — proceed to Phase 14 archive eligibility recommendation
       If phases.execution.status == FAIL AND healing.attempts < max_healing_attempts AND fix_proposal_eligible failures remain:
         → Update attempt entry: phases.healing.attempts[n].result = FAIL
-        → Increment healing attempt counter
-        → Loop back to Phase 9 (re-read files from disk first)
+        → Loop back to Phase 9 (re-read files from disk first): write a NEW fix-proposal against
+          the latest batch, then `aws state heal --to proposal_created` (the CLI allocates the
+          next attempt via the applied → proposal_created loop-back edge; a stale proposal is
+          rejected with PROPOSAL-STALE, an over-budget loop-back with HEAL-ATTEMPTS-EXHAUSTED)
       If healing.attempts exhausted (count == max_healing_attempts):
         → Set phases.healing.status = exhausted
         → Update attempt entry: phases.healing.attempts[n].result = FAIL
@@ -2858,7 +2868,7 @@ IF no eligible failures exist (or all fix_proposal_eligible == false):
   - Set `phases.healing.status = skipped`.
   - If `phases.execution.status == FAIL` and `fix_proposal_eligible` failures exist in `inspect/failure-analysis.json`: **STOP** — report missing healing skills; do not archive a failed execution.
   - If `phases.execution.status in [PASS, PASS_WITH_WARNINGS]`: healing may be skipped; proceed to Phase 14 archive eligibility recommendation.
-- Max healing attempts: controlled by `max_healing_attempts` (default: `2`).
+- Max healing attempts: controlled by `max_healing_attempts` (default: `3`).
 
 **Healing attempt counting rules:**
 
@@ -2886,7 +2896,7 @@ In all hard-error cases:
   → Set phases.healing.status = failed
   → STOP immediately — do not loop back to Phase 9
 
-max_healing_attempts = 2 means at most two complete or attempted cycles of:
+max_healing_attempts = 3 means at most three complete or attempted cycles of:
   Phase 9 (fix-proposal) → Phase 10 (fixer) → Phase 11 (rerun) → Phase 12 (re-inspect)
 ```
 
