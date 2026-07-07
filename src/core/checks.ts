@@ -103,7 +103,8 @@ export function runDoctorChecks(root: string): DoctorResult {
   }
 
   // --- Workflow ---
-  if (cfg.workflow.agents.claude_code) {
+  const workflowAgents = cfg.workflow.agents ?? { claude_code: false, codex: false };
+  if (workflowAgents.claude_code) {
     const skillPath = path.join(root, '.claude/skills/aws/SKILL.md');
     checks.push({
       id: 'workflow.claude_skill', group: 'workflow',
@@ -119,7 +120,7 @@ export function runDoctorChecks(root: string): DoctorResult {
     });
   }
 
-  if (cfg.workflow.agents.codex) {
+  if (workflowAgents.codex) {
     const agentsPath = path.join(root, 'AGENTS.md');
     checks.push({
       id: 'workflow.codex_agents', group: 'workflow',

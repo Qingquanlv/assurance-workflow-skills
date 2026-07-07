@@ -41,6 +41,9 @@ frameworks:
 workflow:
   primary_runner: skill
   agent: opencode
+  agents:
+    claude_code: false
+    codex: false
 
 mcp:
   enabled: ${answers.enableMcp}
