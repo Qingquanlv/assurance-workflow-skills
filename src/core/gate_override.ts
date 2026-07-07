@@ -5,11 +5,32 @@ import { appendEvents } from './events';
 import { sha256File } from './hash';
 import { isAuditedGateRead } from './audit_scope';
 import { getWorkflowStateFile } from './workflow_state';
+import { writeExecutionTestChangesOverrideToken } from './test_changes_override';
 import type { Schema } from '../orchestration/schema';
 
-export type OverrideAction = 'fix_and_proceed' | 'skip_branch' | 'accept_and_stop';
+export type OverrideAction = 'fix_and_proceed' | 'skip_branch' | 'accept_and_stop' | 'allow_test_changes';
 
 const CODEGEN_HARD_GATE_SUFFIX = '-codegen-precondition-gate';
+
+export function recordExecutionTestChangesOverride(
+  projectRoot: string,
+  changeId: string,
+  reason: string,
+  createdAt = new Date().toISOString(),
+): { absPath: string; relPath: string; sha256: string; testsTreeSha256: string } {
+  const token = writeExecutionTestChangesOverrideToken(projectRoot, changeId, reason, createdAt);
+  appendEvents(projectRoot, changeId, [{
+    source: 'gate',
+    type: 'human_override',
+    phase: 'execution',
+    action: 'allow_test_changes',
+    reason,
+    review_sha256: token.testsTreeSha256,
+    evidence_file: token.relPath,
+    evidence_sha256: token.sha256,
+  }]);
+  return token;
+}
 
 export function applyGateOverride(
   projectRoot: string,
@@ -19,6 +40,11 @@ export function applyGateOverride(
   reason: string,
   schema: Schema,
 ): void {
+  if (phaseId === 'execution' || action === 'allow_test_changes') {
+    throw new Error(
+      'GATE-OVERRIDE-DENIED: execution test-change overrides must use recordExecutionTestChangesOverride',
+    );
+  }
   const phase = schema.phasesById.get(phaseId);
   if (!phase) throw new Error(`Unknown phase '${phaseId}'`);
   if (!phase.gate) throw new Error(`Phase '${phaseId}' has no gate and cannot be overridden`);

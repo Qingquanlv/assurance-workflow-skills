@@ -5,6 +5,12 @@ import * as yaml from 'js-yaml';
 import { hashTestTree } from '../../../src/core/hash';
 import { assertTestTreeUnchangedOrHealing } from '../../../src/core/healing_state';
 import { writeTestChangesOverrideEvidence } from '../../../src/core/override_evidence';
+import {
+  assertTestChangesOverridePolicyAllows,
+  consumeExecutionTestChangesOverrideToken,
+  loadTestChangesOverridePolicy,
+  readExecutionTestChangesOverrideToken,
+} from '../../../src/core/test_changes_override';
 
 const changeId = 'REQ-RUN-INTEGRITY-001';
 
@@ -183,5 +189,133 @@ describe('run integrity test tree guard', () => {
 
     const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, false);
     expect(result.testsChanged).toBe(false);
+  });
+
+  it('validates and consumes one-time test-change override tokens', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
+    const current = hashTestTree(projectRoot);
+    const tokenPath = path.join(changeDir(projectRoot), 'execution', 'test-changes-override-token.json');
+    fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+    fs.writeFileSync(tokenPath, JSON.stringify({
+      schema_version: '1.0',
+      change_id: changeId,
+      action: 'allow_test_changes',
+      reason: 'human approved one batch',
+      created_at: '2026-07-06T00:00:00.000Z',
+      tests_tree_sha256: current.aggregate,
+      baseline_batch_id: '20260704-190000',
+      consumed: false,
+    }), 'utf-8');
+
+    const token = readExecutionTestChangesOverrideToken(projectRoot, changeId, current.aggregate);
+    expect(token?.reason).toBe('human approved one batch');
+    consumeExecutionTestChangesOverrideToken(projectRoot, changeId, 'batch-002');
+    expect(() => readExecutionTestChangesOverrideToken(projectRoot, changeId, current.aggregate)).toThrow(
+      /TEST-CHANGES-OVERRIDE-TOKEN-CONSUMED/,
+    );
+  });
+
+  it('rejects override tokens when the approved tests tree changed again', () => {
+    const tokenPath = path.join(changeDir(projectRoot), 'execution', 'test-changes-override-token.json');
+    fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+    fs.writeFileSync(tokenPath, JSON.stringify({
+      schema_version: '1.0',
+      change_id: changeId,
+      action: 'allow_test_changes',
+      reason: 'human approved one batch',
+      created_at: '2026-07-06T00:00:00.000Z',
+      tests_tree_sha256: 'not-current',
+      baseline_batch_id: '20260704-190000',
+      consumed: false,
+    }), 'utf-8');
+
+    expect(() => readExecutionTestChangesOverrideToken(
+      projectRoot,
+      changeId,
+      hashTestTree(projectRoot).aggregate,
+    )).toThrow(/TEST-CHANGES-OVERRIDE-TOKEN-MISMATCH/);
+  });
+
+  it('loads conditional test-change override policy from execution-policy.json', () => {
+    fs.mkdirSync(path.join(projectRoot, '.aws'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, '.aws', 'execution-policy.json'), JSON.stringify({
+      healing: {
+        testChangesOverride: {
+          mode: 'conditional',
+          forbidAfterFail: true,
+          maxOverridesPerChange: 1,
+          allowedPathGlobs: ['tests/factories/**'],
+        },
+      },
+    }), 'utf-8');
+
+    expect(loadTestChangesOverridePolicy(projectRoot)).toEqual({
+      mode: 'conditional',
+      evidence: true,
+      forbidAfterFail: true,
+      maxOverridesPerChange: 1,
+      allowedPathGlobs: ['tests/factories/**'],
+    });
+  });
+
+  it('rejects conditional overrides after a failed formal batch', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      final_status: 'FAIL',
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
+    const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
+
+    expect(() => assertTestChangesOverridePolicyAllows(projectRoot, changeId, integrity, {
+      mode: 'conditional',
+      evidence: true,
+      forbidAfterFail: true,
+    })).toThrow(/TEST-CHANGES-OVERRIDE-FORBIDDEN-AFTER-FAIL/);
+  });
+
+  it('rejects conditional overrides after max override count is reached', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
+    fs.mkdirSync(changeDir(projectRoot), { recursive: true });
+    fs.writeFileSync(path.join(changeDir(projectRoot), 'events.jsonl'), JSON.stringify({
+      source: 'run',
+      type: 'human_override',
+      phase: 'execution',
+      action: 'allow_test_changes',
+    }) + '\n', 'utf-8');
+    const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
+
+    expect(() => assertTestChangesOverridePolicyAllows(projectRoot, changeId, integrity, {
+      mode: 'conditional',
+      evidence: true,
+      maxOverridesPerChange: 1,
+    })).toThrow(/TEST-CHANGES-OVERRIDE-LIMIT-REACHED/);
+  });
+
+  it('rejects conditional overrides outside the allowed path globs', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
+    const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);
+
+    expect(() => assertTestChangesOverridePolicyAllows(projectRoot, changeId, integrity, {
+      mode: 'conditional',
+      evidence: true,
+      allowedPathGlobs: ['tests/factories/**'],
+    })).toThrow(/TEST-CHANGES-OVERRIDE-PATH-DENIED/);
   });
 });

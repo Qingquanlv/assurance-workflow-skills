@@ -111,9 +111,13 @@ If test files changed since the previous batch:
 
 - `aws run` hard-fails with `TESTS-CHANGED-WITHOUT-HEALING` unless `phases.healing.status == applied`.
 - The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
-- If a human explicitly decides to modify tests outside healing, record that decision with `aws run --change <id> --allow-test-changes --reason "<user decision>"`.
 
-Do not use `--allow-test-changes` autonomously. It is a human override path only, and the CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
+**`--allow-test-changes` is forbidden for the agent — no exceptions.** This project's `.aws/execution-policy.json` sets `healing.testChangesOverride: "forbidden"`, so the CLI rejects the flag with `ALLOW-TEST-CHANGES-FORBIDDEN`. Rules:
+
+- The agent MUST NEVER construct a command containing `--allow-test-changes`, even when the user asks to "fix the tests and rerun" — that request routes through the healing loop.
+- On `TESTS-CHANGED-WITHOUT-HEALING` or `ALLOW-TEST-CHANGES-FORBIDDEN`, the correct reaction is to enter/continue the healing loop, or STOP and report — never to retry with an override flag.
+- The override exists only for a human who (a) verbatim authorizes a specific one-batch override in conversation, (b) temporarily relaxes `testChangesOverride` in `execution-policy.json` themselves, and (c) restores it to `"forbidden"` afterwards. One authorization covers exactly one batch. The CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
+- Note: before the first formal batch there is no `tests_tree_sha256` baseline, so infra backfill (factories, conftest) needs no override at all.
 
 ## Product Tree Integrity
 

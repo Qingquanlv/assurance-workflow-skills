@@ -151,6 +151,14 @@ Flag:
 - Plan scenario not linked to any case
 - Critical assertion missing from plan
 
+**Test function naming (mechanical, blocking):** for every row in `api-codegen-plan.md` **Test Function Mapping**, the Test Function MUST match:
+
+```
+^test_<case_id lowercase>__
+```
+
+i.e. the lowercase form of that row's Case ID as prefix, then a **double underscore** (e.g. `TC_USER_API_001` → `test_tc_user_api_001__...`). Any mismatch (missing prefix, single underscore, wrong case_id) is a **finding with `blocking: true`** and `auto_fix_allowed: true` (fix = rename in the mapping table) — decision cannot be `pass` and `codegen_readiness` cannot be `ready`/`ready_with_warnings` until fixed. This is what lets the `aws run` result parser backfill case_id; without it every executed test becomes an Unmapped Test.
+
 ### 2. API Endpoint and Method
 
 Check whether each scenario has:

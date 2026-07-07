@@ -9,7 +9,7 @@ import {
 } from '../orchestration/schema';
 import { checkGate } from '../orchestration/engine';
 import { appendEvents, buildGateVerdictEvent } from '../core/events';
-import { applyGateOverride, OverrideAction } from '../core/gate_override';
+import { applyGateOverride, OverrideAction, recordExecutionTestChangesOverride } from '../core/gate_override';
 import { logError, logHeader, logBlank, logOk } from '../utils/logger';
 
 /** Exit codes per orchestration-cli-contract.md. */
@@ -100,7 +100,7 @@ export function registerGateCommand(program: Command): void {
     .description('Record a human decision after a human_review_required stop')
     .requiredOption('--change <change-id>', 'Change ID')
     .requiredOption('--phase <phase-id>', 'Review phase id (e.g. e2e-plan-review)')
-    .requiredOption('--action <action>', 'fix_and_proceed | skip_branch | accept_and_stop')
+    .requiredOption('--action <action>', 'fix_and_proceed | skip_branch | accept_and_stop | allow_test_changes')
     .requiredOption('--reason <text>', 'Human decision reason')
     .option('--schema-file <path>', 'Override workflow schema file')
     .action((options) => {
@@ -117,13 +117,24 @@ export function registerGateCommand(program: Command): void {
         return;
       }
 
-      const allowedActions = new Set(['fix_and_proceed', 'skip_branch', 'accept_and_stop']);
+      const allowedActions = new Set(['fix_and_proceed', 'skip_branch', 'accept_and_stop', 'allow_test_changes']);
       if (!allowedActions.has(action)) {
         logError(`Unsupported action "${action}"`);
         process.exit(1);
       }
 
       try {
+        if (phaseId === 'execution' || action === 'allow_test_changes') {
+          if (phaseId !== 'execution' || action !== 'allow_test_changes') {
+            throw new Error('Execution test-change override requires --phase execution --action allow_test_changes');
+          }
+          const token = recordExecutionTestChangesOverride(projectRoot, changeId, reason);
+          logHeader('aws gate override — execution');
+          logBlank();
+          logOk(`one-time test-change token recorded: ${token.relPath}`);
+          logBlank();
+          return;
+        }
         const schemaFile = findSchemaFile(projectRoot, options.schemaFile);
         const schema = loadSchemaFromFile(schemaFile);
         const validation = validateSchema(schema);

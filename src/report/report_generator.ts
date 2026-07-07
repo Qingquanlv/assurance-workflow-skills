@@ -105,8 +105,8 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
   const defects = bucketDefects(analysis?.failures ?? []);
 
   // ── Deterministic risk level + recommendation (CLI baseline) ──────────────
-  const { riskLevel, riskRationale } = computeRisk(finalStatus, defects, gate);
-  const recommendation = computeRecommendation(finalStatus, defects);
+  let { riskLevel, riskRationale } = computeRisk(finalStatus, defects, gate);
+  let recommendation = computeRecommendation(finalStatus, defects);
 
   // ── Scope (best-effort) ───────────────────────────────────────────────────
   const scope = scanScope(changeBase);
@@ -116,6 +116,22 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
     apiResult,
     e2eResult,
   });
+
+  // MRC integrity guard: functional tests passed but nothing in the minimum
+  // coverage matrix maps to an executed case — the case → test traceability
+  // chain is broken (usually missing test_<case_id>__ prefixes). The score
+  // would otherwise look clean while the matrix is meaningless.
+  const mrcSummary = minimumCoverage.summary;
+  const mrcBroken = mrcSummary.total_required > 0 && mrcSummary.covered === 0 && funcPassed > 0;
+  if (mrcBroken) {
+    if (riskLevel === 'LOW') riskLevel = 'MEDIUM';
+    riskRationale +=
+      ' MRC-TRACEABILITY-BROKEN: 0 of ' + String(mrcSummary.total_required) +
+      ' required coverage items map to an executed case; verify test function names use the test_<case_id>__ prefix and rerun.';
+    recommendation =
+      'Do not rely on this report\'s coverage matrix: required-coverage mapping is broken (0 covered). ' +
+      'Fix case-id traceability and rerun before release. ' + recommendation;
+  }
   const humanOverrides = readEvents(projectRoot, changeId)
     .filter(isAllowTestChangesOverride)
     .map(e => ({
@@ -216,12 +232,14 @@ function computeRisk(
   }
   if (finalStatus === 'PASS_WITH_WARNINGS') {
     const covWarn = gate.dimensions.coverage.status === 'PASS_WITH_WARNINGS';
+    const unmapped = gate.dimensions.functional.unmapped_tests ?? 0;
     const reasons: string[] = [];
     if (covWarn) reasons.push('coverage below threshold');
+    if (unmapped > 0) reasons.push(`${unmapped} executed test(s) not traceable to case IDs`);
     if (defects.environment.length > 0) reasons.push(`${defects.environment.length} environment issue(s)`);
     if (defects.test.length > 0) reasons.push(`${defects.test.length} test-level issue(s)`);
     return {
-      riskLevel: defects.test.length > 0 || defects.environment.length > 0 ? 'MEDIUM' : 'LOW',
+      riskLevel: unmapped > 0 || defects.test.length > 0 || defects.environment.length > 0 ? 'MEDIUM' : 'LOW',
       riskRationale: `All functional tests passed; warnings: ${reasons.join(', ') || 'none'}.`,
     };
   }

@@ -276,6 +276,7 @@ Must include:
   - If any fixture/setup creates or cleans up domain data, Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` domain factory before any `tests/fixtures/*.py` wrapper.
   - `tests/fixtures/*.py` may appear only as pytest injection wrappers around `make_*`; it must not be the only target for domain data creation.
 - **Test Function Mapping** — table: Case ID \| Test Function \| Target File
+  - **Naming (hard rule):** every Test Function MUST be `test_<case_id lowercase>__<description>` — the lowercase case_id prefix followed by a **double underscore**. Example: `TC_USER_API_001` → `test_tc_user_api_001__list_users_happy_path`. The `aws run` result parser backfills case_id from this prefix; names without it become Unmapped Tests, break MRC/inspect/healing traceability, and cap the quality gate at PASS_WITH_WARNINGS. A plan whose mapping violates this rule is **not codegen-ready**.
 - **Factory Mapping** — table: Entity \| Factory Module (`tests/factories/test_<module>_<library>.py`) \| Function (`make_*`) \| Ring \| Required By
 - **Fixture Mapping** — table: Fixture \| Source Factory \| Wrapper Only (yes/no) \| Required By
 - **Helper Mapping** — shared helper description

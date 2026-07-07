@@ -363,11 +363,17 @@ export function writeCliFixerSafetyCheck(projectRoot: string, changeId: string):
   const highRiskProposalApplied = hasHighRiskProposalApplied(proposal, modifiedByApply);
   const diff = readTestsGitDiff(projectRoot);
   const skipOrXfailAdded = diff.available ? hasAddedSkipOrXfail(diff.text) : 'undetermined';
+  const bareReturnAdded = diff.available ? hasAddedBareReturn(diff.text) : 'undetermined';
   const assertionChanges = diff.available ? findAssertionExpectedValueChanges(diff.text) : [];
-  const needsReview = skipOrXfailAdded === 'undetermined' || assertionChanges.length > 0;
+  const needsReview =
+    skipOrXfailAdded === 'undetermined' ||
+    bareReturnAdded === 'undetermined' ||
+    bareReturnAdded === true ||
+    assertionChanges.length > 0;
   const passed =
     productCodeModified === false &&
     skipOrXfailAdded === false &&
+    bareReturnAdded === false &&
     unrelatedTests.length === 0 &&
     assertionChanges.length === 0 &&
     highRiskProposalApplied === false &&
@@ -382,6 +388,7 @@ export function writeCliFixerSafetyCheck(projectRoot: string, changeId: string):
     product_code_roots: productRoots,
     product_code_modified: productCodeModified,
     skip_or_xfail_added: skipOrXfailAdded,
+    bare_return_added: bareReturnAdded,
     unrelated_tests_modified: unrelatedTests.length > 0,
     unrelated_test_files: unrelatedTests,
     assertion_expected_value_changes_detected: assertionChanges.length > 0,
@@ -429,6 +436,19 @@ function hasAddedSkipOrXfail(diff: string): boolean {
     line.startsWith('+') &&
     !line.startsWith('+++') &&
     /pytest\.mark\.(skip|xfail)|unittest\.skip/.test(line),
+  );
+}
+
+/**
+ * Added bare `return` statements in test code are the classic "make it green"
+ * early exit (e.g. `if "/404" in page.url: return`) — they silently skip the
+ * assertions below. Value-returning helpers (`return foo`) are not flagged.
+ */
+function hasAddedBareReturn(diff: string): boolean {
+  return diff.split('\n').some(line =>
+    line.startsWith('+') &&
+    !line.startsWith('+++') &&
+    /^\+\s*return\s*(#.*)?$/.test(line),
   );
 }
 

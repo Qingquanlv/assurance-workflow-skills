@@ -94,4 +94,19 @@ describe('CLI-computed fixer safety check', () => {
     expect(safety.product_code_modified).toBe(true);
     expect(safety.source).toBe('cli');
   });
+
+  it('flags added bare returns in tests as needs_review (assertion-bypass early exit)', () => {
+    const safety = JSON.parse(
+      fs.readFileSync(path.join(changeDir(projectRoot), 'healing', 'fixer-safety-check.json'), 'utf-8'),
+    );
+    // Not a git repo in tmpdir — diff is unavailable, so the check must be
+    // conservative: bare_return_added is 'undetermined' and needs_review true.
+    expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(/needs_review|fixer-safety-check/);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(changeDir(projectRoot), 'healing', 'fixer-safety-check.json'), 'utf-8'),
+    );
+    expect(written.bare_return_added).toBe('undetermined');
+    expect(written.needs_review).toBe(true);
+    expect(safety).toBeDefined();
+  });
 });

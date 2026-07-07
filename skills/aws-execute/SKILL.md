@@ -123,7 +123,18 @@ Phase 7 — Execution  (MANDATORY when run_tests == true and Phase 6 gate passed
   → bash: aws run --change <id>
   → after this formal batch, any test-file modification is healing scope; `aws run`
     records tests_tree_sha256 and refuses changed tests unless healing.status == applied
-    (or explicit human `--allow-test-changes --reason` override)
+  → TEST-CHANGE DISCIPLINE (hard rule, not bypassable by the agent):
+      - once a formal batch exists, the ONLY path for modifying test files is the healing
+        loop: aws report inspect → aws-fix-proposal → fixer → aws state heal --to applied → aws run
+      - the agent MUST NEVER construct a command containing --allow-test-changes.
+        On TESTS-CHANGED-WITHOUT-HEALING or ALLOW-TEST-CHANGES-FORBIDDEN the correct
+        reaction is to enter/continue the healing loop, or STOP and surface to the user —
+        never to retry with an override flag
+      - --allow-test-changes is reserved for a human typing it themselves after this
+        project's execution-policy.json is temporarily relaxed from "forbidden";
+        one authorization covers exactly one batch
+      - healing attempts exhausted (healing.status == exhausted) → STOP; the decision
+        (raise max_healing_attempts / manual fix / accept + document known issue) belongs to the user
   → verify execution/execution-manifest.yaml on disk; read final_status from it (never from claim)
   → ⟶ state (CLI-backed, mandatory): aws state apply --change <id> --phase execution
   → aws status
@@ -174,6 +185,14 @@ Phase 14 — Archive Eligibility Recommendation
       execution.status in [PASS, PASS_WITH_WARNINGS]; healing.status in [not_needed, resolved, skipped]
       (applied alone is NOT eligible); failure-analysis source_batch_id == execution batch; no unresolved eligible failures;
       inspect-safety-check passed; if resolved: fixer-safety-check passed; all review JSON decision == pass
+  → HEAL-BYPASS audit: scan events.jsonl for human_override(action=allow_test_changes) events
+      that occurred AFTER the first formal execution batch. If any exist AND
+      healing.status == not_needed → this change bypassed the healing loop:
+        archive.status = not_eligible (blocker: heal-bypass)
+        archive requires the user to explicitly acknowledge each override before proceeding
+      (overrides before the first formal batch — e.g. infra backfill — do not trigger this)
+  → if quality-report Human Overrides count > 0: executive-summary MUST include a
+      process-deviation note; a bare score with no deviation note is incomplete
   → ⟶ state: hand-update phases.archive.status = eligible | not_eligible (+ blockers) ; report recommendation
 ```
 

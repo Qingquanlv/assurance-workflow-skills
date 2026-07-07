@@ -229,7 +229,7 @@ Complete in order:
 - [ ] Check Mandatory Review JSON Gate (full gate + coverage gap rules)
 - [ ] Validate test data capabilities (reuse existing factory/fixture or create only when authorized)
 - [ ] Generate or append `tests/api/test_<module>_api.py`
-- [ ] Verify each test function name uses normalized case_id (lowercase) prefix + `__` separator; covers all case_ids in Case → Test Function Mapping (case-insensitive)
+- [ ] **Mechanical naming verification (mandatory, evidence required):** run `uv run pytest --collect-only -q <generated test files>` and confirm EVERY collected test id matches `test_<case_id lowercase>__<description>` and covers all case_ids in Case → Test Function Mapping (case-insensitive). Paste the collect-only output into the **Traceability Verification** section of `api-codegen-summary.md`. If the plan's Test Function Mapping itself lacks the case_id prefix, do NOT copy it verbatim — the naming rule in this skill overrides the plan; rename and note the correction in the summary.
 - [ ] Verify all config values reference `tests.config.settings`; no hardcoded URL / credentials / prefixes
 - [ ] Verify entities with M2M / closure / hash invariants use `make_*` from `tests/factories/` modules; no raw ORM `create()`
 - [ ] Verify every domain-data fixture has a corresponding `tests/factories/test_<module>_<library>.py` Target File; if missing, STOP instead of generating wrapper-only setup
@@ -459,6 +459,7 @@ Must include:
 
 - **Generated Files** — list of actually generated or modified files (optional files not generated marked N/A)
 - **Case → Test Function Mapping** — table: Case ID \| Test Function \| File
+- **Traceability Verification** — pasted `pytest --collect-only -q` output proving every collected test name carries its `test_<case_id lowercase>__` prefix (mandatory; a summary without this section is incomplete)
 - **Fixtures Generated** — fixture names and sources (or "Reused existing — no new file")
 - **Helpers Generated** — helper files and purpose (None if none)
 - **Schema Assertion Coverage** — table: Test Function \| Endpoint Key \| Registered in \_LOCAL\_SCHEMAS (✓/✗)
@@ -553,6 +554,7 @@ Rules:
 - Do not swallow failures with empty `try/except` or `except Exception: pass`.
 - Do not add fallback logic that hides product failures.
 - Do not use `skip`, `xfail`, or conditional early return to make generated tests green.
+  - **Only exception for `xfail`:** a known product issue that was explicitly decided at intake/case-design (e.g. `assert_ideal` on a documented product bug) AND is documented in `qa/changes/<change-id>/known-product-issues.md`. The xfail `reason` MUST reference the issue ID from that file (e.g. `KPI-001` / `PH-001`). An xfail whose issue is not recorded in `known-product-issues.md` is a violation — record the issue first (human/reviewer acknowledged), then mark xfail.
 - Do not loosen expected values after observing failures.
 - Do not mock the behavior under test unless the plan explicitly authorizes it.
 - Setup may be flexible; assertions must be strict.

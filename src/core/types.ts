@@ -266,6 +266,12 @@ export interface FunctionalDimension {
   e2e: FunctionalCounts;
   /** Added by M3 Phase D when fuzz targets exist. */
   fuzz?: FunctionalCounts;
+  /**
+   * Executed tests that could not be mapped back to a case_id (traceability
+   * broken — generated function names must start with `test_<case_id>__`).
+   * Any value > 0 caps the functional status at PASS_WITH_WARNINGS.
+   */
+  unmapped_tests?: number;
 }
 
 export interface CoverageDimension {
@@ -325,6 +331,8 @@ export interface QualityGateResult {
   batch_id: string;
   dimensions: QualityGateDimensions;
   final_status: GateStatus;
+  /** Deterministic gate warnings (e.g. traceability breaks). Optional for back-compat. */
+  warnings?: string[];
 }
 
 export interface QualityScoreBreakdown {

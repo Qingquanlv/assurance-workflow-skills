@@ -302,7 +302,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 - [ ] 更新 `tests/e2e/conftest.py`（仅 plan 明确要求时）
 - [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen` 含 review_gate_file、codegen_readiness、data_setup、fixtures、warnings_carried、known_product_issues）
 - [ ] 创建 `codegen/` 目录（若不存在），写入 `e2e-codegen-summary.md`
-- [ ] 校验：每个测试函数名以归一化 case_id（小写）为前缀 + `__` 分隔，覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）
+- [ ] **机械命名校验（强制，需留证据）：** 运行 `uv run pytest --collect-only -q <生成的测试文件>`，确认收集到的每个测试名都匹配 `test_<case_id 小写>__<description>` 且覆盖 `Case → Test Function Mapping` 全部 case_id（无视大小写）。将 collect-only 输出粘贴到 `e2e-codegen-summary.md` 的 **Traceability Verification** 段落。若 plan 的 Test Function Mapping 本身缺 case_id 前缀，**不得照抄** —— 本 skill 的命名规则优先于 plan；改名并在 summary 中注明修正。
 - [ ] 输出 E2E Codegen Summary（文件列表 + 下一步）
 
 ## Output Contract
@@ -392,6 +392,7 @@ qa/changes/<change-id>/codegen/e2e-codegen-summary.md
 
 - **Generated Files** — 实际生成或修改的文件列表（仅列出真实写入的文件；optional 文件若未生成则标注 N/A）
 - **Case → Test Function Mapping** — 表格：Case ID \| Test Function \| File
+- **Traceability Verification** — 粘贴 `pytest --collect-only -q` 输出，证明每个收集到的测试名都带 `test_<case_id 小写>__` 前缀（强制；缺少此段落的 summary 视为不完整）
 - **Data Setup Scripts Generated/Reused** — 脚本路径及来源
 - **Fixtures Generated/Reused** — fixture 名称和来源（或 "Reused existing — no new file"）
 - **Conftest Changes** — 变更摘要（如无则 None）
@@ -497,6 +498,8 @@ Rules:
 - Do not swallow failures with empty `try/except` or `except Exception: pass`.
 - Do not add fallback logic that hides product failures.
 - Do not use `skip`, `xfail`, `pytest.mark.skip`, or `test.fixme` to make generated tests green.
+  - **Only exception for `xfail`:** a known product issue explicitly decided at intake/case-design AND documented in `qa/changes/<change-id>/known-product-issues.md`; the xfail `reason` MUST reference the issue ID from that file. An xfail without a recorded issue is a violation.
+- Do not use conditional early `return` to bypass assertions (e.g. `if "/404" in page.url: return`) — assert the expected denial/behavior explicitly instead.
 - Do not loosen expected values after observing failures.
 - Do not mock the behavior under test unless the plan explicitly authorizes it.
 - Do not fall back to a generic locator if the primary locator fails — report the failure instead.
