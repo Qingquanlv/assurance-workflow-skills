@@ -1,0 +1,114 @@
+{
+  "retro_id": "retro-integration",
+  "generated_at": "2026-07-08T00:00:00.000Z",
+  "window": {
+    "since": "2026-07-01T00:00:00.000Z",
+    "change_count": 2,
+    "change_ids": [
+      "RET-a",
+      "RET-b"
+    ]
+  },
+  "signals": {
+    "failure_distribution": [
+      {
+        "category": "test_data_failure",
+        "count": 2,
+        "changes": [
+          "RET-a",
+          "RET-b"
+        ],
+        "top_modules": [
+          "depts"
+        ],
+        "evidence_ids": [
+          "RET-a#heal-proposal:fix-dept-name-1",
+          "RET-b#fail-1"
+        ]
+      },
+      {
+        "category": "perf_threshold_exceeded",
+        "count": 1,
+        "changes": [
+          "RET-b"
+        ],
+        "top_modules": [
+          "depts"
+        ],
+        "evidence_ids": [
+          "RET-b#fail-2"
+        ]
+      }
+    ],
+    "gate_pushback": [
+      {
+        "gate": "api-plan-review-gate",
+        "verdict": "stop",
+        "count": 2,
+        "top_reasons": [
+          "(no evidence)",
+          "assertion_traceability missing"
+        ],
+        "evidence_ids": [
+          "RET-a#seq1",
+          "RET-b#seq1"
+        ]
+      }
+    ],
+    "healing_efficiency": {
+      "proposal_created": 1,
+      "applied": 1,
+      "resolved": 1,
+      "exhausted": 0,
+      "created_proposals": 5,
+      "applied_proposals": 5,
+      "no_op_rate": 0,
+      "evidence_ids": [
+        "RET-a#seq2"
+      ]
+    },
+    "human_overrides": [
+      {
+        "phase": "e2e-plan-review",
+        "action": "fix_and_proceed",
+        "count": 1,
+        "reason_summary": "fixer refused high severity contract-only change",
+        "evidence_ids": [
+          "RET-b#seq2"
+        ]
+      }
+    ],
+    "reclassifications": [],
+    "skill_execution": [
+      {
+        "phase": "inspect",
+        "count": 1,
+        "changes": [
+          "RET-a"
+        ],
+        "evidence_ids": [
+          "RET-a#workflow-state:inspect"
+        ]
+      },
+      {
+        "phase": "report",
+        "count": 1,
+        "changes": [
+          "RET-a"
+        ],
+        "evidence_ids": [
+          "RET-a#workflow-state:report"
+        ]
+      }
+    ],
+    "eval_trend": [
+      {
+        "suite": "workflow-api-codegen",
+        "metric": "test_executable_rate",
+        "recent": 0.91,
+        "baseline": 0.97,
+        "delta": -0.06
+      }
+    ]
+  }
+}

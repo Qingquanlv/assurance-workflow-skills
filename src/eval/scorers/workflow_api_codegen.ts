@@ -1,4 +1,5 @@
 import type { DatasetSample, SampleScore } from '../types';
+import { resolveSampleProjectDir } from '../sut_registry';
 import { buildCodegenSecretScanOpts } from './_shared/codegen_scorer_helpers';
 import {
   resolveRawOutputDir,
@@ -15,10 +16,11 @@ import {
 export function score(sample: DatasetSample, attemptDir: string): SampleScore {
   const rawOutputDir = resolveRawOutputDir(attemptDir);
   const input = sample.input as {
+    sut?: string;
     project_dir?: string;
     test_collect_paths?: string[];
   };
-  const projectDir = input.project_dir ?? process.cwd();
+  const projectDir = resolveSampleProjectDir(input);
   const testPaths = input.test_collect_paths ?? ['tests/api'];
 
   const collect = runPytestCollectOnly({

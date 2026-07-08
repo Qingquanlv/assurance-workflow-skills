@@ -3,6 +3,10 @@ name: aws-performance-codegen
 description: "AWS M3 Performance Stage 2: generate Locust load tests from a reviewed performance plan. Use only after performance-plan-review.json has decision == pass and codegen_readiness in [ready, ready_with_warnings]. Reads performance plan files and writes tests/perf/locustfile_<module>.py. Does NOT execute Locust — execution is Phase 8 aws-run."
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-performance-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

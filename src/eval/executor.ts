@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { requireRuntimeModule } from './module_resolver';
 import { expandTemplate, expandTemplateVars } from './executor_template';
+import { resolveSampleSut } from './sut_registry';
 import micromatch from 'micromatch';
 
 // ── Sandbox management ────────────────────────────────────────────────────────
@@ -274,6 +275,7 @@ function runSubprocess(
     runId: baseTemplateVars['run.id'],
     attemptDir: baseTemplateVars['attempt.dir'],
     sandboxPath,
+    sutDir: baseTemplateVars['sut.dir'],
   });
 
   // Resolve workdir
@@ -356,20 +358,25 @@ export interface ExecutorRunInput {
   attemptDir: string;
   projectRoot: string;
   runId: string;
+  sutDir?: string;
 }
 
 export async function executeAttempt(
   input: ExecutorRunInput
 ): Promise<ExecutionResult> {
-  const { config, sample, attemptDir, projectRoot, runId } = input;
+  const { config, sample, attemptDir, projectRoot, runId, sutDir } = input;
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
+
+  const resolvedSutDir =
+    sutDir ?? resolveSampleSut(sample.input, projectRoot)?.dir;
 
   const baseTemplateVars = expandTemplateVars({
     sample,
     projectRoot,
     runId,
     attemptDir,
+    sutDir: resolvedSutDir,
   });
 
   let exitCode: number | undefined;

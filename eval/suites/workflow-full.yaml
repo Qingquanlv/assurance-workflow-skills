@@ -7,7 +7,7 @@ executor:
   command: >-
     node {{workspace.root}}/scripts/eval-workflow-run.mjs
     --repo-root {{workspace.root}}
-    --project-dir {{workspace.root}}/{{sample.input.project_dir}}
+    --project-dir {{sut.dir}}
     --change {{sample.input.change_id}}
     --fixture-tier {{sample.input.fixture_tier}}
     --run-mode full

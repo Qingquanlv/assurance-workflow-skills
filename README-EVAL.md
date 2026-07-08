@@ -99,7 +99,8 @@ npm run build
 
 Workflow 类 suite 还需要：
 
-- `bench/fastapi-vue-admin/opencode.json` 存在
+- 外部 SUT checkout（见 `eval/suts.yaml`）：默认 `git clone git@github.com:Qingquanlv/aws-bench-fastapi-vue-admin.git ../aws-bench-fastapi-vue-admin`，或通过 `EVAL_SUT_DIR` 指向已有 checkout
+- SUT 根目录下 `opencode.json` 存在
 - E2a/E2b/E2c/E2d/E3：`pip install pytest httpx`（E2b 还需 playwright 等，见 bench README）
 - 真实 LLM run：本机安装 `opencode`，**不要**设 `EVAL_USE_FAKE_OPENCODE=1`
 
@@ -159,14 +160,14 @@ input:
   change_id: eval-sample-001
   fixture_tier: L0-case-seed
   run_mode: case-only
-  project_dir: bench/fastapi-vue-admin
+  sut: fastapi-vue-admin
 ```
 
 展开后等价于：
 
 ```bash
 node scripts/eval-workflow-run.mjs \
-  --project-dir bench/fastapi-vue-admin \
+  --project-dir <sut.dir> \
   --change eval-sample-001 \
   --fixture-tier L0-case-seed \
   --run-mode case-only \
@@ -521,8 +522,8 @@ Golden 样本与模块：
 Seed 目标（运行时，gitignore）：
 
 ```text
-bench/fastapi-vue-admin/qa/changes/eval-sample-00N/
-bench/fastapi-vue-admin/tests/     # L3 tier seed：api / e2e / fuzz / perf stubs
+<sut.dir>/qa/changes/eval-sample-00N/
+<sut.dir>/tests/     # L3 tier seed：api / e2e / fuzz / perf stubs
 ```
 
 详见 `eval/fixtures/README.md`。
@@ -539,6 +540,20 @@ bench/fastapi-vue-admin/tests/     # L3 tier seed：api / e2e / fuzz / perf stub
 | `eval-full.yml` | weekly | WF-001 … WF-004（非阻塞） |
 
 CI **不测真实 LLM**；验证 harness、fixture、scorer、gate 通路。
+
+---
+
+## Retro Loop
+
+`aws retro` aggregates frozen evidence from a tested project:
+
+```bash
+aws retro --since 2026-07-01T00:00:00.000Z --json
+```
+
+It writes `qa/retro/<retro-id>/context.json`. Run the `aws-retro` skill against that context to produce `proposals.json` and `retro-summary.md`. Proposals are not applied automatically. Human promote writes `promotions.json`, updates proposal `status`, and then runs the proposal's `eval_suite`.
+
+In eval runs with an external SUT, `.aws/memory/**` proposals are seeded into the SUT workspace through fixture tiers; they are not committed into the pinned SUT repository.
 
 ---
 

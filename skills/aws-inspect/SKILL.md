@@ -3,6 +3,10 @@ name: aws-inspect
 description: "AWS M5: Inspect execution results and classify test failures via `aws report inspect --change <change-id>`. Use when tests have failed and the user wants to understand why. Classifies failures into categories (locator, assertion, environment, etc.) and writes inspect/failure-analysis.json, failure-summary.md, and inspect/known-product-issues.md. Never classifies failures without the CLI."
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-inspect.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

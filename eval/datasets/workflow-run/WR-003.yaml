@@ -4,6 +4,6 @@ tags: ["workflow-run", "eval-sample-003", "menus"]
 input:
   change_id: eval-sample-003
   fixture_tier: L3-run-seed-menu
-  project_dir: bench/fastapi-vue-admin
+  sut: fastapi-vue-admin
 expected:
   in_scope_layers: [api]

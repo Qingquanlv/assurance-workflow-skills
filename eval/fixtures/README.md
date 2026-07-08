@@ -39,15 +39,15 @@ The canonical eval change id is **`eval-sample-001`**. Golden sample files use t
 
 At seed time, `eval-seed-change.mjs` may substitute `<change-id>` from the `--change` CLI arg so the same fixture tier can target `qa/changes/eval-sample-001/` or a dataset-specific id (e.g. `WC-001` mapped to the bench path).
 
-## Direct Bench usage
+## Direct SUT usage
 
-Eval does **not** copy the whole bench repo. It seeds directly into:
+Eval does **not** copy the whole SUT repo. It seeds directly into the registered SUT checkout (`eval/suts.yaml` → `{{sut.dir}}`):
 
 ```text
-bench/fastapi-vue-admin/
+<sut.dir>/
   qa/changes/eval-sample-001/    ← seeded from fixture tier before each run
   tests/api/                     ← L3 tier also seeds generated test stubs here
-  opencode.json                  ← skills.paths → assurance-workflow-skills/skills/
+  opencode.json                  ← assurance-workflow-skills plugin reference
 ```
 
 Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
@@ -79,7 +79,7 @@ E2b/E2c/E2d codegen datasets (`WEEC-*`, `WFUZ-*`, `WPER-*`) map samples 002–00
 
 Users module (`eval-sample-001`) also has `L2-e2e-codegen-seed` / `L2-fuzz-codegen-seed` / `L2-performance-codegen-seed` for WR-005 / WR-009 / WR-013.
 
-`eval-sample-001` is trimmed from `bench/fastapi-vue-admin/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
+`eval-sample-001` is trimmed from `<sut.dir>/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
 
 Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
 

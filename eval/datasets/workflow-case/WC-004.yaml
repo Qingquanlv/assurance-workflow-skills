@@ -5,6 +5,6 @@ input:
   change_id: eval-sample-004
   fixture_tier: L0-case-seed-dept
   run_mode: case-only
-  project_dir: bench/fastapi-vue-admin
+  sut: fastapi-vue-admin
 expected:
   min_case_count: 1

@@ -33,7 +33,7 @@
 | 指标 | 定义 | Gate | 阈值 | 统计方式 |
 |------|------|------|------|----------|
 | `schema_valid_rate` | 生成 **`.py` 语法合法** | hard | ≥0.99 | `ast.parse` / `py_compile` 逐文件；通过率 |
-| `collection_success_rate` | pytest collect 成功 | hard | ≥0.95 | `{project_dir}` 内 `pytest tests/api --collect-only`；exit 0 → 1 |
+| `collection_success_rate` | pytest collect 成功 | hard | ≥0.95 | `{sut.dir}` 内 `pytest tests/api --collect-only`；exit 0 → 1 |
 | `test_executable_rate` | collect 成功且 ≥1 test | hard | ≥0.95 | **Definition A**（见下） |
 | `secret_leak_count` | 秘密泄露 | hard | ==0 | 扫生成代码 + stdout/stderr/logs |
 | `forbidden_write_executed_count` | 非法写 | hard | ==0 | allowlist：`tests/api/**` 等（见 safety-scope） |
@@ -51,8 +51,8 @@
    - 允许：parse collect-only 的 JUnit/XML 或 pytest stdout 的 `collected N items`（**禁止**用 full run 的 api-result / pytest run junit）
 3. stderr 无 ImportError / ModuleNotFoundError / fixture 加载失败
 
-**cwd：** `{project_dir}`（bench 根，如 `bench/fastapi-vue-admin`）  
-**前置：** archived/generated tests 同步回 `{project_dir}/tests/` 再 collect
+**cwd：** `{sut.dir}`（SUT 根，由 `eval/suts.yaml` 解析）
+**前置：** archived/generated tests 同步回 `{sut.dir}/tests/` 再 collect
 
 ---
 

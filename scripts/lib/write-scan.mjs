@@ -53,6 +53,7 @@ export const DEFAULT_ALLOWLISTS = {
 
 /** E3 workflow-run — product paths must not change */
 export const DEFAULT_RUN_DENYLIST = [
+  '.aws/memory/**',
   'backend/**',
   'frontend/**',
   'src/**',

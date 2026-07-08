@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+/eval/runs/
+/eval/batches/
 *.js.map
 .aws/cache/
 .DS_Store

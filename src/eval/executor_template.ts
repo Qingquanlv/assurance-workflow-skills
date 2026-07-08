@@ -6,10 +6,11 @@ export interface TemplateVarsInput {
   runId: string;
   attemptDir: string;
   sandboxPath?: string;
+  sutDir?: string;
 }
 
 export function expandTemplateVars(input: TemplateVarsInput): Record<string, string> {
-  const { sample, projectRoot, runId, attemptDir, sandboxPath } = input;
+  const { sample, projectRoot, runId, attemptDir, sandboxPath, sutDir } = input;
   const vars: Record<string, string> = {
     'workspace.root': projectRoot,
     'run.id': runId,
@@ -23,6 +24,10 @@ export function expandTemplateVars(input: TemplateVarsInput): Record<string, str
 
   if (sandboxPath) {
     vars['sandbox.path'] = sandboxPath;
+  }
+
+  if (sutDir) {
+    vars['sut.dir'] = sutDir;
   }
 
   return vars;

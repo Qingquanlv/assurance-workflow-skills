@@ -2,13 +2,13 @@
 
 workflow_case_sample:
   input:
-    required: [change_id, fixture_tier, run_mode, project_dir]
+    required: [change_id, fixture_tier, run_mode, sut]
   expected:
     optional: [min_case_count]
 
 workflow_api_codegen_sample:
   input:
-    required: [change_id, fixture_tier, run_mode, project_dir, test_types]
+    required: [change_id, fixture_tier, run_mode, sut, test_types]
   expected:
     optional:
       - test_collect_paths          # default ["tests/api"]
@@ -16,7 +16,7 @@ workflow_api_codegen_sample:
 
 workflow_run_sample:
   input:
-    required: [change_id, fixture_tier, project_dir]
+    required: [change_id, fixture_tier, sut]
   expected:
     optional: [in_scope_layers]      # default from .qa.yaml test_types
 
@@ -32,4 +32,4 @@ safety_lite_sample:
 
 workflow_full_sample:
   input:
-    required: [change_id, fixture_tier, run_mode, project_dir]
+    required: [change_id, fixture_tier, run_mode, sut]

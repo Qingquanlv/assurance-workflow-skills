@@ -77,6 +77,12 @@ function copyTestPathsToBench({ sampleRoot, projectDir, testPaths }) {
   }
 }
 
+function copyIfExists(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.cpSync(src, dest, { recursive: true });
+}
+
 function validateSeededFiles(changeDir) {
   const required = ['proposal.md'];
   const missing = required.filter(
@@ -143,6 +149,11 @@ export function seedChange({
   if (l3 && testPaths.length > 0) {
     copyTestPathsToBench({ sampleRoot, projectDir: resolvedProjectDir, testPaths });
   }
+
+  copyIfExists(
+    path.join(sampleRoot, '.aws', 'memory'),
+    path.join(resolvedProjectDir, '.aws', 'memory'),
+  );
 
   const codegenTestType = inferCodegenTestType(tier.name ?? fixtureTier);
   if (codegenTestType) {

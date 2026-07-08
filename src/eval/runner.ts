@@ -27,6 +27,7 @@ import {
   resolveRuntimeModule,
 } from './module_resolver';
 import { runCalibration } from './judge/calibration';
+import { resolveSampleSut } from './sut_registry';
 
 export interface RunOptions {
   suiteName?: string;
@@ -103,6 +104,13 @@ export async function runSuite(opts: {
       fs.mkdirSync(attemptDir, { recursive: true });
 
       try {
+        const resolvedSut = resolveSampleSut(sample.input, projectRoot);
+        if (resolvedSut) {
+          for (const warning of resolvedSut.warnings) {
+            console.warn(warning);
+          }
+        }
+
         const execResult = await executeAttempt({
           config: suite.executor,
           sample,
@@ -110,6 +118,7 @@ export async function runSuite(opts: {
           attemptDir,
           projectRoot,
           runId,
+          sutDir: resolvedSut?.dir,
         });
 
         // Call judge if defined

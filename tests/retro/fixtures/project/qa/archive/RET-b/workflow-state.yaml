@@ -1,0 +1,10 @@
+schema_version: '1.0'
+change_id: RET-b
+phases:
+  api_codegen:
+    status: done
+    skill_loaded: true
+    skill_md_path: /skills/aws-api-codegen/SKILL.md
+  execution:
+    status: FAIL
+    skill_loaded: n/a

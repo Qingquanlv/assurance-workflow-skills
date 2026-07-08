@@ -87,7 +87,7 @@ Policy 按 suite：
 ```bash
 node scripts/eval-aws-run.mjs \
   --repo-root . \
-  --project-dir bench/fastapi-vue-admin \
+  --project-dir <sut.dir> \
   --change eval-sample-001 \
   --fixture-tier L3-run-seed \
   --archive-dir eval/runs/RUN/samples/WR-001/attempt-0/raw-output \

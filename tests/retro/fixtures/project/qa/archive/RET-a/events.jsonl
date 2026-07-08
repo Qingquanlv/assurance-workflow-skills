@@ -1,0 +1,5 @@
+{"seq":1,"ts":"2026-07-01T10:01:00.000Z","change_id":"RET-a","source":"gate","type":"gate_verdict","phase":"api-plan","gate":"api-plan-review-gate","verdict":"stop","blocks":1,"evidence":{"reason":"assertion_traceability missing"}}
+{"seq":2,"ts":"2026-07-01T10:02:00.000Z","change_id":"RET-a","source":"status","type":"heal_transition","from":"pending","to":"proposal_created"}
+{"seq":3,"ts":"2026-07-01T10:03:00.000Z","change_id":"RET-a","source":"heal","type":"heal_record_apply","target":"api","applied_proposals":["fix-dept-name-1","fix-dept-name-2","fix-dept-name-3","fix-dept-name-4","fix-dept-name-5"],"skipped_proposals":[],"files_modified":["tests/api/test_dept_api.py"],"summary_file":"qa/changes/RET-a/healing/api-apply-summary.json","summary_sha256":null,"markdown_file":"qa/changes/RET-a/healing/api-apply-summary.md","markdown_sha256":null}
+{"seq":4,"ts":"2026-07-01T10:04:00.000Z","change_id":"RET-a","source":"status","type":"heal_transition","from":"proposal_created","to":"applied"}
+{"seq":5,"ts":"2026-07-01T10:05:00.000Z","change_id":"RET-a","source":"status","type":"heal_transition","from":"applied","to":"resolved"}

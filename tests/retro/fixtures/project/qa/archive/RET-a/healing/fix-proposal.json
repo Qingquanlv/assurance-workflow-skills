@@ -1,0 +1,44 @@
+{
+  "proposals": [
+    {
+      "proposal_id": "fix-dept-name-1",
+      "target": "api",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "department name exceeds ORM max_length=20"
+    },
+    {
+      "proposal_id": "fix-dept-name-2",
+      "target": "api",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "department name exceeds ORM max_length=20"
+    },
+    {
+      "proposal_id": "fix-dept-name-3",
+      "target": "api",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "department name exceeds ORM max_length=20"
+    },
+    {
+      "proposal_id": "fix-dept-name-4",
+      "target": "api",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "department name exceeds ORM max_length=20"
+    },
+    {
+      "proposal_id": "fix-dept-name-5",
+      "target": "api",
+      "category": "test_data_failure",
+      "eligible": true,
+      "risk_level": "low",
+      "reason": "department name exceeds ORM max_length=20"
+    }
+  ]
+}
