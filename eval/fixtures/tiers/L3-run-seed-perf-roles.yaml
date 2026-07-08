@@ -1,0 +1,12 @@
+name: L3-run-seed-perf-roles
+extends: L2-performance-codegen-seed-roles
+description: Run eval seed — roles perf tests generated, ready for aws run
+paths:
+  - "tests/__init__.py"
+  - "tests/perf/locustfile_roles.py"
+resets:
+  workflow_state:
+    phases.performance_codegen.status: done
+    phases.execution.status: pending
+  qa_yaml:
+    test_types: [performance]

@@ -1,0 +1,6 @@
+{
+  "suite": "workflow-api-codegen",
+  "run_id": "run-1",
+  "generated_at": "2026-07-02T00:00:00.000Z",
+  "metrics": { "test_executable_rate": 0.9 }
+}

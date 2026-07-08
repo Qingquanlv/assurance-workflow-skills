@@ -1,0 +1,7 @@
+name: L0-case-seed-dept
+description: Case-only eval — department management module seed
+paths:
+  - "proposal.md"
+  - ".qa.yaml"
+  - ".aws/data-knowledge.yaml"
+source_prefix: "eval/fixtures/samples/eval-sample-004"

@@ -3,6 +3,10 @@ name: aws-e2e-codegen
 description: Use only after plan-review.json has decision == "pass" and codegen_readiness in ["ready", "ready_with_warnings"]. Triggers on: "generate E2E test code from plan", "continue E2E codegen", "implement e2e-codegen-plan", "generate /tests/e2e". User request may trigger this skill but never replaces the JSON gate. Reads Stage 1 plan files and generates Python Playwright tests and script-based data setup. Does NOT execute tests — execution is handled by aws-run. Never runs before planning is complete.
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-e2e-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

@@ -3,6 +3,10 @@ name: aws-performance-plan
 description: "AWS M3 Performance Stage 1: generate reviewable performance test plans from Performance cases before any code generation. Use when a Case Delta contains type:Performance cases. Reads case.yaml, selects type==Performance cases, and writes performance-plan.md, performance-codegen-plan.md, performance-review-summary.md. Uses Locust with absolute thresholds (no historical baseline). Never generates code, never runs Locust."
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-performance-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

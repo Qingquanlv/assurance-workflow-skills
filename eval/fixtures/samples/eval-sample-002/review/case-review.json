@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "eval-sample-002",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "17 cases in added (12 API + 5 E2E) covering all 7 role endpoints and 5 UI journeys for the roles module. All required fields present, layer assignments match the API/E2E decision tree, no forbidden content in steps or assertions, delta operation correct (target qa/cases/roles/ does not exist so all entries are added). Seed values (admin / 123456, role names) are documented init_app.py defaults, not production secrets. Ready for downstream API plan and E2E plan.",
+  "reviewed_files": [
+    "qa/changes/eval-sample-002/proposal.md",
+    "qa/changes/eval-sample-002/.qa.yaml",
+    "qa/changes/eval-sample-002/cases/roles/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [],
+  "needs_review": [],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-22T11:30:00Z"
+}

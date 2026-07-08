@@ -1,0 +1,20 @@
+{
+  "failures": [
+    {
+      "id": "fail-1",
+      "case_id": "TC_DEPT_API_001",
+      "target": "api",
+      "category": "test_data_failure",
+      "summary": "department name exceeds ORM max_length=20",
+      "fix_proposal_eligible": true
+    },
+    {
+      "id": "fail-2",
+      "case_id": "dept-list-tree-query",
+      "target": "performance",
+      "category": "perf_threshold_exceeded",
+      "summary": "dept list query returned errors",
+      "fix_proposal_eligible": false
+    }
+  ]
+}

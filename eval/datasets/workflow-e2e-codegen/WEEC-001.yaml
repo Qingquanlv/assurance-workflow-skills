@@ -1,0 +1,13 @@
+id: WEEC-001
+annotation_source: human
+tags: ["workflow-e2e-codegen", "eval-sample-001", "smoke"]
+input:
+  change_id: eval-sample-001
+  fixture_tier: L2-e2e-codegen-seed
+  run_mode: codegen-only
+  sut: fastapi-vue-admin
+  test_types: [e2e]
+  test_collect_paths: ["tests/e2e/eval"]
+  pytest_confcutdir: "tests/e2e/eval"
+expected:
+  test_collect_paths: ["tests/e2e/eval"]

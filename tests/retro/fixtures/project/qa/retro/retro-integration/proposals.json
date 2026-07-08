@@ -1,0 +1,20 @@
+{
+  "retro_id": "retro-integration",
+  "proposals": [
+    {
+      "id": "RETRO-001",
+      "layer": "agent",
+      "target": ".aws/memory/aws-api-codegen.md",
+      "problem": "Repeated test data failure in depts module",
+      "evidence_ids": [
+        "RET-b#fail-1"
+      ],
+      "proposed_change": "Use short department names.",
+      "apply_kind": "memory_append",
+      "eval_suite": "workflow-api-codegen",
+      "risk": "low",
+      "confidence": "high",
+      "status": "proposed"
+    }
+  ]
+}

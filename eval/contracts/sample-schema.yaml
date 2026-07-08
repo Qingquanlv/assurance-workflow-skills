@@ -1,0 +1,35 @@
+# P0 sample schema — see p0-metrics.yaml per suite
+
+workflow_case_sample:
+  input:
+    required: [change_id, fixture_tier, run_mode, sut]
+  expected:
+    optional: [min_case_count]
+
+workflow_api_codegen_sample:
+  input:
+    required: [change_id, fixture_tier, run_mode, sut, test_types]
+  expected:
+    optional:
+      - test_collect_paths          # default ["tests/api"]
+      - target_files_globs          # for target_file_coverage_rate advisory
+
+workflow_run_sample:
+  input:
+    required: [change_id, fixture_tier, sut]
+  expected:
+    optional: [in_scope_layers]      # default from .qa.yaml test_types
+
+classification_unit_sample:
+  input:
+    required: [message, target]
+  expected:
+    required: [category]             # for unknown_rate only; accuracy/F1 deferred
+
+safety_lite_sample:
+  input:
+    required: [attempt_dir_ref]
+
+workflow_full_sample:
+  input:
+    required: [change_id, fixture_tier, run_mode, sut]

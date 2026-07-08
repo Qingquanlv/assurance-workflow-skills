@@ -207,6 +207,11 @@ Copy (do not move) the following to `qa/archive/<change-id>/`:
 | `qa/changes/<change-id>/known-product-issues.md` | `qa/archive/<change-id>/known-product-issues.md` (if present) |
 | `qa/changes/<change-id>/workflow-state.yaml` | `qa/archive/<change-id>/workflow-state.yaml` |
 
+Additional retro evidence requirements:
+
+- Copy `qa/changes/<change-id>/events.jsonl` to `qa/archive/<change-id>/events.jsonl` if it exists. This is required for retro evidence IDs such as `<change-id>#seq<N>`.
+- Copy the full `qa/changes/<change-id>/healing/` directory to `qa/archive/<change-id>/healing/` if it exists, including `fix-proposal.json`, `fix-proposal.md`, and all `*-apply-summary.{json,md}` files. Final `inspect/failure-analysis.json` may no longer contain failures that successful healing fixed; retro needs the healing artifacts to recover those learning signals.
+
 Do **not** delete `qa/changes/<change-id>/` after archiving. The change directory is preserved as a reference. Deletion, if desired, must be performed manually by a human.
 
 ### Step 5: Write Archive Summary

@@ -1,0 +1,8 @@
+{
+  "target": "api",
+  "applied": true,
+  "applied_proposals": ["fix-dept-name-1", "fix-dept-name-2", "fix-dept-name-3", "fix-dept-name-4", "fix-dept-name-5"],
+  "skipped_proposals": [],
+  "files_modified": ["tests/api/test_dept_api.py"],
+  "rerun_required": true
+}

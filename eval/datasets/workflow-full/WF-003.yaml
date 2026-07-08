@@ -1,0 +1,9 @@
+id: WF-003
+annotation_source: human
+tags: ["workflow-full", "eval-sample-003", "menus", "nightly"]
+input:
+  change_id: eval-sample-003
+  fixture_tier: L3-run-seed-menu
+  run_mode: full
+  sut: fastapi-vue-admin
+expected: {}

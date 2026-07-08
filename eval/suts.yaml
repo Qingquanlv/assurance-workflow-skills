@@ -1,0 +1,7 @@
+# eval/suts.yaml — SUT registry. Golden fixtures are version-bound to pinned_sha.
+suts:
+  fastapi-vue-admin:
+    repo: git@github.com:Qingquanlv/aws-bench-fastapi-vue-admin.git
+    pinned_sha: "f1e64a2062e0853b9a2f8a9e3c96fd6214af6f91"
+    # Resolve order: $EVAL_SUT_DIR (CI / explicit override) → local_dir (relative to workspace root)
+    local_dir: "../aws-bench-fastapi-vue-admin"

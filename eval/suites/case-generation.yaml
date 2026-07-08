@@ -1,0 +1,56 @@
+# DEPRECATED — not part of M1 phase-scoped workflow eval.
+# Use workflow-case (E0) for case design + review integration testing.
+# Scorer/unit tests remain for future revival; CLI executor is not implemented.
+
+name: case-generation
+version: "1.0.0"
+
+executor:
+  type: subprocess
+  command: "aws-case-design-eval --prd {{sample.input.prd_ref}} --change-id {{sample.id}}"
+  timeout_seconds: 600
+  expected_outputs:
+    - "raw-output/cases.yaml"
+
+ci:
+  pr:
+    enabled: false
+    mode: smoke
+    required: false
+    always_run: false
+    trigger_paths:
+      - "skills/aws-case-design/**"
+      - "skills/aws-case-reviewer/**"
+
+  nightly:
+    enabled: false
+    mode: full
+
+dataset: case-generation
+
+judge:
+  model: "gpt-4o"
+  prompt_ref: "eval/judge/case-generation-judge.md"
+  temperature: 0.0
+  confidence_threshold: 0.80
+
+judge_calibration:
+  judge_human_agreement: ">= 0.90"
+  judge_human_kappa: ">= 0.80"
+  critical_label_disagreement: "== 0"
+  invalid_judge_output_rate: "<= 0.01"
+
+thresholds:
+  requirement_precision: ">= 0.85"
+  requirement_recall: ">= 0.90"
+  requirement_f1: ">= 0.85"
+  path_coverage_rate: ">= 0.90"
+  risk_coverage_rate: ">= 0.80"
+  hallucination_rate: "<= 0.05"
+  schema_valid_rate: ">= 0.99"
+  traceability_rate: ">= 0.95"
+
+hard_gates:
+  - hallucination_rate
+  - schema_valid_rate
+  - evidence_integrity

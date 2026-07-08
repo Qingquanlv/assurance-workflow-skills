@@ -1,0 +1,10 @@
+id: WC-004
+annotation_source: human
+tags: ["workflow-case", "eval-sample-004", "depts"]
+input:
+  change_id: eval-sample-004
+  fixture_tier: L0-case-seed-dept
+  run_mode: case-only
+  sut: fastapi-vue-admin
+expected:
+  min_case_count: 1

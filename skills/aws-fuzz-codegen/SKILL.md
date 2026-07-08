@@ -3,6 +3,10 @@ name: aws-fuzz-codegen
 description: "AWS M3 Fuzz Stage 2: generate schemathesis fuzz tests from a reviewed fuzz plan. Use only after fuzz-plan-review.json has decision == pass and codegen_readiness in [ready, ready_with_warnings]. Reads fuzz plan files and writes tests/fuzz/test_<module>_fuzz.py. Does NOT execute pytest — execution is Phase 8 aws-run."
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-fuzz-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

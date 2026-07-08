@@ -63,6 +63,8 @@ Source: `qa/changes/{change_id}/known-product-issues.md` (snapshots in `executio
 - `qa/archive/{change_id}/execution/`
 - `qa/archive/{change_id}/inspect/`
 - `qa/archive/{change_id}/workflow-state.yaml`
+- `qa/archive/{change_id}/events.jsonl`
+- `qa/archive/{change_id}/healing/`
 
 ## Notes
 

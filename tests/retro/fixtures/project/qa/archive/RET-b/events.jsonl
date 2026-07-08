@@ -1,0 +1,2 @@
+{"seq":1,"ts":"2026-07-03T10:01:00.000Z","change_id":"RET-b","source":"gate","type":"gate_verdict","phase":"api-plan","gate":"api-plan-review-gate","verdict":"stop","blocks":1,"evidence":{}}
+{"seq":2,"ts":"2026-07-03T10:02:00.000Z","change_id":"RET-b","source":"run","type":"human_override","phase":"e2e-plan-review","action":"fix_and_proceed","reason":"fixer refused high severity contract-only change","review_sha256":"abc123"}

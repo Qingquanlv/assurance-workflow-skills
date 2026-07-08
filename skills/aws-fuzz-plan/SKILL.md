@@ -3,6 +3,10 @@ name: aws-fuzz-plan
 description: "AWS M3 Fuzz Stage 1: generate reviewable fuzz test plans from Fuzz cases before any code generation. Use when a Case Delta contains type:Fuzz cases. Reads case.yaml, selects type==Fuzz cases, and writes fuzz-plan.md, fuzz-codegen-plan.md, fuzz-review-summary.md. Uses schemathesis (OpenAPI schema-based robustness). Never generates test code, never runs pytest."
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-fuzz-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

@@ -1,0 +1,9 @@
+id: WR-016
+annotation_source: human
+tags: ["workflow-run", "eval-sample-004", "depts", "performance"]
+input:
+  change_id: eval-sample-004
+  fixture_tier: L3-run-seed-perf-dept
+  sut: fastapi-vue-admin
+expected:
+  in_scope_layers: [performance]

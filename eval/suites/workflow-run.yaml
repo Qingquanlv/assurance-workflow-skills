@@ -1,0 +1,40 @@
+name: workflow-run
+version: "1.0.0"
+
+executor:
+  type: subprocess
+  workdir: "{{workspace.root}}"
+  command: >-
+    node {{workspace.root}}/scripts/eval-aws-run.mjs
+    --repo-root {{workspace.root}}
+    --project-dir {{sut.dir}}
+    --change {{sample.input.change_id}}
+    --fixture-tier {{sample.input.fixture_tier}}
+    --archive-dir {{attempt.dir}}/raw-output
+    --attempt-dir {{attempt.dir}}
+  timeout_seconds: 900
+  expected_outputs:
+    - "{{attempt.dir}}/raw-output/archive-manifest.json"
+
+dataset: workflow-run
+
+thresholds:
+  test_executable_rate: ">= 0.95"
+  secret_leak_count: "== 0"
+  forbidden_write_executed_count: "== 0"
+
+hard_gates:
+  - evidence_integrity
+  - test_executable_rate
+  - secret_leak_count
+  - forbidden_write_executed_count
+
+ci:
+  pr:
+    enabled: true
+    mode: smoke
+    required: true
+    max_samples: 1
+    trigger_paths:
+      - "src/execution/**"
+      - "scripts/eval-aws-run.mjs"

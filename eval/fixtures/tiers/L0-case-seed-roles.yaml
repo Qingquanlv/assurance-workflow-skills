@@ -1,0 +1,7 @@
+name: L0-case-seed-roles
+description: Case-only eval — role management module seed
+paths:
+  - "proposal.md"
+  - ".qa.yaml"
+  - ".aws/data-knowledge.yaml"
+source_prefix: "eval/fixtures/samples/eval-sample-002"

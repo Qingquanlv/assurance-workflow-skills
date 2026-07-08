@@ -3,6 +3,10 @@ name: aws-e2e-plan
 description: Use when a QA Case Delta contains E2E automation cases and you need to generate reviewable E2E plan files before writing any Playwright code. Triggers on: "generate E2E plan", "M4 Stage 1", "e2e-plan.md", "review before E2E codegen", "E2E planning". Only processes E2E cases with automation.required = true. Never generates test code.
 ---
 
+## Per-Skill Memory
+
+Before producing output, check whether `.aws/memory/aws-e2e-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

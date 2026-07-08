@@ -1,0 +1,6 @@
+{
+  "workflow-api-codegen": {
+    "run_id": "baseline-run",
+    "metrics": { "test_executable_rate": 0.97 }
+  }
+}
