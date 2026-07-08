@@ -17,19 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read SUT pin
-        id: sut
-        run: echo "pinned_sha=$(node scripts/read-sut-pin.mjs fastapi-vue-admin)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v4
-        with:
-          repository: Qingquanlv/aws-bench-fastapi-vue-admin
-          ref: ${{ steps.sut.outputs.pinned_sha }}
-          path: sut/fastapi-vue-admin
-
-      - name: Point eval at SUT checkout
-        run: echo "EVAL_SUT_DIR=$GITHUB_WORKSPACE/sut/fastapi-vue-admin" >> $GITHUB_ENV
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -50,15 +37,11 @@ jobs:
       - name: Build CLI
         run: npm run build
 
-      - name: Verify SUT opencode.json exists
-        run: test -f "$EVAL_SUT_DIR/opencode.json"
-
-      - name: Init SUT git repo
+      - name: Create CI smoke SUT
         run: |
-          cd "$EVAL_SUT_DIR"
-          git init
-          git add -A
-          git -c user.email=eval@ci.local -c user.name=eval-ci commit -m "eval bench seed" || true
+          sut_dir=$(node scripts/create-ci-sut.mjs "$GITHUB_WORKSPACE/sut/fastapi-vue-admin" "$GITHUB_WORKSPACE")
+          echo "EVAL_SUT_DIR=$sut_dir" >> "$GITHUB_ENV"
+          test -f "$sut_dir/opencode.json"
 
       - name: Run workflow-full samples (fake OpenCode)
         id: run

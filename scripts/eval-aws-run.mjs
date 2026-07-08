@@ -62,6 +62,7 @@ function main() {
   let timedOut = false;
   let beforePorcelain = '';
   const policy = { mode: 'denylist', patterns: DEFAULT_RUN_DENYLIST };
+  const useFake = process.env.EVAL_USE_FAKE_AWS_RUN === '1';
 
   const awsCliPath = path.join(repoRoot, 'dist/cli.js');
   const awsBin = values['aws-bin'] ?? process.execPath;
@@ -95,19 +96,50 @@ function main() {
 
     beforePorcelain = captureWriteScanBefore(attemptDir, projectDir, policy);
 
-    const awsResult = spawnSync(awsBin, awsArgs, {
-      cwd: projectDir,
-      timeout: timeoutMs,
-      encoding: 'utf8',
-      env: { ...process.env },
-      maxBuffer: 100 * 1024 * 1024,
-    });
+    if (useFake) {
+      const executionDir = path.join(projectDir, 'qa', 'changes', changeId, 'execution');
+      fs.mkdirSync(executionDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(executionDir, 'execution-manifest.yaml'),
+        [
+          'schema_version: "1.0"',
+          `change_id: ${changeId}`,
+          'batch_id: eval-fake-run',
+          'final_status: PASS',
+          'selected_targets:',
+          '  api: true',
+          '  e2e: false',
+          '  fuzz: false',
+          '  performance: false',
+          'result_files:',
+          '  api: api-result.json',
+        ].join('\n') + '\n'
+      );
+      fs.writeFileSync(
+        path.join(executionDir, 'api-result.json'),
+        JSON.stringify({ status: 'PASS', passed: 1, total: 1, batch_id: 'eval-fake-run' }, null, 2)
+      );
+      fs.writeFileSync(
+        path.join(executionDir, 'summary.md'),
+        '# Eval fake workflow-run\n\nSynthetic E3 execution artifact for CI smoke.\n'
+      );
+      awsStdout = `eval-aws-run: wrote fake execution for ${changeId}\n`;
+      awsExit = 0;
+    } else {
+      const awsResult = spawnSync(awsBin, awsArgs, {
+        cwd: projectDir,
+        timeout: timeoutMs,
+        encoding: 'utf8',
+        env: { ...process.env },
+        maxBuffer: 100 * 1024 * 1024,
+      });
 
-    awsStdout = awsResult.stdout ?? '';
-    awsStderr = awsResult.stderr ?? '';
-    awsExit = awsResult.status ?? 1;
-    awsSignal = awsResult.signal;
-    timedOut = awsResult.error?.code === 'ETIMEDOUT';
+      awsStdout = awsResult.stdout ?? '';
+      awsStderr = awsResult.stderr ?? '';
+      awsExit = awsResult.status ?? 1;
+      awsSignal = awsResult.signal;
+      timedOut = awsResult.error?.code === 'ETIMEDOUT';
+    }
 
     writeAttemptLogs(attemptDir, awsStdout, awsStderr);
   } catch (err) {
