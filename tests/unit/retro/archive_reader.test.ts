@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { readArchivedChanges } from '../../../src/retro/archive_reader';
 
@@ -46,5 +48,63 @@ describe('readArchivedChanges', () => {
     expect(() =>
       readArchivedChanges(fixtureRoot, { changes: ['RET-missing'] })
     ).toThrow(/Archived change not found: RET-missing/);
+  });
+
+  it('falls back to terminal unarchived changes when explicitly requested', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-retro-reader-'));
+    const projectRoot = path.join(tmp, 'project');
+    const changeId = 'RET-unarchived';
+    const changeRoot = path.join(projectRoot, 'qa', 'changes', changeId);
+    try {
+      fs.mkdirSync(path.join(changeRoot, 'inspect'), { recursive: true });
+      fs.mkdirSync(path.join(changeRoot, 'healing'), { recursive: true });
+      fs.writeFileSync(
+        path.join(changeRoot, 'events.jsonl'),
+        [
+          JSON.stringify({
+            seq: 1,
+            ts: '2026-07-08T12:00:00.000Z',
+            change_id: changeId,
+            source: 'status',
+            type: 'heal_transition',
+            from: 'applied',
+            to: 'exhausted',
+          }),
+          '',
+        ].join('\n'),
+      );
+      fs.writeFileSync(
+        path.join(changeRoot, 'inspect', 'failure-analysis.json'),
+        JSON.stringify({ failures: [{ id: 'fail-1', category: 'locator_failure' }] }),
+      );
+      fs.writeFileSync(
+        path.join(changeRoot, 'healing', 'fix-proposal.json'),
+        JSON.stringify({ proposals: [{ id: 'fix-1', category: 'locator_failure' }] }),
+      );
+      fs.writeFileSync(
+        path.join(changeRoot, 'workflow-state.yaml'),
+        [
+          'schema_version: "1.0"',
+          `change_id: ${changeId}`,
+          'phases:',
+          '  execution:',
+          '    status: FAIL',
+          '',
+        ].join('\n'),
+      );
+
+      const changes = readArchivedChanges(projectRoot, { changes: [changeId] });
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toMatchObject({
+        change_id: changeId,
+        evidence_source: 'unarchived',
+        archive_path: changeRoot,
+        archived_at_ms: Date.parse('2026-07-08T12:00:00.000Z'),
+      });
+      expect(changes[0].failure_analysis?.failures?.[0].category).toBe('locator_failure');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -1,4 +1,37 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import type { EvidenceId, RetroContext, RetroProposal } from './types';
+
+const KNOWN_EVAL_SUITES = new Set([
+  '_test',
+  'case-generation',
+  'classification-unit',
+  'safety-lite',
+  'workflow-api-codegen',
+  'workflow-case',
+  'workflow-e2e-codegen',
+  'workflow-full',
+  'workflow-fuzz-codegen',
+  'workflow-performance-codegen',
+  'workflow-run',
+]);
+
+function skillsRoot(): string {
+  return path.resolve(__dirname, '../../skills');
+}
+
+function validateMemoryTarget(proposal: RetroProposal): string[] {
+  if (proposal.apply_kind !== 'memory_append') return [];
+  const match = proposal.target.match(/^\.aws\/memory\/(aws-[a-z0-9-]+)\.md$/);
+  if (!match) {
+    return [`${proposal.id} memory target must match .aws/memory/aws-<skill>.md`];
+  }
+  const skillName = match[1];
+  if (!fs.existsSync(path.join(skillsRoot(), skillName, 'SKILL.md'))) {
+    return [`${proposal.id} references unknown memory target: ${proposal.target}`];
+  }
+  return [];
+}
 
 function collectEvidenceIds(context: RetroContext): Set<EvidenceId> {
   const ids = new Set<EvidenceId>();
@@ -51,6 +84,10 @@ export function validateRetroProposals(
     if (proposal.status !== 'proposed') {
       errors.push(`${proposal.id} must start with status proposed`);
     }
+    if (!KNOWN_EVAL_SUITES.has(proposal.eval_suite)) {
+      errors.push(`${proposal.id} references unknown eval_suite: ${proposal.eval_suite}`);
+    }
+    errors.push(...validateMemoryTarget(proposal));
   }
   return errors;
 }

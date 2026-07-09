@@ -221,6 +221,7 @@ Write to: `qa/archive/<change-id>/archive-summary.md`
 Must include:
 
 - `change_id`
+- `archived_at` ISO timestamp (top-level metadata; consumed by `aws retro --since`)
 - Cases added / modified / removed (count + IDs)
 - Target case file: `qa/cases/<module>/case.yaml`
 - Test files created or updated

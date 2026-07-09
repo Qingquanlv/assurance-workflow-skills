@@ -16,7 +16,9 @@ describe('archive retro evidence contract', () => {
 
     expect(skill).toContain('events.jsonl');
     expect(skill).toContain('healing/');
+    expect(skill).toContain('archived_at');
     expect(template).toContain('qa/archive/{change_id}/events.jsonl');
     expect(template).toContain('qa/archive/{change_id}/healing/');
+    expect(template).toContain('archived_at: {datetime}');
   });
 });

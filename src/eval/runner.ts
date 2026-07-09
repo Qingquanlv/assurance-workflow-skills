@@ -1,6 +1,7 @@
 // src/eval/runner.ts — Orchestrate single-suite runs and batch plan runs
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type {
   EvalSuite,
@@ -27,7 +28,7 @@ import {
   resolveRuntimeModule,
 } from './module_resolver';
 import { runCalibration } from './judge/calibration';
-import { resolveSampleSut } from './sut_registry';
+import { resolveEffectiveSutDir, applySutDirOverride } from './sut_registry';
 
 export interface RunOptions {
   suiteName?: string;
@@ -37,6 +38,9 @@ export interface RunOptions {
   projectRoot: string;
   evalRoot: string;
   calibrate?: boolean;
+  extraMemoryDir?: string;
+  /** Overrides eval/suts.yaml local_dir and EVAL_SUT_DIR for all samples. */
+  sutDirOverride?: string;
 }
 
 export interface RunResult {
@@ -58,6 +62,9 @@ export async function runSuite(opts: {
   maxSamples?: number;
   repeat?: number;
   calibrate?: boolean;
+  extraMemoryDir?: string;
+  /** Overrides eval/suts.yaml local_dir and EVAL_SUT_DIR for all samples. */
+  sutDirOverride?: string;
 }): Promise<{ runId: string; gateResult: EvalGateResult }> {
   const { suite, suiteFilePath, evalRoot, projectRoot, calibrate } = opts;
 
@@ -103,12 +110,19 @@ export async function runSuite(opts: {
       const attemptDir = path.join(sampleDir, `attempt-${attempt}`);
       fs.mkdirSync(attemptDir, { recursive: true });
 
+      let memorySnapshot: MemorySnapshot | null = null;
       try {
-        const resolvedSut = resolveSampleSut(sample.input, projectRoot);
-        if (resolvedSut) {
-          for (const warning of resolvedSut.warnings) {
-            console.warn(warning);
-          }
+        const { dir: effectiveSutDir, warnings: sutWarnings } = resolveEffectiveSutDir(
+          sample.input as Record<string, unknown>,
+          projectRoot,
+          opts.sutDirOverride,
+        );
+        for (const warning of sutWarnings) {
+          console.warn(warning);
+        }
+        if (effectiveSutDir && opts.extraMemoryDir) {
+          memorySnapshot = snapshotMemoryDir(effectiveSutDir);
+          applyExtraMemoryOverlay(effectiveSutDir, opts.extraMemoryDir);
         }
 
         const execResult = await executeAttempt({
@@ -118,7 +132,7 @@ export async function runSuite(opts: {
           attemptDir,
           projectRoot,
           runId,
-          sutDir: resolvedSut?.dir,
+          sutDir: effectiveSutDir,
         });
 
         // Call judge if defined
@@ -133,7 +147,13 @@ export async function runSuite(opts: {
         }
 
         // Call scorer if available (scorer modules are loaded dynamically per suite)
-        const score = await runScorer(suite, sample, attemptDir, projectRoot);
+        const score = await runScorer(
+          suite,
+          sample,
+          attemptDir,
+          projectRoot,
+          effectiveSutDir,
+        );
         fs.writeFileSync(
           path.join(attemptDir, 'score.json'),
           JSON.stringify(score, null, 2)
@@ -150,6 +170,12 @@ export async function runSuite(opts: {
           path.join(attemptDir, 'score.json'),
           JSON.stringify(errorScore, null, 2)
         );
+      } finally {
+        // Always revert the overlay so it cannot leak into later runs
+        // (SUT checkouts are persistent). See docs/design/nightly-driver.md §8.2.
+        if (memorySnapshot) {
+          memorySnapshot.restore();
+        }
       }
 
       executedAttempts++;
@@ -211,13 +237,59 @@ export async function runSuite(opts: {
   return { runId, gateResult };
 }
 
+export function applyExtraMemoryOverlay(projectDir: string, extraMemoryDir: string): void {
+  const resolvedOverlay = path.resolve(extraMemoryDir);
+  if (!fs.existsSync(resolvedOverlay)) {
+    throw new Error(`extra memory dir not found: ${resolvedOverlay}`);
+  }
+  const targetRoot = path.join(projectDir, '.aws', 'memory');
+  fs.mkdirSync(targetRoot, { recursive: true });
+  for (const entry of fs.readdirSync(resolvedOverlay, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith('.md')) continue;
+    fs.copyFileSync(path.join(resolvedOverlay, entry.name), path.join(targetRoot, entry.name));
+  }
+}
+
+export interface MemorySnapshot {
+  restore(): void;
+}
+
+/**
+ * Snapshots a SUT workspace `.aws/memory/` so a later overlay can be reverted.
+ * SUTs resolved via eval/suts.yaml are persistent checkouts (or EVAL_SUT_DIR),
+ * so an un-reverted overlay would leak into every subsequent run — including
+ * the next baseline. Captures the "directory absent" state too.
+ * See docs/design/nightly-driver.md §8.2.
+ */
+export function snapshotMemoryDir(projectDir: string): MemorySnapshot {
+  const memoryDir = path.join(projectDir, '.aws', 'memory');
+  const existedBefore = fs.existsSync(memoryDir);
+  const backup = existedBefore
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'aws-mem-snapshot-'))
+    : null;
+  if (existedBefore && backup) {
+    fs.cpSync(memoryDir, backup, { recursive: true });
+  }
+  return {
+    restore(): void {
+      fs.rmSync(memoryDir, { recursive: true, force: true });
+      if (existedBefore && backup) {
+        fs.cpSync(backup, memoryDir, { recursive: true });
+        fs.rmSync(backup, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 // ── Scorer dispatch ───────────────────────────────────────────────────────────
 
 async function runScorer(
   suite: EvalSuite,
   sample: DatasetSample,
   attemptDir: string,
-  projectRoot: string
+  projectRoot: string,
+  sutDirOverride?: string,
 ): Promise<SampleScore> {
   const scorerRef = resolveScorerModuleRef(suite.name);
   let scorerPath: string;
@@ -243,7 +315,9 @@ async function runScorer(
     if (typeof scorerMod.score !== 'function') {
       throw new Error(`Scorer at ${scorerPath} must export a 'score' function`);
     }
-    const result = await Promise.resolve(scorerMod.score(sample, attemptDir));
+    const result = await Promise.resolve(
+      scorerMod.score(applySutDirOverride(sample, sutDirOverride), attemptDir),
+    );
     if (!result || typeof result !== 'object') {
       throw new Error('Scorer returned empty result (fail-closed)');
     }

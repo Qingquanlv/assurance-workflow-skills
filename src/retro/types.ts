@@ -62,6 +62,7 @@ export interface WorkflowStateFile {
 export interface ArchivedChange {
   change_id: string;
   archive_path: string;
+  evidence_source?: 'archive' | 'unarchived';
   archived_at_ms: number;
   events: QaEvent[];
   failure_analysis: FailureAnalysisFile | null;
@@ -143,6 +144,11 @@ export interface RetroContext {
     since: string | null;
     change_count: number;
     change_ids: string[];
+    change_sources?: Array<{
+      change_id: string;
+      evidence_source: 'archive' | 'unarchived';
+      path: string;
+    }>;
   };
   signals: RetroSignalSet;
 }
@@ -177,4 +183,5 @@ export interface RetroPromoteRecord {
   decided_by: string;
   decided_at: string;
   eval_run_id?: string;
+  rework_note?: string;
 }

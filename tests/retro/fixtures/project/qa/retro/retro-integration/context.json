@@ -7,6 +7,18 @@
     "change_ids": [
       "RET-a",
       "RET-b"
+    ],
+    "change_sources": [
+      {
+        "change_id": "RET-a",
+        "evidence_source": "archive",
+        "path": "/Users/lvqingquan/skills/assurance-workflow-skills/tests/retro/fixtures/project/qa/archive/RET-a"
+      },
+      {
+        "change_id": "RET-b",
+        "evidence_source": "archive",
+        "path": "/Users/lvqingquan/skills/assurance-workflow-skills/tests/retro/fixtures/project/qa/archive/RET-b"
+      }
     ]
   },
   "signals": {
