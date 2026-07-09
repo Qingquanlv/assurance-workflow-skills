@@ -106,8 +106,12 @@ export function resolveSut(
 
 export function resolveSampleProjectDir(
   input: Record<string, unknown>,
-  projectRoot: string = process.cwd()
+  projectRoot: string = process.cwd(),
+  sutDirOverride?: string,
 ): string {
+  if (sutDirOverride) {
+    return path.resolve(sutDirOverride);
+  }
   const sut = input.sut;
   if (typeof sut === 'string' && sut.length > 0) {
     return resolveSut(sut, projectRoot).dir;
@@ -123,6 +127,22 @@ export function resolveSampleProjectDir(
   return projectRoot;
 }
 
+/**
+ * Rewrites a sample so scorers resolve the same SUT checkout as the executor
+ * when `--sut-dir` is in effect: strips `sut` (registry wins over project_dir)
+ * and sets an absolute `project_dir`.
+ */
+export function applySutDirOverride<T extends { input: Record<string, unknown> }>(
+  sample: T,
+  sutDirOverride?: string,
+): T {
+  if (!sutDirOverride) return sample;
+  const input = { ...sample.input };
+  delete input.sut;
+  input.project_dir = path.resolve(sutDirOverride);
+  return { ...sample, input };
+}
+
 export function resolveSampleSut(
   input: Record<string, unknown>,
   projectRoot: string
@@ -132,4 +152,25 @@ export function resolveSampleSut(
     return undefined;
   }
   return resolveSut(sut, projectRoot);
+}
+
+/**
+ * Resolves the SUT checkout for a sample attempt. When `sutDirOverride` is set
+ * (from `aws eval run --sut-dir`), registry lookup is skipped entirely so a
+ * missing or mismatched eval/suts.yaml local_dir cannot fail or warn before
+ * the driver-provided checkout is used.
+ */
+export function resolveEffectiveSutDir(
+  input: Record<string, unknown>,
+  projectRoot: string,
+  sutDirOverride?: string,
+): { dir?: string; warnings: string[] } {
+  if (sutDirOverride) {
+    return { dir: path.resolve(sutDirOverride), warnings: [] };
+  }
+  const resolved = resolveSampleSut(input, projectRoot);
+  if (!resolved) {
+    return { dir: undefined, warnings: [] };
+  }
+  return { dir: resolved.dir, warnings: resolved.warnings };
 }

@@ -70,4 +70,29 @@ describe('validateRetroProposals', () => {
       'RETRO-001 is high-risk team proposal and must use eval_suite workflow-full',
     );
   });
+
+  it('rejects proposals that reference an unknown eval suite', () => {
+    expect(validateRetroProposals(context, [{
+      ...baseProposal,
+      eval_suite: 'workflow-inspect-codegen',
+    }])).toContain(
+      'RETRO-001 references unknown eval_suite: workflow-inspect-codegen',
+    );
+  });
+
+  it('rejects memory targets outside known aws skill memory files', () => {
+    expect(validateRetroProposals(context, [{
+      ...baseProposal,
+      target: '.aws/memory/aws-missing-skill.md',
+    }])).toContain(
+      'RETRO-001 references unknown memory target: .aws/memory/aws-missing-skill.md',
+    );
+
+    expect(validateRetroProposals(context, [{
+      ...baseProposal,
+      target: '../outside.md',
+    }])).toContain(
+      'RETRO-001 memory target must match .aws/memory/aws-<skill>.md',
+    );
+  });
 });

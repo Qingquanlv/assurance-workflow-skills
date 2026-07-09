@@ -4,6 +4,8 @@ import * as path from 'path';
 import {
   loadSutRegistry,
   resetSutRegistryCache,
+  applySutDirOverride,
+  resolveEffectiveSutDir,
   resolveSampleProjectDir,
   resolveSut,
 } from '../../../src/eval/sut_registry';
@@ -90,6 +92,46 @@ describe('sut_registry', () => {
   it('resolveSampleProjectDir resolves sut registry entry', () => {
     const dir = resolveSampleProjectDir({ sut: 'demo-sut' }, tmpRoot);
     expect(dir).toBe(sutDir);
+  });
+
+  it('resolveSampleProjectDir prefers sutDirOverride over registry sut', () => {
+    const overrideDir = path.join(tmpRoot, 'driver-sut');
+    fs.mkdirSync(overrideDir, { recursive: true });
+    const dir = resolveSampleProjectDir(
+      { sut: 'demo-sut' },
+      tmpRoot,
+      overrideDir,
+    );
+    expect(dir).toBe(overrideDir);
+  });
+
+  it('applySutDirOverride rewrites sample so scorers skip registry sut', () => {
+    const overrideDir = path.join(tmpRoot, 'driver-sut');
+    fs.mkdirSync(overrideDir, { recursive: true });
+    const sample = applySutDirOverride(
+      { id: 's1', input: { sut: 'demo-sut', change_id: 'RET-a' } },
+      overrideDir,
+    );
+    const input = sample.input as Record<string, unknown>;
+    expect(input.sut).toBeUndefined();
+    expect(input.project_dir).toBe(overrideDir);
+    expect(resolveSampleProjectDir(input, tmpRoot)).toBe(overrideDir);
+  });
+
+  it('resolveEffectiveSutDir skips registry when override is set', () => {
+    fs.rmSync(sutDir, { recursive: true, force: true });
+    const overrideDir = path.join(tmpRoot, 'driver-sut');
+    fs.mkdirSync(overrideDir, { recursive: true });
+
+    const result = resolveEffectiveSutDir(
+      { sut: 'demo-sut' },
+      tmpRoot,
+      overrideDir,
+    );
+
+    expect(result.dir).toBe(overrideDir);
+    expect(result.warnings).toEqual([]);
+    expect(() => resolveSut('demo-sut', tmpRoot, evalRoot)).toThrow();
   });
 });
 

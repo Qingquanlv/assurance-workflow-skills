@@ -324,10 +324,104 @@ Must satisfy:
 - Export `make_*` functions for setup and explicit cleanup helpers when cleanup is non-trivial.
 - Call app service/controller code internally to maintain invariants.
 - Return plain data snapshots, or ensure fixture wrappers convert ORM objects to snapshots before exposing them to tests.
-- May use `run_orm()` only for live-server mode; in-process async tests call `await make_*()` directly.
+- May use `run_orm()` only for live-server mode **and** only via a contract-conformant `tests/factories/runtime.py` (each call must close/dispose/release the project-detected data-access resources; see below); in-process async tests call `await make_*()` directly.
 - Must read prefixes and runtime config from `tests.config.settings`.
 - Must not call HTTP APIs for setup/cleanup except when explicitly documenting create/delete API behavior in a test body.
 - Must not be placed under `qa/changes/`; generated reusable test support code belongs under `tests/factories/`.
+
+### tests/factories/runtime.py
+
+Generate or fix **whenever** live-server fixtures/tests need `run_orm()` (HTTP against a real SUT that already holds the app DB).
+
+**When to create / modify:**
+
+- `api-codegen-plan.md` Target Files includes `tests/factories/runtime.py`, **or** codegen needs `run_orm` and the file is missing -> create per the contract below.
+- File exists but violates the contract (session-long initialized ORM/session/connection, or no close/dispose/release path) -> **must repair before continuing**; do not reuse a non-conformant implementation.
+
+**Detect the project data-access stack first:**
+
+Before writing imports or code, inspect existing app/factory/config/dependency files. Use the project's real stack and lifecycle APIs; never invent ORM imports.
+
+Evidence examples:
+
+- Tortoise ORM: existing `from tortoise import Tortoise`, `TORTOISE_ORM`, app startup calls `Tortoise.init`.
+- SQLAlchemy async: existing `create_async_engine`, `async_sessionmaker`, `AsyncSession`, `await engine.dispose()`.
+- SQLAlchemy sync: existing `create_engine`, `sessionmaker`, `Session`, `engine.dispose()`.
+- Django ORM: existing `DJANGO_SETTINGS_MODULE`, `django.setup()`, `django.db.connections`.
+- Other ORM/repository layer: follow the app's existing test/bootstrap helpers exactly.
+
+If the stack or close/dispose/release API cannot be identified, **STOP with a blocker**. Do not generate a Tortoise/SQLAlchemy/Django runtime by guesswork.
+
+**Contract (must satisfy):**
+
+1. `run_orm(factory)` is only for live-server mode (tests hit a running SUT over HTTP).
+2. **Each call** is independent: acquire/init the project data-access context -> run the callable/coroutine -> `finally` close/dispose/release all resources opened by the helper.
+3. **Forbidden:** module/session-level initialized ORM/session/connection (for example `_db_initialized`) that stays open across multiple `run_orm` calls or the whole pytest session.
+4. Module docstring/comment must state why: leaving a test-side DB/ORM/session connection open while the SUT also holds the DB can block pytest process exit or leak locks/pool resources.
+5. Use the project's existing bootstrap/config names. Do not import `tortoise`, `sqlalchemy`, `django`, or app settings modules unless project source already proves that stack and path are correct.
+
+**Tortoise example (only when project source already uses Tortoise):**
+
+```python
+"""Run async ORM helpers against the same SQLite DB as the live SUT.
+
+Each call opens the project ORM, runs the coroutine, then closes connections.
+Leaving a session-long test-side connection open can block pytest process exit
+when the SUT also holds the same DB.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
+from tortoise import Tortoise
+
+from app.settings.config import settings as app_settings
+
+_T = TypeVar("_T")
+
+
+async def _run_with_fresh_connection(awaitable_factory: Callable[[], Awaitable[_T]]) -> _T:
+    await Tortoise.init(config=app_settings.TORTOISE_ORM)
+    try:
+        return await awaitable_factory()
+    finally:
+        await Tortoise.close_connections()
+
+
+def run_orm(awaitable_factory: Callable[[], Awaitable[_T]]) -> _T:
+    """Execute an async factory/query in a fresh event loop (live-server test mode)."""
+    return asyncio.run(_run_with_fresh_connection(awaitable_factory))
+```
+
+**SQLAlchemy async example (only when project source already uses async SQLAlchemy):**
+
+```python
+# Reuse the project's actual engine/session factory imports.
+# The helper must close sessions and dispose/release resources it creates.
+async def _run_with_fresh_session(awaitable_factory):
+    async with async_session_maker() as session:
+        try:
+            return await awaitable_factory(session)
+        finally:
+            await session.close()
+```
+
+**Forbidden:**
+
+```python
+# Forbidden: session-long test-side ORM/session/connection
+_db_initialized = False
+
+def _ensure_db():
+    global _db_initialized
+    if _db_initialized:
+        return
+    init_project_orm_or_session(...)
+    _db_initialized = True  # never closed -> pytest can hang on exit or leak DB resources
+```
 
 ### tests/fixtures/<module>_fixtures.py
 
@@ -356,7 +450,7 @@ Hard boundary:
 1. Setup uses factory; test body uses HTTP.
 2. Factory modules call service/controller code; do not copy controller code into tests.
 3. Factories must not leak ORM objects to test functions; return plain data snapshots or convert ORM objects to snapshots inside fixtures.
-4. `run_orm()` is only for live-server mode; in-process async tests must call `await make_*()` directly.
+4. `run_orm()` is only for live-server mode **and** each call must close/dispose/release the project-detected data-access resources before return (`tests/factories/runtime.py` contract); in-process async tests must call `await make_*()` directly. Do not keep a session-long test-side ORM/session/connection that shares DB, WAL, or pool resources with the SUT.
 5. Create API cases must exercise HTTP create; do not replace create behavior assertions with the same create factory path.
 6. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
 7. Factory modules live under `tests/factories/test_<module>_<library>.py`; exported function names are always `make_*`.
@@ -418,6 +512,15 @@ Role.filter(id=role_id).delete()  # use invariant-preserving cleanup
 # Forbidden: hardcoded config
 BASE_URL = "http://127.0.0.1:9999"  # use settings.base_url
 ROLE_PREFIX = "tmp_role_"           # use settings.role_prefix
+
+# Forbidden: session-long test-side ORM/session/connection in tests/factories/runtime.py
+_db_initialized = False
+def _ensure_db():
+    global _db_initialized
+    if _db_initialized:
+        return
+    init_project_orm_or_session(...)
+    _db_initialized = True  # never closed -> pytest can hang on exit or leak DB resources
 ```
 
 #### ORM field length (dept / menu / role names)
@@ -685,3 +788,13 @@ aws run --change <change-id>
 ```
 
 If tests fail, use `aws-inspect` to analyze; do not auto-modify assertions or merge fixes within this skill.
+
+
+Hi Mohit,
+
+I understand the two-pool system, but I’m struggling to reconcile $400 being fully consumed with my actual usage pattern. I don’t believe I’ve made enough named-model requests this cycle to burn through $400 worth of API credits.
+
+Could you provide a detailed breakdown or export of my API pool usage for this billing period (model, request count, estimated cost per call)? I’d like to verify the consumption before enabling on-demand.
+
+Thanks,
+Qingquan

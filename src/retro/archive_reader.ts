@@ -25,6 +25,16 @@ function readArchivedAt(archivePath: string): number {
   return fs.statSync(archivePath).mtimeMs;
 }
 
+function readUnarchivedAt(changePath: string, events: QaEvent[]): number {
+  for (const event of [...events].reverse()) {
+    const ts = (event as { ts?: unknown }).ts;
+    if (typeof ts !== 'string') continue;
+    const parsed = Date.parse(ts);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return fs.statSync(changePath).mtimeMs;
+}
+
 function readEventsJsonl(archivePath: string): QaEvent[] {
   const file = path.join(archivePath, 'events.jsonl');
   if (!fs.existsSync(file)) return [];
@@ -95,20 +105,36 @@ function readWorkflowState(archivePath: string): WorkflowStateFile | null {
   }
 }
 
+function readChangePath(
+  changeId: string,
+  changePath: string,
+  evidenceSource: 'archive' | 'unarchived',
+): ArchivedChange {
+  const events = readEventsJsonl(changePath);
+  return {
+    change_id: changeId,
+    archive_path: changePath,
+    evidence_source: evidenceSource,
+    archived_at_ms: evidenceSource === 'archive'
+      ? readArchivedAt(changePath)
+      : readUnarchivedAt(changePath, events),
+    events,
+    failure_analysis: readFailureAnalysis(changePath),
+    healing: readHealingArtifacts(changePath),
+    workflow_state: readWorkflowState(changePath),
+  };
+}
+
 function readArchive(projectRoot: string, changeId: string): ArchivedChange {
   const archivePath = path.join(projectRoot, 'qa', 'archive', changeId);
   if (!fs.existsSync(archivePath)) {
+    const changePath = path.join(projectRoot, 'qa', 'changes', changeId);
+    if (fs.existsSync(changePath)) {
+      return readChangePath(changeId, changePath, 'unarchived');
+    }
     throw new Error(`Archived change not found: ${changeId}`);
   }
-  return {
-    change_id: changeId,
-    archive_path: archivePath,
-    archived_at_ms: readArchivedAt(archivePath),
-    events: readEventsJsonl(archivePath),
-    failure_analysis: readFailureAnalysis(archivePath),
-    healing: readHealingArtifacts(archivePath),
-    workflow_state: readWorkflowState(archivePath),
-  };
+  return readChangePath(changeId, archivePath, 'archive');
 }
 
 export function readArchivedChanges(

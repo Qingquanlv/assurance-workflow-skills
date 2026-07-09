@@ -519,6 +519,134 @@ After each dispatch batch, the orchestrator first verifies the `workflow-state.y
 
 ---
 
+## Full Runbook (explore → report, state-write obligations)
+
+This ordered runbook makes **every autonomous phase** gap-free, in the same style as `aws-intake/SKILL.md` (front phases) and `aws-execute/SKILL.md` (execute phases). The Phase Dispatch Table above says *which* skill/agent runs each phase; this runbook says *what state write is mandatory after each phase*. It exists because producing artifacts on disk is **NOT** phase completion — the recurring failure mode is "`aws run` wrote `execution/` but `phases.execution.status` stayed `pending` / `skill_loaded: false`, so the workflow stalled before inspect".
+
+**Relationship to `aws-intake` (front phases — explore → case-review).** The front-phase *sequence and state writes* are identical to the `aws-intake` Intake Runbook; the only difference is **interaction mode**, which `aws state stamp-run-context --orchestrator aws-workflow` pins to `autonomous` (vs `interactive` for intake). In autonomous mode the phase skills read `run_context.interaction_mode` and MUST NOT prompt the user:
+
+- **Explore** answers open questions via `auto_default` (no per-pitfall user questions).
+- **Case Design** records an autonomous approval (`approval.approved_by != user`); it does not block for explicit user sign-off.
+- **Case Review** still runs `aws gate check`; a `reject` / `needs_human_review` verdict still **STOPs** (autonomous mode cannot self-approve a human gate).
+
+Everything else (phase order, produces, gate checks, `⟶ state:` writes) is the same in both orchestrators — keep them in lockstep when editing.
+
+**State-write mechanism differs by phase (do not skip):**
+
+- **CLI-backed phases** (`execution`, `inspect`, `healing-rerun`, `healing-reinspect`, `report`) — the `aws state apply --change <id> --phase <x>` call **IS** the state write. It is mandatory and enforced. Running the underlying tool (`aws run`, `aws-inspect`, `aws-report-generator`) and seeing output files is not enough.
+- **Agent phases** (`fact_baseline`, `api_plan`, `e2e_plan`, `*_plan_review`, `api_codegen`, `e2e_codegen`, `archive`) — no CLI writer; the orchestrator MUST hand-update `phases.<x>.status` (+ produces/gate refs) in `workflow-state.yaml` before advancing.
+- **Healing status** (`healing.status`) — CLI-only via `aws state heal`; never hand-write.
+
+Every line below ends with its state-write obligation as `⟶ state: …`. After each `⟶ state:` write, run `aws status --change <id> --next --json` and dispatch exactly what it returns. Do not skip a step because it "looks done" — verify each phase's produces on disk first. The per-phase input/output/gate contracts remain the **Phase Contracts** section below; this runbook only sequences them and pins the state write.
+
+```
+Phase 0 — Test Infra Bootstrap   (one-shot, idempotent; before Phase 1.1)
+  → load aws-test-infra-bootstrap; CREATE missing / KEEP conformant / STOP on contract mismatch
+  → autonomous: ask user ONLY when a default cannot be verified from run.py / web/.env / init_app.py
+  ⟶ state: hand-update phases.test_infra_bootstrap.status = done (+ created/kept); gate → Phase 1.1
+
+Phase 1.1 — Skill Registry Check + execution-mode detect   (orchestrator-local)
+  → verify required skills loadable; probe task tool → execution_mode = subagent-dispatch | inline
+  → write initial workflow-state.yaml; aws state stamp-run-context --change <id> --orchestrator aws-workflow
+    (stamps interaction_mode: autonomous, active_scope: full — do NOT hand-write run_context)
+  ⟶ state: phases.skill_registry_check.status = pass; then aws status
+
+Phase 1.2 — Explore   (INLINE in primary agent; never dispatched, even in subagent-dispatch mode)
+  → load aws-explore; interaction_mode: autonomous → answer open questions via auto_default (NO user prompts)
+  → write explore/advisory.json; run aws risk validate-advisory
+  → skip when run_mode == codegen-only (status = skipped)
+  ⟶ state: hand-update phases.explore.status = done|skipped|unavailable (+ counts); then aws status
+
+Phase 2.1 — Case Design   (autonomous: NO user-approval gate)
+  → dispatch aws-case-design → .qa.yaml + proposal.md + cases/<module>/case.yaml
+  → autonomous approval recorded by the skill (approval.approved_by != user); do not block for user sign-off
+  ⟶ state: hand-update phases.case_design.status = done (+ outputs); then aws status
+
+Phase 2.2 — Case Review (initial)
+  → dispatch aws-case-reviewer → review/case-review.json + case-review-summary.md (reviewer JSON is the gate)
+  → aws gate check --change <id> --phase case-review --json      ← REQUIRED
+  ⟶ state: hand-update phases.case_review.status + gate verdict ref; then aws status
+
+Phase 2.3 — Case Fix loop   (if gate needs_fix)
+  → up to max_case_fix_attempts: aws-case-fixer → aws-case-reviewer → aws gate check
+  → pass → exit loop; reject / needs_human_review → STOP (autonomous cannot self-approve); exhausted → STOP
+  ⟶ state: hand-update phases.case_review.status after each re-review; then aws status
+
+Phase 2.4 — Fact Baseline
+  → dispatch aws-fact-baseline → facts/fact-baseline.json
+  → if facts unavailable: write source: unavailable + warning, DO NOT stop
+  ⟶ state: hand-update phases.fact_baseline.status = done (+ file/source refs); then aws status
+
+Phase 2.5 — Layer Scan  (orchestrator-local)
+  → resolve layers.{api,e2e,fuzz,performance} from test_types + case types
+
+[API branch — if layers.api]
+Phase 3A — API Plan            → dispatch aws-api-plan → plans/api-*.md
+  ⟶ state: hand-update phases.api_plan.status = done (+ produces ref); then aws status
+Phase 4A — API Plan Review     → dispatch aws-api-plan-reviewer → review/api-plan-review.json
+  → aws gate check --change <id> --phase api-plan-review --json      ← REQUIRED
+  ⟶ state: hand-update phases.api_plan_review.status + gate verdict ref; then aws status
+Phase 5A — API Plan Fix loop   → if needs_fix: aws-api-plan-fixer → aws-api-plan-reviewer → aws gate check
+  → repeat up to max_plan_fix_attempts; reject / human_review_required → STOP (see State machine enforcement)
+Phase 6A — API Codegen pre-check → verify .aws/data-knowledge.yaml exists, else STOP (hard gate; force_continue MUST NOT bypass)
+Phase 6A — API Codegen         → dispatch aws-api-codegen (INLINE per Phase-Local Execution Rule) → codegen/api-codegen-summary.md + target files
+  ⟶ state: hand-update phases.api_codegen.status = done (+ produces ref); then aws status
+
+[E2E branch — if layers.e2e]
+Phase 3B — E2E Plan            → dispatch aws-e2e-plan → plans/e2e-*.md
+  ⟶ state: hand-update phases.e2e_plan.status = done (+ produces ref); then aws status
+Phase 4B — E2E Plan Review     → dispatch aws-e2e-plan-reviewer → review/plan-review.json
+  → aws gate check --change <id> --phase e2e-plan-review --json      ← REQUIRED
+  ⟶ state: hand-update phases.e2e_plan_review.status + gate verdict ref; then aws status
+Phase 5B — E2E Plan Fix loop   → if needs_fix: aws-e2e-plan-fixer → aws-e2e-plan-reviewer → aws gate check
+Phase 6B — E2E Codegen pre-check → verify .aws/data-knowledge.yaml exists, else STOP (hard gate)
+Phase 6B — E2E Codegen         → dispatch aws-e2e-codegen (INLINE) → codegen/e2e-codegen-summary.md + target files
+  → framework pytest-playwright; never emit *.spec.ts
+  ⟶ state: hand-update phases.e2e_codegen.status = done (+ produces ref); then aws status
+
+[Fuzz / Performance branches — if layers.fuzz / layers.performance: same Plan → Review(gate check) → Codegen shape, INLINE codegen]
+
+Phase 6 Completion Gate
+  → for each selected layer: phases.<layer>_codegen.status == done AND summary + all Target Files on disk, else STOP
+  → if run_tests == false: phases.execution.status = SKIPPED → jump to Phase 13/14
+
+Phase 7 — Execution  (MANDATORY when run_tests == true and Phase 6 gate passed; skipping is a STOP)
+  → bash: aws run --change <id>
+  → verify execution/execution-manifest.yaml on disk; read final_status from it (never from a claim)
+  → TEST-CHANGE DISCIPLINE: after this formal batch, modifying test files is healing-only; never construct --allow-test-changes
+  ⟶ state (CLI-backed, MANDATORY): aws state apply --change <id> --phase execution
+  → then aws status
+
+Phase 8 — Inspect  (if execution FAIL / PASS_WITH_WARNINGS, or known-product-issues present)
+  → dispatch aws-inspect → inspect/failure-analysis.json + failure-summary.md
+  ⟶ state (CLI-backed, MANDATORY): aws state apply --change <id> --phase inspect
+  → Inspect Safety Gate: if inspect modified any forbidden file → STOP
+  → Healing entry decision (healing.status MUST leave `pending` here; CLI-only via aws state heal):
+      PASS / PASS_WITH_WARNINGS and no fix_proposal_eligible → aws state heal --to not_needed → Phase 13
+      FAIL and no fix_proposal_eligible                       → aws state heal --to not_needed → STOP (needs human)
+      gates.healing_available == false                        → aws state heal --to skipped ; FAIL → STOP
+      inspect_mode != primary                                 → STOP (healing needs primary inspect)
+      FAIL and fix_proposal_eligible exist                    → enter Healing loop (Phases 9–12; do NOT jump to Report)
+  → Do not proceed to Report until healing.status ∈ {not_needed, skipped, resolved, exhausted, failed};
+    aws status audits this (HEAL-STATE-INCONSISTENT ⇒ terminal stopped).
+
+[Healing loop — Phases 9–12: see Phase Contracts. healing.status CLI-only via aws state heal;
+ healing-rerun/healing-reinspect are CLI-backed ⟶ aws state apply --phase healing-rerun|healing-reinspect]
+
+Phase 13 — Report  (terminal, non-gating)
+  → PRECONDITION: healing.status ∈ {not_needed, skipped, resolved, exhausted, failed}, else go back to Phase 8 / healing loop
+  → dispatch aws-report-generator → report/quality-report.{json,md} + executive-summary.md
+  ⟶ state (CLI-backed, MANDATORY): aws state apply --change <id> --phase report
+  → then aws status
+
+Phase 14 — Archive Eligibility Recommendation  (evaluate only; never load aws-archive here)
+  ⟶ state: hand-update phases.archive.status = eligible | not_eligible (+ blockers)
+```
+
+**Skill Load Gate still applies to every runbook line** (see below): each dispatched phase's executor MUST read that phase's `SKILL.md` and the orchestrator MUST set `skill_loaded/skill_md_path/skill_loaded_at` before the phase's `status` reaches a terminal value. A CLI-backed `aws state apply` does not exempt the phase from the Skill Load Gate — `execution` maps to `aws-run/SKILL.md`, `inspect` to `aws-inspect/SKILL.md`, `report` to `aws-report-generator/SKILL.md` (see Phase → Skill Path Map).
+
+---
+
 ## Phase Completion Rule
 
 Loading a skill is **never** enough to mark a phase complete.

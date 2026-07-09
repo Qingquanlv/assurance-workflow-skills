@@ -66,6 +66,8 @@ export function registerEvalCommand(program: Command): void {
     .option('--json', 'Output result as JSON { run_id|batch_id, verdict }')
     .option('--fail-on-verdict', 'Exit 1 when gate verdict is not pass (opt-in)')
     .option('--calibrate', 'Run judge calibration before finalizing gate result')
+    .option('--extra-memory-dir <path>', 'Overlay .aws/memory files into evaluated SUT workspaces')
+    .option('--sut-dir <path>', 'Override SUT checkout directory (overrides eval/suts.yaml and EVAL_SUT_DIR)')
     .action(async (opts) => {
       const projectRoot = process.cwd();
       const evalRoot = getEvalRoot(projectRoot);
@@ -97,6 +99,10 @@ export function registerEvalCommand(program: Command): void {
             sampleId: opts.sample,
             repeat: opts.repeat,
             calibrate: opts.calibrate,
+            extraMemoryDir: opts.extraMemoryDir
+              ? path.resolve(projectRoot, opts.extraMemoryDir)
+              : undefined,
+            sutDirOverride: opts.sutDir ? path.resolve(opts.sutDir) : undefined,
           });
 
           printRunResult({

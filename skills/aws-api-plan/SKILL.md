@@ -227,7 +227,7 @@ Seeding method is determined by **aggregate boundary**; do not mix layers:
 1. Setup uses factory; test body uses HTTP.
 2. Factory modules call service/controller code; do not copy controller code into tests.
 3. Factories must not leak ORM objects to test functions; return plain data snapshots or convert ORM objects to snapshots inside fixtures.
-4. `run_orm()` is only for live-server mode; in-process async tests must call `await make_*()` directly.
+4. `run_orm()` is only for live-server mode **and** each call must use the project-detected data-access lifecycle before return (`tests/factories/runtime.py`: acquire/init → run → close/dispose/release in `finally`). In-process async tests must call `await make_*()` directly. Do not keep a session-long test-side ORM/session/connection that shares DB, WAL, or pool resources with the SUT (can block pytest exit). If the lifecycle cannot be identified from project source or `.aws/data-knowledge.yaml`, codegen readiness is `not_ready`.
 5. Create API cases must exercise HTTP create; do not replace create behavior assertions with the same create factory path.
 6. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
 7. Factory modules live under `tests/factories/test_<module>_<library>.py`; exported function names are always `make_*`.
@@ -279,6 +279,7 @@ Must include:
 - **Target Files** — table: File \| Purpose
   - If any fixture/setup creates or cleans up domain data, Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` domain factory before any `tests/fixtures/*.py` wrapper.
   - `tests/fixtures/*.py` may appear only as pytest injection wrappers around `make_*`; it must not be the only target for domain data creation.
+  - If live-server fixtures/tests need `run_orm()`, Target Files **must** include `tests/factories/runtime.py` (create or reuse). Plan Purpose for that row **must** name the detected ORM/session stack and state per-call acquire/init → run → close/dispose/release (no session-long test-side connection sharing DB, WAL, or pool resources with the SUT). If the stack or close/dispose API cannot be identified, record a Blocker instead of inventing imports.
 - **Test Function Mapping** — table: Case ID \| Test Function \| Target File
   - **Naming (hard rule):** every Test Function MUST be `test_<case_id lowercase>__<description>` — the lowercase case_id prefix followed by a **double underscore**. Example: `TC_USER_API_001` → `test_tc_user_api_001__list_users_happy_path`. The `aws run` result parser backfills case_id from this prefix; names without it become Unmapped Tests, break MRC/inspect/healing traceability, and cap the quality gate at PASS_WITH_WARNINGS. A plan whose mapping violates this rule is **not codegen-ready**.
 - **Factory Mapping** — table: Entity \| Factory Module (`tests/factories/test_<module>_<library>.py`) \| Function (`make_*`) \| Ring \| Required By

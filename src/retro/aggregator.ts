@@ -303,6 +303,11 @@ export function buildRetroContext(
       since: opts.since ?? null,
       change_count: changes.length,
       change_ids: changes.map((change) => change.change_id),
+      change_sources: changes.map((change) => ({
+        change_id: change.change_id,
+        evidence_source: change.evidence_source ?? 'archive',
+        path: change.archive_path,
+      })),
     },
     signals: {
       failure_distribution: summarizeFailureDistribution(changes),
