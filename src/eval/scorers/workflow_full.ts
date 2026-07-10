@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { DatasetSample, SampleScore } from '../types';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   scoreEvidenceIntegrity,
@@ -59,6 +60,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
     healing_triggered_rate: scoreHealingTriggeredRate(rawOutputDir),
     wall_time_seconds: scoreWallTimeSeconds(attemptDir),
     evidence_integrity_diag: scoreEvidenceIntegrity(attemptDir),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {

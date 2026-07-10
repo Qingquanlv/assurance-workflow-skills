@@ -4,13 +4,13 @@ mode: all
 description: Execute the bounded AWS report generation phase. Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "**/qa/changes/**/workflow-state.yaml": deny
-    "**/qa/changes/**/report/**": allow
     "**": deny
+    "**/qa/changes/**/report/**": allow
+    "**/qa/changes/**/workflow-state.yaml": deny
   bash:
+    "*": deny
     "aws --version": allow
     "aws report generate *": allow
-    "*": deny
   external_directory: deny
 ---
 You are a bounded AWS worker agent executing the report generation phase in Scheme E orchestration.

@@ -15,10 +15,12 @@ import {
 } from './lib/write-scan.mjs';
 import {
   buildExecutionPayload,
+  buildOpenCodeProcessExecutionFields,
   resolveAttemptDir,
   resolveRepoRoot,
   writeAttemptLogs,
   writeExecutionJson,
+  writeOpenCodeProcessSummary,
 } from './lib/eval-wrapper-utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -167,6 +169,13 @@ function main() {
   } catch (err) {
     const durationMs = Date.now() - t0;
     writeAttemptLogs(attemptDir, opencodeStdout, opencodeStderr);
+    // Exception path (a): no write-scan / archive — still emit process-summary when possible.
+    const processSummary = writeOpenCodeProcessSummary({
+      attemptDir,
+      stdoutText: opencodeStdout,
+      safetyMode,
+      projectDir,
+    });
     writeExecutionJson(
       attemptDir,
       buildExecutionPayload(
@@ -182,6 +191,7 @@ function main() {
           fixture_tier: values['fixture-tier'],
           run_mode: runMode,
           error: err.message,
+          ...buildOpenCodeProcessExecutionFields(processSummary, projectDir),
         },
         opencodeExit,
         {
@@ -198,10 +208,18 @@ function main() {
   let archiveCompleted = false;
   let evidenceCompleted = false;
   let postError = null;
+  let processSummary = null;
 
   try {
     captureWriteScanAfter(attemptDir, projectDir, writePolicy, beforePorcelain);
     evidenceCompleted = true;
+
+    processSummary = writeOpenCodeProcessSummary({
+      attemptDir,
+      stdoutText: opencodeStdout,
+      safetyMode,
+      projectDir,
+    });
 
     execFileSync(
       process.execPath,
@@ -219,9 +237,26 @@ function main() {
     archiveCompleted = true;
   } catch (err) {
     postError = err.message;
+    if (!processSummary) {
+      processSummary = writeOpenCodeProcessSummary({
+        attemptDir,
+        stdoutText: opencodeStdout,
+        safetyMode,
+        projectDir,
+      });
+    }
   }
 
   const durationMs = Date.now() - t0;
+  if (!processSummary) {
+    processSummary = writeOpenCodeProcessSummary({
+      attemptDir,
+      stdoutText: opencodeStdout,
+      safetyMode,
+      projectDir,
+    });
+  }
+
   const execution = buildExecutionPayload(
     {
       executor: 'eval-workflow-run',
@@ -235,6 +270,7 @@ function main() {
       fixture_tier: values['fixture-tier'],
       run_mode: runMode,
       ...(postError ? { error: postError } : {}),
+      ...buildOpenCodeProcessExecutionFields(processSummary, projectDir),
     },
     opencodeExit,
     {

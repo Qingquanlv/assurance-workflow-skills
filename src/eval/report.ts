@@ -24,6 +24,14 @@ const VERDICT_EMOJI: Record<EvalVerdict, string> = {
   needs_human_review: '👤',
 };
 
+const PROCESS_COUNT_METRICS = new Set([
+  'permission_denied_count',
+  'tool_call_count',
+  'tool_error_count',
+  'write_bypass_count',
+  'malformed_event_line_count',
+]);
+
 export interface RunReportData {
   run_id: string;
   suite: string;
@@ -57,6 +65,52 @@ export interface RunReportResult {
   htmlPath?: string;
 }
 
+function formatRate(n: number | null): string {
+  if (n === null || Number.isNaN(n)) return '—';
+  return n.toFixed(3);
+}
+
+function formatCount(n: number | null): string {
+  if (n === null) return '—';
+  return String(n);
+}
+
+function processFindingsMarkdown(execution: RunExecutionStats): string[] {
+  const rowsWithFindings = execution.per_sample.filter((r) => r.findings.length > 0);
+  if (rowsWithFindings.length === 0) return [];
+
+  const lines: string[] = [`## Process Findings`, ``];
+
+  for (const row of rowsWithFindings) {
+    lines.push(`### ${row.sample_id} / attempt-${row.attempt}`, ``);
+
+    const priority = row.findings.filter((f) =>
+      ['permission_denied', 'session_error', 'confirmed_write_bypass', 'unconfirmed_write_bypass'].includes(
+        f.kind
+      )
+    );
+    const toolErrors = row.findings.filter((f) => f.kind === 'tool_error').slice(0, 10);
+    const shown = [...priority, ...toolErrors];
+
+    for (const finding of shown) {
+      const bits = [
+        finding.kind,
+        finding.tool ? `tool=${finding.tool}` : null,
+        finding.path ? `path=${finding.path}` : null,
+        `seq=${finding.sequence}`,
+        finding.detail,
+      ].filter(Boolean);
+      lines.push(`- ${bits.join(' · ')}`);
+      if (finding.evidence_refs.length > 0) {
+        lines.push(`  - refs: ${finding.evidence_refs.join(', ')}`);
+      }
+    }
+    lines.push(``);
+  }
+
+  return lines;
+}
+
 function executionMarkdownSection(execution: RunExecutionStats): string[] {
   const lines = [
     `## Execution`,
@@ -70,17 +124,52 @@ function executionMarkdownSection(execution: RunExecutionStats): string[] {
     ``,
   ];
 
+  if (execution.process_totals) {
+    lines.push(
+      `### Process Observability Totals (run sum)`,
+      ``,
+      `| Field | Value |`,
+      `|---|---|`,
+      `| Observable attempts | ${execution.process_totals.observable_attempts} |`,
+      `| Permission denied | ${execution.process_totals.permission_denied_count} |`,
+      `| Tool calls | ${execution.process_totals.tool_call_count} |`,
+      `| Tool errors | ${execution.process_totals.tool_error_count} |`,
+      `| Confirmed write bypass | ${execution.process_totals.write_bypass_count} |`,
+      ``
+    );
+  }
+
   if (execution.per_sample.length > 0) {
     lines.push(`### Per-Sample Execution`, ``);
     lines.push(
-      `| Sample | Attempt | Started | Completed | Duration | Tokens |`,
-      `|---|---|---|---|---|---|`
+      `| Sample | Attempt | Session | Observable | Perm denied | Tool err/calls | Err rate | Bypass | Duration | Tokens |`,
+      `|---|---|---|---|---|---|---|---|---|---|`
     );
 
     for (const row of execution.per_sample) {
+      const observable =
+        row.process_observability_available === null
+          ? '—'
+          : row.process_observability_available
+            ? row.safety_mode === 'disabled'
+              ? 'yes (perms skipped)'
+              : 'yes'
+            : 'no';
+      const errCalls =
+        row.tool_error_count === null || row.tool_call_count === null
+          ? '—'
+          : `${row.tool_error_count}/${row.tool_call_count}`;
       lines.push(
-        `| ${row.sample_id} | ${row.attempt} | ${row.started_at ?? '—'} | ${row.completed_at ?? '—'} | ${formatDurationMs(row.duration_ms)} | ${formatTokenUsage(row.tokens)} |`
+        `| ${row.sample_id} | ${row.attempt} | ${row.session_id ?? '—'} | ${observable} | ${formatCount(row.permission_denied_count)} | ${errCalls} | ${formatRate(row.tool_error_rate)} | ${formatCount(row.write_bypass_count)} | ${formatDurationMs(row.duration_ms)} | ${formatTokenUsage(row.tokens)} |`
       );
+      if (row.session_resume_command || row.session_export_command) {
+        if (row.session_resume_command) {
+          lines.push(`|  |  | resume: \`${row.session_resume_command}\` |  |  |  |  |  |  |  |`);
+        }
+        if (row.session_export_command) {
+          lines.push(`|  |  | export: \`${row.session_export_command}\` |  |  |  |  |  |  |  |`);
+        }
+      }
     }
     lines.push(``);
   }
@@ -112,13 +201,16 @@ export function generateRunReport(runDir: string, opts: RunReportOptions = {}): 
   ];
 
   for (const [k, v] of Object.entries(metrics.metrics)) {
-    lines.push(`| ${k} | ${typeof v === 'number' ? v.toFixed(4) : v} |`);
+    const note = PROCESS_COUNT_METRICS.has(k) ? ' (avg per successful sample)' : '';
+    lines.push(`| ${k}${note} | ${typeof v === 'number' ? v.toFixed(4) : v} |`);
   }
 
   lines.push(``);
   lines.push(
     `**Samples:** ${metrics.sample_count} total, ${metrics.inconclusive_count} inconclusive, ${metrics.error_count} errors`
   );
+
+  lines.push(...processFindingsMarkdown(execution));
 
   if (gateResult.hard_gate_failures.length > 0) {
     lines.push(``, `## Hard Gate Failures`, ``);

@@ -11,6 +11,8 @@
 | E3 | `manifest.executed_samples === manifest.total_samples` |
 | E4 | subprocess / workflow attempt 目录存在：`stdout.log`、`stderr.log`、`execution.json` |
 
+> `process-summary.json`（`eval-workflow-run` 过程可观测性产物）为 **observe-only**，**不**计入 `evidence_integrity` 必需文件；缺失时 process 指标降级为 `process_observability_available=0`，旧 run 报告照常生成（见设计 §13/§16）。
+
 ### execution.json 必填字段（workflow subprocess）
 
 ```json
@@ -54,6 +56,30 @@ Eval 评估的是归档产物与证据，不让 subprocess exit code 短路 scor
 6. `process.exit(wrapper_exit_code)`
 
 archive 失败时：`evidence_completed: true`、`archive_completed: false`、`wrapper_exit_code: 1`；不得提前写入 `archive_completed: true`。
+
+**`eval-workflow-run` 附加过程可观测性落盘**（设计见 `docs/design/eval-opencode-process-observability.md`）。在步骤 3 之后、步骤 5（`execution.json`）之前，额外解析 OpenCode NDJSON 并写 attempt 根的 `process-summary.json`（与 `execution.json` 同级），使 `execution.json` 仍是最后写入的原子完成标记：
+
+1. spawn OpenCode
+2. 立即写 `stdout.log` / `stderr.log`
+3. write-scan after → `evidence/write-diff.json`
+4. 解析 OpenCode summary + 用 write-diff 完成严格 bypass correlation → 写 `process-summary.json`
+5. archive
+6. 写 `execution.json`（新增 session 字段，见下）
+7. `process.exit(wrapper_exit_code)`
+
+过程解析失败**不得**改变 `wrapper_exit_code` / `opencode_exit_code`，也不得覆盖已写的 `stdout.log` / `stderr.log`；此时 `process-summary.json.observability_available = false`。`eval-aws-run` 不产出 `process-summary.json`。
+
+### execution.json 过程可观测性字段（仅 `eval-workflow-run`）
+
+```json
+{
+  "session_id": "ses_xxx | null",
+  "session_resume_command": "opencode <sut-dir> --session ses_xxx | null",
+  "session_export_command": "opencode export ses_xxx | null",
+  "process_observability_available": true,
+  "process_summary_path": "process-summary.json"
+}
+```
 
 ## Executors
 

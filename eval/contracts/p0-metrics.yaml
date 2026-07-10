@@ -1,7 +1,10 @@
 # P0 metric registry — M1 scorers emit metrics listed under each suite only.
 # Gate modes: hard_gates (enforce) | advisory (soft, pass_with_warnings) | observe (diag, emit only)
+#
+# OpenCode process observability metrics (observe-only) are registered per workflow suite;
+# see docs/design/eval-opencode-process-observability.md.
 
-version: "1.1"
+version: "1.2"
 
 gate_modes:
   hard_gates: enforce      # fail → suite fail
@@ -17,6 +20,15 @@ suites:
       - case_review_gate_pass_rate
       - secret_leak_count
       - forbidden_write_executed_count
+    observe:
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     thresholds:
       schema_valid_rate: ">= 0.99"
       layer_scan_valid_rate: "== 1.0"
@@ -35,6 +47,14 @@ suites:
     observe:
       - codegen_summary_present_rate
       - plan_gate_satisfied_rate
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     advisory:
       - target_file_coverage_rate
     thresholds:
@@ -57,6 +77,14 @@ suites:
       - codegen_summary_present_rate
       - framework_compliance_rate
       - plan_gate_satisfied_rate
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     advisory:
       - target_file_coverage_rate
     thresholds:
@@ -79,6 +107,14 @@ suites:
       - fuzz_plan_gate_pass_rate
       - openapi_ref_valid_rate
       - codegen_summary_present_rate
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     advisory:
       - target_file_coverage_rate
     thresholds:
@@ -101,6 +137,14 @@ suites:
       - performance_plan_gate_pass_rate
       - threshold_declared_rate
       - codegen_summary_present_rate
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     advisory:
       - target_file_coverage_rate
     thresholds:
@@ -157,6 +201,14 @@ suites:
       - healing_triggered_rate
       - wall_time_seconds
       - evidence_integrity_diag
+      # OpenCode process observability (observe-only)
+      - process_observability_available
+      - permission_denied_count
+      - tool_call_count
+      - tool_error_count
+      - tool_error_rate
+      - write_bypass_count
+      - malformed_event_line_count
     # E4 optional suite — no PR hard_gates
 
 deferred:
@@ -172,7 +224,8 @@ deferred:
   - false_product_attribution_rate
   - cli_parity_rate
   - path_escape_attempt_count
-  - gate_bypass_attempt_count
   - dangerous_command_executed_count
   - run_success_rate
-  - security_write_violation_count
+  # gate_bypass_attempt_count / security_write_violation_count superseded by
+  # write_bypass_count (OpenCode process observability); see
+  # docs/design/eval-opencode-process-observability.md §8.1

@@ -2,6 +2,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  buildProcessSummaryForAttempt,
+  buildSessionCommandFields,
+  PROCESS_SUMMARY_FILENAME,
+  writeProcessSummary,
+} from './opencode-process-events.mjs';
 
 export function resolveRepoRoot(explicit, scriptDir) {
   if (explicit) return path.resolve(explicit);
@@ -28,6 +34,38 @@ export function writeExecutionJson(attemptDir, execution) {
     path.join(attemptDir, 'execution.json'),
     JSON.stringify(execution, null, 2)
   );
+}
+
+/**
+ * Parse OpenCode stdout into process-summary.json (before execution.json).
+ * Never throws — parser failures become observability_available=false.
+ */
+export function writeOpenCodeProcessSummary(opts) {
+  const {
+    attemptDir,
+    stdoutText,
+    safetyMode = 'enabled',
+    projectDir = null,
+  } = opts;
+
+  const summary = buildProcessSummaryForAttempt({
+    stdoutText: stdoutText ?? '',
+    safetyMode,
+    projectDir,
+    attemptDir,
+  });
+  writeProcessSummary(attemptDir, summary);
+  return summary;
+}
+
+/** Session + process observability fields for eval-workflow-run execution.json. */
+export function buildOpenCodeProcessExecutionFields(summary, projectDir) {
+  const sessionFields = buildSessionCommandFields(summary?.session_id, projectDir);
+  return {
+    ...sessionFields,
+    process_observability_available: Boolean(summary?.observability_available),
+    process_summary_path: PROCESS_SUMMARY_FILENAME,
+  };
 }
 
 /**

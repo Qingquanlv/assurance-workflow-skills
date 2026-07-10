@@ -343,23 +343,113 @@ function tokenCellCompact(usage: TokenUsage | null): string {
   return `<span class="num">${escapeHtml(formatTokenUsage(usage))}</span>`;
 }
 
+function formatCountHtml(n: number | null): string {
+  if (n === null) return '—';
+  return String(n);
+}
+
+function formatRateHtml(n: number | null): string {
+  if (n === null || Number.isNaN(n)) return '—';
+  return n.toFixed(3);
+}
+
 function sampleRows(rows: SampleExecutionStats[]): string {
   if (rows.length === 0) {
-    return '<tr><td colspan="6" style="color:var(--muted)">No sample execution evidence</td></tr>';
+    return '<tr><td colspan="10" style="color:var(--muted)">No sample execution evidence</td></tr>';
   }
 
   return rows
-    .map(
-      (row) => `<tr>
+    .map((row) => {
+      const observable =
+        row.process_observability_available === null
+          ? '—'
+          : row.process_observability_available
+            ? row.safety_mode === 'disabled'
+              ? 'yes (perms skipped)'
+              : 'yes'
+            : 'no';
+      const errCalls =
+        row.tool_error_count === null || row.tool_call_count === null
+          ? '—'
+          : `${row.tool_error_count}/${row.tool_call_count}`;
+      const sessionCell = row.session_id
+        ? `<code>${escapeHtml(row.session_id)}</code>${
+            row.session_resume_command
+              ? `<div class="meta-foot">resume: <code>${escapeHtml(row.session_resume_command)}</code></div>`
+              : ''
+          }${
+            row.session_export_command
+              ? `<div class="meta-foot">export: <code>${escapeHtml(row.session_export_command)}</code></div>`
+              : ''
+          }`
+        : '—';
+      return `<tr>
         <td>${escapeHtml(row.sample_id)}</td>
         <td class="num">${row.attempt}</td>
-        <td>${escapeHtml(row.started_at ?? '—')}</td>
-        <td>${escapeHtml(row.completed_at ?? '—')}</td>
+        <td>${sessionCell}</td>
+        <td>${escapeHtml(observable)}</td>
+        <td class="num">${escapeHtml(formatCountHtml(row.permission_denied_count))}</td>
+        <td class="num">${escapeHtml(errCalls)}</td>
+        <td class="num">${escapeHtml(formatRateHtml(row.tool_error_rate))}</td>
+        <td class="num">${escapeHtml(formatCountHtml(row.write_bypass_count))}</td>
         <td class="num">${escapeHtml(formatDurationMs(row.duration_ms))}</td>
         <td>${tokenCellCompact(row.tokens)}</td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join('\n');
+}
+
+function processFindingsHtml(execution: RunExecutionStats): string {
+  const rows = execution.per_sample.filter((r) => r.findings.length > 0);
+  if (rows.length === 0) return '';
+
+  const blocks = rows
+    .map((row) => {
+      const priority = row.findings.filter((f) =>
+        [
+          'permission_denied',
+          'session_error',
+          'confirmed_write_bypass',
+          'unconfirmed_write_bypass',
+        ].includes(f.kind)
+      );
+      const toolErrors = row.findings.filter((f) => f.kind === 'tool_error').slice(0, 10);
+      const shown = [...priority, ...toolErrors];
+      const items = shown
+        .map((f) => {
+          const bits = [
+            f.kind,
+            f.tool ? `tool=${f.tool}` : null,
+            f.path ? `path=${f.path}` : null,
+            `seq=${f.sequence}`,
+            f.detail,
+          ].filter(Boolean);
+          const refs =
+            f.evidence_refs.length > 0
+              ? `<div class="meta-foot">refs: ${escapeHtml(f.evidence_refs.join(', '))}</div>`
+              : '';
+          return `<li>${escapeHtml(bits.join(' · '))}${refs}</li>`;
+        })
+        .join('');
+      return `<h3 style="margin:12px 0 6px;font-size:0.9rem">${escapeHtml(row.sample_id)} / attempt-${row.attempt}</h3><ul>${items}</ul>`;
+    })
+    .join('');
+
+  return `<section class="section"><h2 class="section-title">Process Findings</h2><div class="failures">${blocks}</div></section>`;
+}
+
+function processTotalsHtml(execution: RunExecutionStats): string {
+  if (!execution.process_totals) return '';
+  const t = execution.process_totals;
+  return `<section class="section">
+      <h2 class="section-title">Process Observability Totals (run sum)</h2>
+      <div class="execution-card">
+        <div><div class="exec-field-label">Observable attempts</div><div class="exec-field-value num">${t.observable_attempts}</div></div>
+        <div><div class="exec-field-label">Permission denied</div><div class="exec-field-value num">${t.permission_denied_count}</div></div>
+        <div><div class="exec-field-label">Tool calls / errors</div><div class="exec-field-value num">${t.tool_call_count} / ${t.tool_error_count}</div></div>
+        <div><div class="exec-field-label">Confirmed bypass</div><div class="exec-field-value num">${t.write_bypass_count}</div></div>
+      </div>
+    </section>`;
 }
 
 export interface RunReportHtmlInput {
@@ -387,10 +477,18 @@ export function renderRunReportHtml(input: RunReportHtmlInput): string {
   const verdict = input.gateResult.verdict;
 
   const metricRows = Object.entries(input.metrics)
-    .map(
-      ([key, value]) =>
-        `<tr><td>${escapeHtml(key)}</td><td class="num value-col">${typeof value === 'number' ? value.toFixed(4) : escapeHtml(String(value))}</td></tr>`
-    )
+    .map(([key, value]) => {
+      const note = [
+        'permission_denied_count',
+        'tool_call_count',
+        'tool_error_count',
+        'write_bypass_count',
+        'malformed_event_line_count',
+      ].includes(key)
+        ? ' <span class="meta-foot">(avg per successful sample)</span>'
+        : '';
+      return `<tr><td>${escapeHtml(key)}${note}</td><td class="num value-col">${typeof value === 'number' ? value.toFixed(4) : escapeHtml(String(value))}</td></tr>`;
+    })
     .join('\n');
 
   const hardFailures =
@@ -471,6 +569,8 @@ export function renderRunReportHtml(input: RunReportHtmlInput): string {
       </div>
     </section>
 
+    ${processTotalsHtml(input.execution)}
+
     <section class="section">
       <h2 class="section-title">Per-Sample Execution</h2>
       <div class="table-card">
@@ -479,8 +579,12 @@ export function renderRunReportHtml(input: RunReportHtmlInput): string {
             <tr>
               <th>Sample</th>
               <th>Attempt</th>
-              <th>Started</th>
-              <th>Completed</th>
+              <th>Session</th>
+              <th>Observable</th>
+              <th>Perm denied</th>
+              <th>Tool err/calls</th>
+              <th>Err rate</th>
+              <th>Bypass</th>
               <th>Duration</th>
               <th>Tokens</th>
             </tr>
@@ -489,6 +593,8 @@ export function renderRunReportHtml(input: RunReportHtmlInput): string {
         </table>
       </div>
     </section>
+
+    ${processFindingsHtml(input.execution)}
 
     <section class="section">
       <h2 class="section-title">Metrics</h2>

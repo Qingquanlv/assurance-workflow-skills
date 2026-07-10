@@ -44,6 +44,7 @@ export function buildCodegenSecretScanOpts(opts: {
     extraPaths.push(...walkFiles(evidenceDir));
   }
   extraPaths.push(path.join(opts.attemptDir, 'execution.json'));
+  extraPaths.push(path.join(opts.attemptDir, 'process-summary.json'));
 
   return {
     attemptDir: opts.attemptDir,
