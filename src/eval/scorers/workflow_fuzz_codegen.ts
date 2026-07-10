@@ -5,6 +5,7 @@ import {
   resolveAttemptEvidenceRoots,
   scoreOpenapiRefValidRate,
 } from './_shared/codegen_scorer_helpers';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   runPytestCollectOnly,
@@ -63,6 +64,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       'plans/fuzz-codegen-plan.md',
       projectDir
     ),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {

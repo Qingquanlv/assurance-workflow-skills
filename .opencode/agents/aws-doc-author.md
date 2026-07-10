@@ -4,7 +4,7 @@ mode: all
 description: Execute a bounded AWS authoring phase (design/plan/healing documents). Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**": deny
     "**/qa/changes/**/cases/**": allow
     "**/qa/changes/**/plans/**": allow
     "**/qa/changes/**/facts/**": allow
@@ -16,10 +16,10 @@ permission:
     "**/qa/changes/**/healing/**": allow
     "**/qa/changes/**/proposal.md": allow
     "**/qa/changes/**/.qa.yaml": allow
-    "**": deny
+    "**/qa/changes/**/workflow-state.yaml": deny
   bash:
-    "aws risk *": allow
     "*": deny
+    "aws risk *": allow
   external_directory: deny
 ---
 You are a bounded AWS worker agent executing a single workflow phase in Scheme E orchestration.

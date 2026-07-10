@@ -5,6 +5,7 @@ import {
   resolveAttemptEvidenceRoots,
   scoreFrameworkComplianceRate,
 } from './_shared/codegen_scorer_helpers';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   runPytestCollectOnly,
@@ -66,6 +67,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       'plans/e2e-codegen-plan.md',
       projectDir
     ),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {

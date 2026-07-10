@@ -4,11 +4,11 @@ mode: all
 description: Execute a bounded AWS test-authoring phase. Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**": deny
     "**/tests/**": allow
     "**/qa/changes/**/codegen/**": allow
     "**/qa/changes/**/healing/**": allow
-    "**": deny
+    "**/qa/changes/**/workflow-state.yaml": deny
   bash: { "*": deny }
   external_directory: deny
 ---

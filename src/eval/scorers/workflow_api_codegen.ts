@@ -1,6 +1,7 @@
 import type { DatasetSample, SampleScore } from '../types';
 import { resolveSampleProjectDir } from '../sut_registry';
 import { buildCodegenSecretScanOpts } from './_shared/codegen_scorer_helpers';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   runPytestCollectOnly,
@@ -49,6 +50,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
     codegen_summary_present_rate: scoreCodegenSummaryPresentRate(rawOutputDir),
     plan_gate_satisfied_rate: scorePlanGateSatisfiedRate(rawOutputDir),
     target_file_coverage_rate: scoreTargetFileCoverageRate(rawOutputDir, 'plans/api-codegen-plan.md', projectDir),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {

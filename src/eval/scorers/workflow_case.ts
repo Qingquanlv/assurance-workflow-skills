@@ -1,4 +1,6 @@
+import * as path from 'path';
 import type { DatasetSample, SampleScore } from '../types';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   scoreCaseReviewGatePassRate,
@@ -21,8 +23,13 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       attemptDir,
       rawOutputDir,
       rawOutputGlobs: ['cases/**', 'review/**', 'proposal.md', 'workflow-state.yaml'],
+      extraPaths: [
+        path.join(attemptDir, 'execution.json'),
+        path.join(attemptDir, 'process-summary.json'),
+      ],
     }),
     forbidden_write_executed_count: scoreForbiddenWriteExecutedCount(attemptDir),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {

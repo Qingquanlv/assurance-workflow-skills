@@ -4,15 +4,15 @@ mode: all
 description: Execute a bounded AWS review/inspect phase. Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**": deny
     "**/qa/changes/**/review/**": allow
     "**/qa/changes/**/inspect/**": allow
     "**/qa/changes/**/notes/**": allow
-    "**": deny
+    "**/qa/changes/**/workflow-state.yaml": deny
   bash:
+    "*": deny
     "aws --version": allow
     "aws report inspect *": allow
-    "*": deny
   external_directory: deny
 ---
 You are a bounded AWS worker agent executing a single review or inspect phase in Scheme E orchestration.

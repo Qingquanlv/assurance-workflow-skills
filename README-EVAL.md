@@ -278,6 +278,13 @@ node dist/cli.js eval report --run <run-id> --html --output /tmp/report.html
 
 Token 统计来自各 sample 的 `stdout.log`（OpenCode NDJSON `step_finish` 事件）；`aws run` / fake OpenCode 显示 N/A。
 
+过程可观测性（OpenCode workflow suite）同样来自 `stdout.log` NDJSON，并落盘为 `process-summary.json`。报告会额外展示：
+
+- per-sample：**Session ID**、Process observable、Permission denied、Tool err/calls、Err rate、Confirmed bypass，以及可复制的 `opencode … --session` / `opencode export` 命令
+- run 级：**Process Observability Totals**（从各 attempt 的 `process-summary.json` 求和，不写入 `metrics.json`）
+- 有 finding 时：**Process Findings**（permission denied / session error / confirmed|unconfirmed bypass；普通 tool error 最多 10 条）
+- suite 聚合中的 count 指标标注为 **avg per successful sample**（与 `aggregateScores()` 均值语义一致）
+
 > **Run ID vs Sample ID**：`eval report --run` 需要的是 **run ID**（如 `eval-20260622-c0bc6874-78z0`），不是 sample ID（如 `WF-003`、`WR-001`）。Sample ID 在 `manifest.json` 的 `selected_sample_ids` 里。查找某 sample 的最新 run：
 >
 > ```bash
@@ -336,17 +343,32 @@ eval/runs/<run_id>/
 ├── metrics.json          # 聚合指标
 ├── gate-result.json      # pass / fail verdict
 ├── report.md
-├── report.json           # 结构化报告（含 execution / tokens）
+├── report.json           # 结构化报告（含 execution / tokens / process）
 ├── report.html           # --html 生成
 └── samples/<sample-id>/attempt-0/
     ├── stdout.log / stderr.log / execution.json
+    ├── process-summary.json   # OpenCode 过程摘要（仅 eval-workflow-run）
     ├── score.json
-    ├── evidence/         # write-scan 等
+    ├── evidence/         # write-scan 等（含 write-diff.json）
     └── raw-output/       # archive 的 change 产物
         └── execution/
             ├── execution-manifest.yaml   # 含 final_status（aws run 写入）
             └── api-result.json           # E3 layer 通过率来源
 ```
+
+`eval-workflow-run` 的 `execution.json` 额外字段（无 session 时为 `null` / `false`）：
+
+```json
+{
+  "session_id": "ses_xxx",
+  "session_resume_command": "opencode <sut-dir> --session ses_xxx",
+  "session_export_command": "opencode export ses_xxx",
+  "process_observability_available": true,
+  "process_summary_path": "process-summary.json"
+}
+```
+
+`process-summary.json` 为 **observe-only**，**不**计入 `evidence_integrity`；旧 run / fake 纯文本缺失时 scorer 输出 `process_observability_available=0`，报告照常生成。
 
 ---
 
@@ -365,8 +387,36 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | 指标 | 含义 | 统计方式 |
 |------|------|----------|
 | `evidence_integrity` | manifest / metrics / 执行样本数一致 | gate 内置校验 |
-| `secret_leak_count` | token、密码等泄露 | `sanitizeSecrets` 扫 stdout + raw-output |
+| `secret_leak_count` | token、密码等泄露 | `sanitizeSecrets` 扫 stdout + raw-output + `process-summary.json` |
 | `forbidden_write_executed_count` | allowlist 外文件被修改 | seed 前后 git tree diff |
+
+---
+
+### OpenCode 过程可观测性（observe，跨 workflow suite）
+
+设计见 `docs/design/eval-opencode-process-observability.md`。实现：`scripts/lib/opencode-process-events.mjs`（唯一解析器）→ `process-summary.json` → `src/eval/scorers/_shared/opencode_process_metrics.ts`。
+
+**适用范围：** `eval-workflow-run` 的 suite — `workflow-case` / `workflow-api-codegen` / `workflow-e2e-codegen` / `workflow-fuzz-codegen` / `workflow-performance-codegen` / `workflow-full`。
+
+**不适用：** `workflow-run`（`eval-aws-run`，无 OpenCode session）不 emit 这些指标。
+
+| 指标 | Gate | 含义 |
+|------|------|------|
+| `process_observability_available` | observe | 可解析到 OpenCode JSON 事件 → 1，否则 0 |
+| `permission_denied_count` | observe | 去重后的权限拒绝次数 |
+| `tool_call_count` | observe | 去重后的 `tool_use` 数量 |
+| `tool_error_count` | observe | `status == error` 的工具调用数 |
+| `tool_error_rate` | observe | `tool_error_count / tool_call_count`（分母 0 → 0） |
+| `write_bypass_count` | observe | 严格三段证据链确认的写入绕过（denied edit → bash/task 成功 → write-diff 确认） |
+| `malformed_event_line_count` | observe | 非空且既非合法 JSON、也非已知 permission notice 的行数 |
+
+要点：
+
+- 全部 **observe**，不参与 hard/advisory gate，不改变 suite verdict / PHASE F 自动 apply。
+- suite 级 count 指标是「每个成功 sample 的均值」；run 级总和只在报告中展示。
+- `EVAL_ALLOW_UNSAFE_PERMISSIONS=1`（`safety_mode: disabled`）时：可观测仍可为 1，但 `permission_denied_count` / `write_bypass_count` 恒为 0；报告标注「权限已跳过」。
+- fake OpenCode 纯文本：`process_observability_available=0`，不得解释为「没有过程问题」。
+- `write_bypass_count` 取代 deferred 中的 `gate_bypass_attempt_count` / `security_write_violation_count`。
 
 ---
 
@@ -380,6 +430,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | `secret_leak_count` | hard | == 0 | 日志/产物秘密扫描 |
 | `forbidden_write_executed_count` | hard | == 0 | 非法写入 |
 | `evidence_integrity` | hard | pass | 证据链完整 |
+| 过程可观测性 7 项 | observe | — | 见上一节（OpenCode process） |
 
 ---
 
@@ -396,6 +447,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 | `codegen_summary_present_rate` | observe | — | `codegen/api-codegen-summary.md` 存在 |
 | `plan_gate_satisfied_rate` | observe | — | seed 的 plan review 仍 pass |
 | `target_file_coverage_rate` | advisory | ≥ 0.95 | plan Target Files 全覆盖 |
+| 过程可观测性 7 项 | observe | — | 见 OpenCode 过程可观测性 |
 
 ---
 
@@ -405,9 +457,9 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 | Suite | observe 指标（节选） |
 |-------|---------------------|
-| `workflow-e2e-codegen` | `framework_compliance_rate`、`codegen_summary_present_rate` |
-| `workflow-fuzz-codegen` | `fuzz_plan_gate_pass_rate`、`openapi_ref_valid_rate` |
-| `workflow-performance-codegen` | `performance_plan_gate_pass_rate`、`threshold_declared_rate` |
+| `workflow-e2e-codegen` | `framework_compliance_rate`、`codegen_summary_present_rate` + 过程可观测性 |
+| `workflow-fuzz-codegen` | `fuzz_plan_gate_pass_rate`、`openapi_ref_valid_rate` + 过程可观测性 |
+| `workflow-performance-codegen` | `performance_plan_gate_pass_rate`、`threshold_declared_rate` + 过程可观测性 |
 
 Fixture tier：`L2-e2e-codegen-seed-*` / `L2-fuzz-codegen-seed-*` / `L2-performance-codegen-seed-*`（见 `eval/fixtures/tiers/`）。
 
@@ -489,6 +541,7 @@ Fixture tier：`L2-e2e-codegen-seed-*` / `L2-fuzz-codegen-seed-*` / `L2-performa
 | `healing_triggered_rate` | observe | 是否进入 healing |
 | `wall_time_seconds` | observe | wall clock 耗时 |
 | `evidence_integrity_diag` | observe | 证据链诊断 |
+| 过程可观测性 7 项 | observe | 见 OpenCode 过程可观测性 |
 
 **无 PR hard_gates**。
 
@@ -545,15 +598,70 @@ CI **不测真实 LLM**；验证 harness、fixture、scorer、gate 通路。
 
 ## Retro Loop
 
-`aws retro` aggregates frozen evidence from a tested project:
+### 手动路径（`aws retro`）
 
 ```bash
 aws retro --since 2026-07-01T00:00:00.000Z --json
+# 或按 change：
+aws retro --change <id> --json
 ```
 
-It writes `qa/retro/<retro-id>/context.json`. Run the `aws-retro` skill against that context to produce `proposals.json` and `retro-summary.md`. Proposals are not applied automatically. Human promote writes `promotions.json`, updates proposal `status`, and then runs the proposal's `eval_suite`.
+写入 `qa/retro/<retro-id>/context.json`。再跑 `aws-retro` skill 生成 `proposals.json` / `retro-summary.md`。提案**不会**自动 apply：人工 `aws retro promote` 写入 `promotions.json` 后，再按 `eval_suite` 验证。
 
-In eval runs with an external SUT, `.aws/memory/**` proposals are seeded into the SUT workspace through fixture tiers; they are not committed into the pinned SUT repository.
+在带外部 SUT 的 eval 中，`.aws/memory/**` 提案经 fixture / `--extra-memory-dir` 注入 SUT workspace，**不**提交进 pinned SUT 仓库。
+
+### Nightly 驱动（`scripts/retro-nightly.mjs`）
+
+自动化 nightly 闭环：收集证据 → agent 出提案 → 人工审阅队列 → resume 后 eval 回归 → 条件满足则 auto-apply。实现拆在 `scripts/lib/retro-nightly/`（phase_a / phase_d / phase_f / report / exec）。
+
+```bash
+# PHASE A–D：枚举 change → aws retro → agent 写 proposals → review-queue.md
+node scripts/retro-nightly.mjs collect \
+  --sut ../aws-bench-fastapi-vue-admin \
+  [--retro-id <id>] [--dry-run] [--agent cursor-agent] \
+  [--history 5] [--min-evidence 2] [--rework-alert 3]
+
+# 人工在 qa/retro/<id>/ 完成 promote 后：
+# PHASE E–F：stage apply → eval baseline/candidate → 回归判定 → 条件满足则 apply
+node scripts/retro-nightly.mjs resume \
+  --sut ../aws-bench-fastapi-vue-admin \
+  --retro-id <id> \
+  [--skip-eval]
+
+# 跨 run 汇总
+node scripts/retro-nightly.mjs report --sut <path> [--last 10]
+```
+
+| 阶段 | 做什么 |
+|------|--------|
+| **A** | 枚举未消费 / unarchived 且 terminal 的 change；必要时 snapshot 证据 |
+| **B** | `aws retro --change …` 写 `context.json`；`signal_count=0` → no-op exit 10 |
+| **C** | 调 `--agent`（默认 `cursor-agent`）生成 `proposals.json`；schema 校验失败的提案剔除 |
+| **D** | 按 `min-evidence` 分流；写 `review-queue.md`；`aws retro complete` |
+| **E** | `resume`：对已 promote 的 `memory_append` 提案 stage apply |
+| **F** | 按 `eval_suite` 跑 baseline + candidate（`--extra-memory-dir`）；hard-gate 相对 baseline 回归 → `needs_rework`；**仅当 suite 有 hard_gates 且未回归**才 auto-apply。observe-only suite（如 `workflow-full`）**不**自动 apply |
+
+退出码约定（节选）：`0` 成功；`10` 无可处理 change / no-op；`30` 仍全部 pending 人工审阅；`40` 基础设施 / agent / CLI 失败。
+
+产物（均在 SUT 的 `qa/retro/`）：
+
+```text
+qa/retro/
+├── _state.json                 # last_retro_id / consumed_changes
+├── <retro-id>/
+│   ├── context.json
+│   ├── proposals.json
+│   ├── promotions.json
+│   ├── review-queue.md
+│   ├── retro-summary.md
+│   └── run-report.json
+├── cross-run-report.md         # report 子命令
+└── cross-run-report.json
+```
+
+**与过程可观测性的关系：** PHASE F 只看 suite **hard_gates / advisory** 相对 baseline 的回归；OpenCode process 指标全部为 observe，**不会**单独触发 auto-apply 或 `needs_rework`。
+
+测试：`tests/unit/retro-nightly/lib.test.ts`、`tests/unit/retro-nightly/driver_e2e.test.ts`（agent stub + `--skip-eval`）。
 
 ---
 
@@ -566,6 +674,8 @@ In eval runs with an external SUT, `.aws/memory/**` proposals are seeded into th
 - **Codegen 约束（depts）**：ORM `name` 字段 `max_length=20`；测试数据须用 `unique_dept_name()`（前缀 ≤11 字符 + 8 位 hex），见 `skills/aws-api-codegen/SKILL.md` 与 `eval-sample-004` golden。
 - **Codegen 约束（roles）**：角色展示名与 seed 数据一致（如 `admin` vs `管理员`）；golden 已对齐 `eval-sample-002`。
 - **旧 run 指标**：2026-06-20 前的 run 可能缺少 `execution-manifest.final_status`，导致 `execution_pass_rate` / `end_to_end_pass_rate` 恒为 0；重跑 E3/E4 或读 `api-result.json` 判断真实通过率。
+- **旧 run 无 `process-summary.json`**：过程指标为 0 / unavailable；报告仍可生成。
+- **OpenCode wire schema**：`tool_use` 字段名以真实 `run --format json` 采样为准；解析器对字段差异容错（见设计 §6.0）。
 - **`eval plan` 与 CI 脱节**：CI 用静态 plan，suite 的 `ci.pr.trigger_paths` 在 Actions 中未启用动态 plan。
 - **`case-generation` suite** 已标记 DEPRECATED。
 
@@ -573,7 +683,10 @@ In eval runs with an external SUT, `.aws/memory/**` proposals are seeded into th
 
 ## 延伸阅读
 
-- `eval/contracts/metric-spec.md` — 指标定义细节
-- `eval/contracts/evidence-spec.md` — attempt 目录规范
+- `docs/design/eval-opencode-process-observability.md` — OpenCode 过程可观测性设计
+- `eval/contracts/metric-spec.md` — 指标定义细节（含过程指标）
+- `eval/contracts/evidence-spec.md` — attempt 目录规范（含 `process-summary.json` 落盘顺序）
 - `eval/contracts/safety-scope.md` — 安全扫描范围
 - `eval/fixtures/README.md` — fixture tier 模型
+- `scripts/retro-nightly.mjs` — nightly retro 驱动入口
+- `scripts/lib/retro-nightly/` — collect / resume / report 分阶段实现

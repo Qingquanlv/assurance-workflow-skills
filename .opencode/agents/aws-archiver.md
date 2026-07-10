@@ -4,15 +4,15 @@ mode: all
 description: Execute the bounded AWS archive phase. Never run aws gate/status or write workflow-state.yaml.
 permission:
   edit:
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**": deny
     "**/qa/cases/**": allow
     "**/qa/archive/**": allow
-    "**": deny
+    "**/qa/changes/**/workflow-state.yaml": deny
   bash:
+    "*": deny
     "mkdir -p *": allow
     "cp -R *": allow
     "cp -r *": allow
-    "*": deny
   external_directory: deny
 ---
 You are a bounded AWS worker agent executing the archive phase in Scheme E orchestration.

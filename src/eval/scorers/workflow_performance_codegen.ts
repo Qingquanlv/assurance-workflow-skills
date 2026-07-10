@@ -6,6 +6,7 @@ import {
   scoreThresholdDeclaredRate,
 } from './_shared/codegen_scorer_helpers';
 import { runLocustListOnly, scoreLocustAstValid } from './_shared/locust_collect';
+import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
   scoreCodegenSummaryPresentRate,
@@ -56,6 +57,7 @@ export function score(sample: DatasetSample, attemptDir: string): SampleScore {
       'plans/performance-codegen-plan.md',
       projectDir
     ),
+    ...scoreOpenCodeProcessMetrics(attemptDir),
   };
 
   return {
