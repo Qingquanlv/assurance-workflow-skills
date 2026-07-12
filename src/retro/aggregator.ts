@@ -5,7 +5,7 @@ import type {
   EvidenceId,
   GatePushbackSignal,
   HealingEfficiencySignal,
-  HumanOverrideSignal,
+  HumanDecisionSignal,
   ReclassificationSignal,
   RetroContext,
   SkillExecutionSignal,
@@ -184,17 +184,18 @@ function summarizeHealing(changes: ArchivedChange[]): HealingEfficiencySignal {
       if (count === 0) noOp += 1;
     }
     for (const event of change.events) {
-      if (event.type === 'heal_transition' && event.to === 'proposal_created') {
+      if (event.type !== 'heal_transition') continue;
+      if (event.to === 'proposal_created') {
         proposalCreated += 1;
         evidenceIds.push(evidence(change.change_id, `seq${event.seq}`));
       }
-      if (event.type === 'heal_transition' && event.to === 'applied') {
+      if (event.to === 'applied') {
         applied += 1;
       }
-      if (event.type === 'heal_transition' && event.to === 'resolved') {
+      if (event.to === 'resolved') {
         resolved += 1;
       }
-      if (event.type === 'heal_transition' && event.to === 'exhausted') {
+      if (event.to === 'exhausted') {
         exhausted += 1;
       }
     }
@@ -212,14 +213,14 @@ function summarizeHealing(changes: ArchivedChange[]): HealingEfficiencySignal {
   };
 }
 
-function summarizeHumanOverrides(changes: ArchivedChange[]): HumanOverrideSignal[] {
-  const grouped = new Map<string, HumanOverrideSignal>();
+function summarizeHumanDecisions(changes: ArchivedChange[]): HumanDecisionSignal[] {
+  const grouped = new Map<string, HumanDecisionSignal>();
   for (const change of changes) {
     for (const event of change.events) {
-      if (event.type !== 'human_override') continue;
-      const key = `${event.phase}\0${event.action}`;
+      if (event.type !== 'human_decision') continue;
+      const key = `${event.checkpoint}\0${event.action}`;
       const item = grouped.get(key) ?? {
-        phase: event.phase,
+        checkpoint: event.checkpoint,
         action: event.action,
         count: 0,
         reason_summary: event.reason,
@@ -230,7 +231,9 @@ function summarizeHumanOverrides(changes: ArchivedChange[]): HumanOverrideSignal
       grouped.set(key, item);
     }
   }
-  return [...grouped.values()].sort((a, b) => b.count - a.count || a.phase.localeCompare(b.phase));
+  return [...grouped.values()].sort(
+    (a, b) => b.count - a.count || a.checkpoint.localeCompare(b.checkpoint),
+  );
 }
 
 function summarizeReclassifications(changes: ArchivedChange[]): ReclassificationSignal[] {
@@ -313,7 +316,7 @@ export function buildRetroContext(
       failure_distribution: summarizeFailureDistribution(changes),
       gate_pushback: summarizeGatePushback(changes),
       healing_efficiency: summarizeHealing(changes),
-      human_overrides: summarizeHumanOverrides(changes),
+      human_decisions: summarizeHumanDecisions(changes),
       reclassifications: summarizeReclassifications(changes),
       skill_execution: summarizeSkillExecution(changes),
       eval_trend: readEvalTrend(projectRoot, opts.since),

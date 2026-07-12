@@ -85,7 +85,7 @@ archive 失败时：`evidence_completed: true`、`archive_completed: false`、`w
 
 | Suite | Script | `executor` 值 | 说明 |
 |-------|--------|---------------|------|
-| E0 / E2a / E4 | `scripts/eval-workflow-run.mjs` | `eval-workflow-run` | OpenCode + skill；fake 模式 `safety_mode: disabled` |
+| E0 / E2a / E4 | `scripts/eval-workflow-run.mjs` | `eval-workflow-run` | 默认 `aws workflow run --adapter headless`；fake 模式 one-shot golden；`--entry orchestrator` 遗留 OpenCode |
 | **E3 Run** | **`scripts/eval-aws-run.mjs`** | **`eval-aws-run`** | **直接 `aws run`**；不走 OpenCode |
 
 两个 wrapper **共用** `scripts/lib/write-scan.mjs`，统一 write-scan 布局。
@@ -127,7 +127,11 @@ node scripts/eval-aws-run.mjs \
 
 ### eval-workflow-run.mjs CLI
 
-同上，额外必填 `--run-mode`（`case-only` | `codegen-only` | `full`）与 `--fixture-tier`；OpenCode 阶段替换 `aws run`。
+同上，额外必填 `--run-mode`（`case-only` | `codegen-only` | `full`）与 `--fixture-tier`。
+
+默认 `--entry driver`：调用 `aws workflow run --adapter headless`（可用 `--aws-bin` /
+`--agent-cmd` 覆盖）。`EVAL_USE_FAKE_OPENCODE=1` 仍走 one-shot golden stub（CI smoke）。
+遗留对照：`--entry orchestrator` / `phase-skill` 仍用 OpenCode + skill prompt。
 
 ## Fail-closed
 

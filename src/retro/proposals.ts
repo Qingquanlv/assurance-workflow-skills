@@ -42,7 +42,7 @@ function collectEvidenceIds(context: RetroContext): Set<EvidenceId> {
     signal.evidence_ids.forEach((id) => ids.add(id));
   }
   context.signals.healing_efficiency.evidence_ids.forEach((id) => ids.add(id));
-  for (const signal of context.signals.human_overrides) {
+  for (const signal of context.signals.human_decisions) {
     signal.evidence_ids.forEach((id) => ids.add(id));
   }
   for (const signal of context.signals.reclassifications) {

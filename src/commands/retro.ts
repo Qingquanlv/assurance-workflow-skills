@@ -13,7 +13,7 @@ function countSignals(context: RetroContext): number {
     context.signals.gate_pushback.length +
     (context.signals.healing_efficiency.proposal_created > 0 ||
     context.signals.healing_efficiency.created_proposals > 0 ? 1 : 0) +
-    context.signals.human_overrides.length +
+    context.signals.human_decisions.length +
     context.signals.reclassifications.length +
     context.signals.skill_execution.length +
     context.signals.eval_trend.length

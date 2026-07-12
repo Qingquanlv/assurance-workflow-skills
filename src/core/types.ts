@@ -367,7 +367,7 @@ export interface QualityReport {
   };
   functional: FunctionalDimension;
   coverage: CoverageDimension;
-  human_overrides?: HumanOverrideReportItem[];
+  human_decisions?: HumanDecisionReportItem[];
   minimum_required_coverage?: MinimumCoverageResult;
   non_functional?: NonFunctionalDimension;
   defects: {
@@ -381,7 +381,7 @@ export interface QualityReport {
   recommendation: string;
 }
 
-export interface HumanOverrideReportItem {
+export interface HumanDecisionReportItem {
   action: string;
   reason: string;
   at: string;

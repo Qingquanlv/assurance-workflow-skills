@@ -2,8 +2,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { hashProductTree, hashTestTree } from '../../../src/core/hash';
-import { transitionHealingStatus } from '../../../src/core/healing_state';
+import { hashProductTree, hashTestTree, sha256File } from '../../../src/core/hash';
+import {
+  pinHealingEntryBaseline,
+  writeCliFixerSafetyCheck,
+} from '../../../src/core/healing_state';
 
 const changeId = 'REQ-HEAL-SAFETY-001';
 
@@ -44,11 +47,29 @@ function writeManifest(root: string): void {
 function writeHealingArtifacts(root: string): void {
   const healingDir = path.join(changeDir(root), 'healing');
   fs.mkdirSync(healingDir, { recursive: true });
+  const inspectDir = path.join(changeDir(root), 'inspect');
+  fs.mkdirSync(inspectDir, { recursive: true });
+  const analysisPath = path.join(inspectDir, 'failure-analysis.json');
+  fs.writeFileSync(
+    analysisPath,
+    JSON.stringify({
+      source_batch_id: '20260706-010000',
+      failures: [{ case_id: 'TC-1', target: 'api', fix_proposal_eligible: true }],
+    }),
+  );
   fs.writeFileSync(
     path.join(healingDir, 'fix-proposal.json'),
     JSON.stringify({
+      source_batch_id: '20260706-010000',
+      source_analysis_sha256: sha256File(analysisPath),
       summary: { eligible_count: 1 },
-      proposals: [{ id: 'p1', risk_level: 'low', files_to_modify: ['tests/api/test_sample.py'] }],
+      proposals: [{
+        proposal_id: 'p1',
+        target: 'api',
+        eligible: true,
+        risk_level: 'low',
+        files_to_modify: ['tests/api/test_sample.py'],
+      }],
     }),
     'utf-8',
   );
@@ -90,6 +111,7 @@ describe('CLI-computed fixer safety check', () => {
     fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): pass\n', 'utf-8');
     writeState(projectRoot);
     writeManifest(projectRoot);
+    pinHealingEntryBaseline(projectRoot, changeId);
     writeHealingArtifacts(projectRoot);
   });
 
@@ -100,7 +122,7 @@ describe('CLI-computed fixer safety check', () => {
   it('overwrites agent-authored safety check and rejects product code changes', () => {
     fs.writeFileSync(path.join(projectRoot, 'app', 'service.py'), 'VALUE = 2\n', 'utf-8');
 
-    expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(/fixer-safety-check/);
+    writeCliFixerSafetyCheck(projectRoot, changeId);
 
     const safety = JSON.parse(
       fs.readFileSync(path.join(changeDir(projectRoot), 'healing', 'fixer-safety-check.json'), 'utf-8'),
@@ -108,6 +130,7 @@ describe('CLI-computed fixer safety check', () => {
     expect(safety.passed).toBe(false);
     expect(safety.product_code_modified).toBe(true);
     expect(safety.source).toBe('cli');
+    expect(safety.checked_tests_tree_sha256).toBe(hashTestTree(projectRoot).aggregate);
   });
 
   it('flags added bare returns in tests as needs_review (assertion-bypass early exit)', () => {
@@ -116,7 +139,7 @@ describe('CLI-computed fixer safety check', () => {
     );
     // Not a git repo in tmpdir — diff is unavailable, so the check must be
     // conservative: bare_return_added is 'undetermined' and needs_review true.
-    expect(() => transitionHealingStatus(projectRoot, changeId, 'applied')).toThrow(/needs_review|fixer-safety-check/);
+    writeCliFixerSafetyCheck(projectRoot, changeId);
     const written = JSON.parse(
       fs.readFileSync(path.join(changeDir(projectRoot), 'healing', 'fixer-safety-check.json'), 'utf-8'),
     );

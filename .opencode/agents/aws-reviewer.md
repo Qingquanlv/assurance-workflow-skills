@@ -5,10 +5,10 @@ description: Execute a bounded AWS review/inspect phase. Never run aws gate/stat
 permission:
   edit:
     "**": deny
-    "**/qa/changes/**/review/**": allow
-    "**/qa/changes/**/inspect/**": allow
-    "**/qa/changes/**/notes/**": allow
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**qa/changes/**/review/**": allow
+    "**qa/changes/**/inspect/**": allow
+    "**qa/changes/**/notes/**": allow
+    "**qa/changes/**/workflow-state.yaml": deny
   bash:
     "*": deny
     "aws --version": allow

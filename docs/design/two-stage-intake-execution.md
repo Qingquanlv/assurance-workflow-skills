@@ -204,8 +204,8 @@ explore 只产出**中性 draft hint**（描述坑，不预设断言方向），
 ### 6.4 `aws-execute`（阶段二）
 
 - 拥有 phase：fact-baseline → plan → plan-review → codegen → execution → inspect → (healing) → report → archive-eligibility。
-- **内联有序 Execute Runbook**（§6.1 中间路径）：从 Phase 2.4 到 Phase 14 逐步写明，含每个 plan-review 后的 `aws gate check`、healing 的 `aws state heal` CLI 序列、`aws gate override` 恢复路径；逐 phase 深度契约仍引用各 phase skill。
-- 保留全部硬 gate；**不反问**（异常 gate 走 `aws gate override`）。
+- **内联有序 Execute Runbook**（§6.1 中间路径）：从 Phase 2.4 到 Phase 14 逐步写明，含每个 plan-review 后的 `aws gate check`、healing 的 `aws state heal` CLI 序列、`aws decide` 恢复路径；逐 phase 深度契约仍引用各 phase skill。
+- 保留全部硬 gate；**不反问**（异常 gate 走 `aws decide`）。
 
 ### 6.5 Mode/Scope 传播机制（核心，机器可读、CLI 可校验）
 

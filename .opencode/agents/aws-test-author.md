@@ -5,10 +5,10 @@ description: Execute a bounded AWS test-authoring phase. Never run aws gate/stat
 permission:
   edit:
     "**": deny
-    "**/tests/**": allow
-    "**/qa/changes/**/codegen/**": allow
-    "**/qa/changes/**/healing/**": allow
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**tests/**": allow
+    "**qa/changes/**/codegen/**": allow
+    "**qa/changes/**/healing/**": allow
+    "**qa/changes/**/workflow-state.yaml": deny
   bash: { "*": deny }
   external_directory: deny
 ---

@@ -2,8 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { hashTestTree } from '../../../src/core/hash';
-import { assertTestTreeUnchangedOrHealing } from '../../../src/core/healing_state';
+import { appendEventsStrict } from '../../../src/core/events';
+import { hashTestTree, sha256File } from '../../../src/core/hash';
+import {
+  assertTestTreeUnchangedOrHealing,
+  pinHealingAppliedTestTree,
+  pinHealingEntryBaseline,
+} from '../../../src/core/healing_state';
 import { writeTestChangesOverrideEvidence } from '../../../src/core/override_evidence';
 import {
   assertTestChangesOverridePolicyAllows,
@@ -43,6 +48,79 @@ function writeLatestManifest(root: string, fields: Record<string, unknown>): voi
     }),
     'utf-8',
   );
+}
+
+function seedDerivedApplied(root: string): void {
+  const healingDir = path.join(changeDir(root), 'healing');
+  const inspectDir = path.join(changeDir(root), 'inspect');
+  fs.mkdirSync(healingDir, { recursive: true });
+  fs.mkdirSync(inspectDir, { recursive: true });
+  const analysisPath = path.join(inspectDir, 'failure-analysis.json');
+  fs.writeFileSync(analysisPath, JSON.stringify({
+    source_batch_id: '20260704-190000',
+    failures: [{ case_id: 'TC-1', target: 'api', fix_proposal_eligible: true }],
+  }));
+  const proposalPath = path.join(healingDir, 'fix-proposal.json');
+  fs.writeFileSync(proposalPath, JSON.stringify({
+    source_batch_id: '20260704-190000',
+    source_analysis_sha256: sha256File(analysisPath),
+    summary: { eligible_count: 1 },
+    proposals: [{
+      proposal_id: 'FIX-API-1',
+      target: 'api',
+      eligible: true,
+      files_to_modify: ['tests/api/test_sample.py'],
+    }],
+  }));
+  const summaryPath = path.join(healingDir, 'api-apply-summary.json');
+  fs.writeFileSync(summaryPath, JSON.stringify({
+    schema_version: '1.0',
+    change_id: changeId,
+    target: 'api',
+    applied: true,
+    no_op: false,
+    applied_proposals: [{
+      proposal_id: 'FIX-API-1',
+      files_modified: ['tests/api/test_sample.py'],
+      operations_applied: ['repair'],
+      notes: '',
+    }],
+    files_modified: ['tests/api/test_sample.py'],
+    skipped_proposals: [],
+    forbidden_attempts: [],
+    rerun_required: true,
+    next_action: 'run_aws_run',
+  }));
+  const proposalSha = sha256File(proposalPath)!;
+  const attemptKey = `${proposalSha}:20260704-190000`;
+  const baseline = pinHealingEntryBaseline(root, changeId);
+  const baselinePath = path.join(healingDir, 'entry-baseline.json');
+  appendEventsStrict(root, changeId, [{
+    source: 'heal',
+    type: 'heal_record_apply',
+    target: 'api',
+    applied_proposals: ['FIX-API-1'],
+    skipped_proposals: [],
+    files_modified: ['tests/api/test_sample.py'],
+    summary_file: 'healing/api-apply-summary.json',
+    summary_sha256: sha256File(summaryPath),
+    markdown_file: 'healing/api-apply-summary.md',
+    markdown_sha256: null,
+    proposal_sha256: proposalSha,
+    source_batch_id: '20260704-190000',
+    attempt_key: attemptKey,
+  }]);
+  fs.writeFileSync(path.join(healingDir, 'fixer-safety-check.json'), JSON.stringify({
+    passed: true,
+    needs_review: false,
+    attempt_key: attemptKey,
+    proposal_sha256: proposalSha,
+    source_batch_id: '20260704-190000',
+    baseline_batch_id: '20260704-190000',
+    healing_episode_id: baseline.episode_id,
+    entry_baseline_sha256: sha256File(baselinePath),
+    checked_tests_tree_sha256: hashTestTree(root).aggregate,
+  }));
 }
 
 describe('run integrity test tree guard', () => {
@@ -91,14 +169,15 @@ describe('run integrity test tree guard', () => {
     );
   });
 
-  it('allows changed tests when healing status is applied', () => {
+  it('allows the exact CLI-pinned applied test tree', () => {
     const hash = hashTestTree(projectRoot);
     writeLatestManifest(projectRoot, {
       tests_tree_sha256: hash.aggregate,
       test_files_sha256: hash.files,
     });
-    writeState(projectRoot, 'applied');
     fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
+    seedDerivedApplied(projectRoot);
+    pinHealingAppliedTestTree(projectRoot, changeId);
 
     const result = assertTestTreeUnchangedOrHealing(projectRoot, changeId, false);
     expect(result.testsChanged).toBe(true);
@@ -111,6 +190,39 @@ describe('run integrity test tree guard', () => {
         new_sha256: expect.any(String),
       }),
     ]);
+  });
+
+  it('fails closed when derived applied status has no applied tree pin', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n');
+    seedDerivedApplied(projectRoot);
+
+    expect(() => assertTestTreeUnchangedOrHealing(projectRoot, changeId, false)).toThrow(
+      /HEAL-APPLIED-TREE-PIN-MISSING/,
+    );
+  });
+
+  it('fails closed when the applied tree pin attempt does not match', () => {
+    const hash = hashTestTree(projectRoot);
+    writeLatestManifest(projectRoot, {
+      tests_tree_sha256: hash.aggregate,
+      test_files_sha256: hash.files,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n');
+    seedDerivedApplied(projectRoot);
+    const pinPath = path.join(changeDir(projectRoot), 'healing', 'applied-test-tree.json');
+    fs.writeFileSync(pinPath, JSON.stringify({
+      tests_tree_sha256: hashTestTree(projectRoot).aggregate,
+      attempt_key: 'stale-attempt',
+    }));
+
+    expect(() => assertTestTreeUnchangedOrHealing(projectRoot, changeId, false)).toThrow(
+      /HEAL-APPLIED-TREE-PIN-MISMATCH/,
+    );
   });
 
   it('allows changed tests with an explicit human override flag', () => {
@@ -289,9 +401,9 @@ describe('run integrity test tree guard', () => {
     fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test_sample.py'), 'def test_a(): assert True\n', 'utf-8');
     fs.mkdirSync(changeDir(projectRoot), { recursive: true });
     fs.writeFileSync(path.join(changeDir(projectRoot), 'events.jsonl'), JSON.stringify({
-      source: 'run',
-      type: 'human_override',
-      phase: 'execution',
+      source: 'decide',
+      type: 'human_decision',
+      checkpoint: 'execution.test-changes',
       action: 'allow_test_changes',
     }) + '\n', 'utf-8');
     const integrity = assertTestTreeUnchangedOrHealing(projectRoot, changeId, true);

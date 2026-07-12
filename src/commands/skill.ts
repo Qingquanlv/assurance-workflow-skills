@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { Command } from 'commander';
 import { execSync } from 'child_process';
-import { findAwsProjectRoot, syncAgentAssets } from '../core/agents_assets';
+import { findAwsProjectRoot, syncOpencodeAssets } from '../core/agents_assets';
 import { logBlank, logHeader, logInfo, logOk, logWarn } from '../utils/logger';
 
 interface RefreshOptions {
@@ -398,7 +398,7 @@ export function registerSkillCommand(program: Command): void {
     )
     .option('--dry-run', 'Show what would change without modifying anything')
     .option('--build-link', 'Also run npm run build && npm link from the AWS package root')
-    .option('--sync-agents', 'Sync .opencode/agents/aws-*.md permission files into the AWS project (fixes stale risk-advisory → explore paths)')
+    .option('--sync-agents', 'Sync .opencode/agents/ and .opencode/tools/ runtime assets into the AWS project (agents + workflow_start tool)')
     .action((options: RefreshOptions) => {
       const packageRoot = path.resolve(__dirname, '../../');
       const dryRun = options.dryRun === true;
@@ -487,16 +487,19 @@ export function registerSkillCommand(program: Command): void {
       if (options.syncAgents) {
         const projectRoot = findAwsProjectRoot(process.cwd());
         if (projectRoot === null) {
-          logWarn('[agents] no AWS project root found near cwd (.aws/config.yaml or qa/) — skipping agent sync');
+          logWarn('[opencode] no AWS project root found near cwd (.aws/config.yaml or qa/) — skipping assets sync');
         } else if (dryRun) {
-          logInfo(`[dry-run] would sync .opencode/agents/aws-*.md into ${projectRoot}`);
+          logInfo(`[dry-run] would sync .opencode/agents/ and .opencode/tools/ into ${projectRoot}`);
         } else {
-          const agentSync = syncAgentAssets(projectRoot, packageRoot);
-          for (const f of agentSync.created) logOk(`[agents] created: ${f}`);
-          for (const f of agentSync.updated) logOk(`[agents] updated: ${f}`);
-          for (const f of agentSync.unchanged) logInfo(`[agents] unchanged: ${f}`);
-          if (agentSync.updated.length > 0) {
-            logWarn('[agents] permission files updated — restart OpenCode so aws-doc-author picks up explore/** allow rules');
+          const sync = syncOpencodeAssets(projectRoot, packageRoot);
+          for (const f of sync.agents.created) logOk(`[agents] created: ${f}`);
+          for (const f of sync.agents.updated) logOk(`[agents] updated: ${f}`);
+          for (const f of sync.agents.unchanged) logInfo(`[agents] unchanged: ${f}`);
+          for (const f of sync.tools.created) logOk(`[tools] created: ${f}`);
+          for (const f of sync.tools.updated) logOk(`[tools] updated: ${f}`);
+          for (const f of sync.tools.unchanged) logInfo(`[tools] unchanged: ${f}`);
+          if (sync.agents.updated.length > 0 || sync.tools.updated.length > 0) {
+            logWarn('[opencode] assets updated — restart OpenCode to pick up agents/tools');
           }
         }
         logBlank();

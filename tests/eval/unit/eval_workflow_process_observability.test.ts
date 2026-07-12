@@ -67,7 +67,8 @@ describe('eval-workflow-run process observability', () => {
     ];
 
     if (opts.ndjson) {
-      args.push('--opencode-bin', FAKE_NDJSON);
+      // Process observability is an OpenCode NDJSON concern — use legacy entry.
+      args.push('--entry', 'orchestrator', '--opencode-bin', FAKE_NDJSON);
     } else {
       env.EVAL_USE_FAKE_OPENCODE = '1';
     }

@@ -35,7 +35,7 @@ describe('status audits', () => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('flags HEAL-STATE-INCONSISTENT when apply-summary exists but status pending', () => {
+  it('does not audit derived healing evidence against persisted YAML status', () => {
     fs.mkdirSync(path.join(changeDir(projectRoot), 'healing'), { recursive: true });
     fs.writeFileSync(
       path.join(changeDir(projectRoot), 'healing', 'api-apply-summary.json'),
@@ -52,12 +52,12 @@ describe('status audits', () => {
     const report = computeStatus({ schema, projectRoot, changeId });
     const audit = runStatusAudits(projectRoot, changeId, report, schema);
 
-    expect(audit.issues.some(i => i.code === 'HEAL-STATE-INCONSISTENT')).toBe(true);
+    expect(audit.issues.some(i => i.code === 'HEAL-STATE-INCONSISTENT')).toBe(false);
     const adjusted = applyAuditsToReport(report, audit);
-    expect(adjusted.terminal?.kind).toBe('stopped');
+    expect(adjusted.terminal?.kind).toBe(report.terminal?.kind);
   });
 
-  it('flags HEAL-STATE-INCONSISTENT when report reached but healing still pending', () => {
+  it('does not emit the removed healing drift audit at report', () => {
     const schema = loadSchemaFromFile(schemaFile(projectRoot));
     const report = {
       schema_version: '1',
@@ -75,9 +75,9 @@ describe('status audits', () => {
     } as unknown as ReturnType<typeof computeStatus>;
 
     const audit = runStatusAudits(projectRoot, changeId, report, schema);
-    expect(audit.issues.some(i => i.code === 'HEAL-STATE-INCONSISTENT')).toBe(true);
+    expect(audit.issues.some(i => i.code === 'HEAL-STATE-INCONSISTENT')).toBe(false);
     const adjusted = applyAuditsToReport(report, audit);
-    expect(adjusted.terminal?.kind).toBe('stopped');
+    expect(adjusted.terminal?.kind).toBe('completed');
   });
 
   it('does not flag when healing recorded not_needed at report', () => {
@@ -99,6 +99,153 @@ describe('status audits', () => {
 
     const audit = runStatusAudits(projectRoot, changeId, report, schema);
     expect(audit.issues.some(i => i.code === 'HEAL-STATE-INCONSISTENT')).toBe(false);
+  });
+
+  it('flags SKILL_LOAD_GATE_VIOLATION when a skill-backed terminal phase has skill_loaded=false', () => {
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'workflow-state.yaml'),
+      [
+        'phases:',
+        '  inspect:',
+        '    status: done',
+        '    skill_loaded: false',
+        '    skill_md_path: null',
+        '  execution:',
+        '    status: FAIL',
+        '    skill_loaded: n/a',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [
+        { id: 'execution', status: 'done', gate: null },
+        { id: 'inspect', status: 'done', gate: null },
+      ],
+      next: [],
+      healing: { attempts_used: 0, max: 2, status: 'not_needed' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'SKILL_LOAD_GATE_VIOLATION',
+        phase: 'inspect',
+      }),
+    ]));
+    expect(audit.issues.some(i => i.phase === 'execution')).toBe(false);
+    expect(applyAuditsToReport(report, audit).terminal?.kind).toBe('stopped');
+  });
+
+  it('does not require healing skill load when healing is not_needed', () => {
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'workflow-state.yaml'),
+      [
+        'phases:',
+        '  healing:',
+        '    status: not_needed',
+        '    skill_loaded: false',
+        '    attempts: []',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [
+        { id: 'healing', status: 'done', gate: null },
+      ],
+      next: [],
+      healing: { attempts_used: 0, max: 2, status: 'not_needed' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues.some(i => i.code === 'SKILL_LOAD_GATE_VIOLATION')).toBe(false);
+  });
+
+  it('flags healing skill load when healing actually applied fixes', () => {
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'workflow-state.yaml'),
+      [
+        'phases:',
+        '  healing:',
+        '    status: applied',
+        '    skill_loaded: false',
+        '    attempts:',
+        '      - attempt: 1',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [
+        { id: 'healing', status: 'done', gate: null },
+      ],
+      next: [],
+      healing: { attempts_used: 1, max: 2, status: 'applied' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'SKILL_LOAD_GATE_VIOLATION',
+        phase: 'healing',
+      }),
+    ]));
+  });
+
+  it('does not flag healing applied when skill_loaded is stamped (driver loaded fix-proposal skill)', () => {
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'workflow-state.yaml'),
+      [
+        'phases:',
+        '  healing:',
+        '    status: exhausted',
+        '    skill_loaded: true',
+        '    attempts:',
+        '      - attempt: 1',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = {
+      schema_version: '1',
+      schema: 'workflow',
+      change_id: changeId,
+      params: {},
+      run_context: null,
+      phases: [{ id: 'healing', status: 'done', gate: null }],
+      next: [],
+      healing: { attempts_used: 1, max: 2, status: 'exhausted' },
+      terminal: null,
+    } as unknown as ReturnType<typeof computeStatus>;
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.code === 'SKILL_LOAD_GATE_VIOLATION')).toBe(false);
   });
 
   it('does not flag pending healing before inspect runs (e.g. codegen-only)', () => {
@@ -151,6 +298,273 @@ describe('status audits', () => {
     const audit = runStatusAudits(projectRoot, changeId, report, schema);
 
     expect(audit.issues.some(i => i.message.includes('needs_human_review→pass'))).toBe(true);
+  });
+
+  it('allows needs_human_review→pass with a matching human_decision alone', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'needs_human_review', blocks: 1, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'bound-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review',
+        action: 'accept_risk', reason: 'reviewed risk', who: 'operator',
+        review_file: 'review/e2e-plan-review.json', review_sha256: 'bound-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'bound-review' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_human_review→pass'))).toBe(false);
+  });
+
+  it.each([
+    ['missing reads_sha256', undefined],
+    ['missing review key', { 'review/other.json': 'bound-review' }],
+    ['mismatched review hash', { 'review/e2e-plan-review.json': 'different-review' }],
+  ])('rejects needs_human_review→pass when the next verdict has %s', (_label, nextReads) => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'needs_human_review', blocks: 1, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'bound-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review',
+        action: 'accept_risk', reason: 'reviewed risk', who: 'operator',
+        review_file: 'review/e2e-plan-review.json', review_sha256: 'bound-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        ...(nextReads ? { reads_sha256: nextReads } : {}),
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_human_review→pass'))).toBe(true);
+  });
+
+  it('does not allow needs_fix→pass with accept_risk but no repair evidence', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'bound-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'api-plan-review-gate',
+        action: 'accept_risk', reason: 'accept remaining risk', who: 'operator',
+        review_file: 'review/api-plan-review.json', review_sha256: 'bound-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'bound-review' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_fix→pass'))).toBe(true);
+  });
+
+  it('does not allow needs_human_review→pass with fix_and_proceed', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'needs_human_review', blocks: 1, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'bound-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review',
+        action: 'fix_and_proceed', reason: 'repair first', who: 'operator',
+        review_file: 'review/e2e-plan-review.json', review_sha256: 'bound-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'bound-review' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_human_review→pass'))).toBe(true);
+  });
+
+  it('uses the latest matching decision and rejects an older valid accept_risk followed by stale accept_risk', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'needs_human_review', blocks: 1, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'current-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review',
+        action: 'accept_risk', reason: 'older valid approval', who: 'operator',
+        review_file: 'review/e2e-plan-review.json', review_sha256: 'current-review',
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'api-plan-review',
+        action: 'accept_risk', reason: 'unrelated later approval', who: 'operator',
+        review_file: 'review/api-plan-review.json', review_sha256: 'api-review',
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review-gate',
+        action: 'accept_risk', reason: 'newer stale approval', who: 'operator',
+        review_file: 'review/e2e-plan-review.json', review_sha256: 'stale-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'e2e-plan-review',
+        gate: 'e2e-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/e2e-plan-review.json': 'current-review' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_human_review→pass'))).toBe(true);
+  });
+
+  it('does not accept a human_decision bound to another gate or review hash', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'current-review' },
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'e2e-plan-review-gate',
+        action: 'accept_risk', reason: 'wrong gate', who: 'operator',
+        review_file: 'review/api-plan-review.json', review_sha256: 'current-review',
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'api-plan-review',
+        action: 'accept_risk', reason: 'stale hash', who: 'operator',
+        review_file: 'review/api-plan-review.json', review_sha256: 'stale-review',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'current-review' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.message.includes('needs_fix→pass'))).toBe(true);
+  });
+
+  it('allows needs_fix→pass across a multi-attempt fix episode (repair in an earlier attempt)', () => {
+    // Reviewer re-checks several times: needs_fix → [fix done] → needs_fix →
+    // [re-review, no new fix event] → pass. The repair evidence lands in the
+    // first attempt, so the final needs_fix→pass must not be flagged illegal.
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'aaa' },
+      },
+      {
+        source: 'status', type: 'phase_transition', phase: 'api-plan-fix',
+        from: 'ready', to: 'done', outputs: [],
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'bbb' },
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'ccc' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues.some(i => i.message.includes('needs_fix→pass'))).toBe(false);
+  });
+
+  it('allows needs_fix→pass when a 2nd fixer attempt re-dispatches without a fresh to=done transition', () => {
+    // Reproduces a real driver bug: once the repair phase's status is already
+    // `done` from attempt 1, re-running `state apply` for attempt 2 (within
+    // the same needs_fix streak) is a no-op transition — no fresh
+    // `phase_transition ... to=done` event fires. Without a `phase_dispatched`
+    // driver event as a fallback signal, the audit would wrongly flag the
+    // legitimate 2nd-attempt fix as GATE-TRANSITION-ILLEGAL.
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'aaa' },
+      },
+      {
+        source: 'driver', type: 'phase_dispatched', run_id: 'run-1', phase: 'api-plan-fix',
+      },
+      {
+        source: 'status', type: 'phase_transition', phase: 'api-plan-fix',
+        from: 'ready', to: 'done', outputs: [],
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'bbb' },
+      },
+      // Attempt 2: phase is already `done`, so only a `phase_dispatched`
+      // event fires — no fresh `to=done` transition.
+      {
+        source: 'driver', type: 'phase_dispatched', run_id: 'run-1', phase: 'api-plan-fix',
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'ccc' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues.some(i => i.message.includes('needs_fix→pass'))).toBe(false);
+  });
+
+  it('still flags needs_fix→pass when neither a to=done transition nor a phase_dispatched event is present', () => {
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'needs_fix', blocks: 1, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'aaa' },
+      },
+      {
+        source: 'gate', type: 'gate_verdict', phase: 'api-plan-review',
+        gate: 'api-plan-review-gate', verdict: 'pass', blocks: 0, evidence: {},
+        reads_sha256: { 'review/api-plan-review.json': 'bbb' },
+      },
+    ]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    const report = computeStatus({ schema, projectRoot, changeId });
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+
+    expect(audit.issues.some(i => i.message.includes('needs_fix→pass'))).toBe(true);
   });
 
   it('downgrades tampered phase when review JSON hash drifts', () => {
@@ -230,7 +644,7 @@ describe('status audits', () => {
     expect(audit.issues.some(i => i.code === 'ARTIFACT-TAMPERED')).toBe(true);
   });
 
-  it('flags ARTIFACT-TAMPERED when human override evidence hash drifts', () => {
+  it('flags ARTIFACT-TAMPERED when human decision evidence hash drifts', () => {
     fs.mkdirSync(path.join(changeDir(projectRoot), 'execution', 'runs', 'b1'), { recursive: true });
     fs.writeFileSync(
       path.join(changeDir(projectRoot), 'execution', 'runs', 'b1', 'test-changes-override.json'),
@@ -239,15 +653,15 @@ describe('status audits', () => {
     );
 
     appendEvents(projectRoot, changeId, [{
-      source: 'run',
-      type: 'human_override',
-      phase: 'execution',
+      source: 'decide',
+      type: 'human_decision',
+      checkpoint: 'execution.test-changes',
       action: 'allow_test_changes',
       reason: 'approved',
+      who: 'operator',
       review_sha256: 'tests-tree',
       evidence_file: 'execution/runs/b1/test-changes-override.json',
       evidence_sha256: 'deadbeef',
-      changed_files_count: 0,
     }]);
 
     const schema = loadSchemaFromFile(schemaFile(projectRoot));

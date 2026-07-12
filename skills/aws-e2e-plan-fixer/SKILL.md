@@ -23,7 +23,7 @@ Do not rely on prior conversation context.
 
 **human_approved exception** (only when default `human_review_required == false` check would STOP):
 
-> If `phases.e2e_plan_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches the SHA256 of the current `review/plan-review.json` on disk, allow fixing blocker / high severity items from `findings[]` per `suggested_fix`. Record each item in `plan-review-apply-summary.md` under `human_approved_fixes[]`. **Still never write review JSON or change gate status** — re-run `aws-e2e-plan-reviewer` after fixes.
+> If the latest `human_decision` for checkpoint `e2e-plan-review` has action `fix_and_proceed` **and** its `review_sha256` matches the SHA256 of the current `review/plan-review.json` on disk, allow fixing blocker / high severity items from `findings[]` per `suggested_fix`. Record each item in `plan-review-apply-summary.md` under `human_approved_fixes[]`. **Still never write review JSON or change gate status** — re-run `aws-e2e-plan-reviewer` after fixes.
 
 5. For **every** `auto_fix_plan` item, resolve and validate before applying any fix (see **Fix Source Rule**). If any item fails validation, **STOP** as reviewer contract error — do not skip and continue.
 6. Use files as the sole source of truth.

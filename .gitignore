@@ -3,12 +3,14 @@ dist/
 coverage/
 /eval/runs/
 /eval/batches/
+/eval/reports/
 *.js.map
 .aws/cache/
 .DS_Store
 **/.DS_Store
 docs/superpowers/
-docs/design/
+docs/design/*
+!docs/design/workflow-driver.md
 docs/superpowers/**
 .history
 bin/

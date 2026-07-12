@@ -4,6 +4,8 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { parseSchema, loadSchemaFromFile, Schema } from '../../../src/orchestration/schema';
 import { Engine, computeStatus, checkGate, resolveNextDispatch, PhaseDispatchEntry } from '../../../src/orchestration/engine';
+import { appendEvents } from '../../../src/core/events';
+import { sha256File } from '../../../src/core/hash';
 
 const REAL_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
 
@@ -396,10 +398,317 @@ gates:
     expect(g.verdict).toBe('needs_fix');
     expect(g.recommended_phase).toBe('review-fix');
   });
+
+  it('accept_risk at the gated phase converts needs_human_review to pass with provenance', () => {
+    const s = parseSchema(`
+phases:
+  - id: review
+    requires: []
+    produces: [review/review.json]
+    gate: review-gate
+gates:
+  review-gate:
+    reads: [review/review.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+`);
+    writeJson('review/review.json', { decision: 'needs_human_review' });
+    appendEvents(projectRoot, changeId, [{
+      source: 'decide',
+      type: 'human_decision',
+      checkpoint: 'review',
+      action: 'accept_risk',
+      reason: 'risk accepted by reviewer',
+      who: 'reviewer',
+      review_file: 'review/review.json',
+      review_sha256: sha256File(path.join(changeDir(), 'review/review.json'))!,
+    }]);
+
+    const g = checkGate({ schema: s, projectRoot, changeId, phaseId: 'review' });
+    expect(g.verdict).toBe('pass');
+    expect(g.matched_rule).toContain('human_decision:accept_risk');
+    expect(g.evidence).toMatchObject({
+      decision_checkpoint: 'review',
+      decision_action: 'accept_risk',
+      decision_who: 'reviewer',
+    });
+  });
+
+  it('fix_and_proceed at the gate converts needs_human_review to needs_fix and recommends repair', () => {
+    const s = parseSchema(`
+params:
+  max_attempts: { type: int, default: 2 }
+phases:
+  - id: review
+    requires: []
+    produces: [review/review.json]
+    gate: review-gate
+  - id: review-fix
+    requires: [review]
+    produces: [review/review.json]
+    repair_of: review
+    max_attempts_param: max_attempts
+gates:
+  review-gate:
+    reads: [review/review.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+`);
+    writeJson('review/review.json', { decision: 'needs_human_review' });
+    appendEvents(projectRoot, changeId, [{
+      source: 'decide',
+      type: 'human_decision',
+      checkpoint: 'review-gate',
+      action: 'fix_and_proceed',
+      reason: 'repair requested',
+      who: 'reviewer',
+      review_file: 'review/review.json',
+      review_sha256: sha256File(path.join(changeDir(), 'review/review.json'))!,
+    }]);
+
+    const g = checkGate({ schema: s, projectRoot, changeId, phaseId: 'review' });
+    expect(g.verdict).toBe('needs_fix');
+    expect(g.recommended_phase).toBe('review-fix');
+    expect(computeStatus({ schema: s, projectRoot, changeId }).next).toContain('review-fix');
+  });
+
+  it('ignores a stale or differently checkpointed decision', () => {
+    const s = parseSchema(`
+phases:
+  - id: first-review
+    requires: []
+    produces: [review/first.json]
+    gate: first-gate
+  - id: second-review
+    requires: []
+    produces: [review/second.json]
+    gate: second-gate
+gates:
+  first-gate:
+    reads: [review/first.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+  second-gate:
+    reads: [review/second.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+`);
+    writeJson('review/first.json', { decision: 'needs_human_review' });
+    writeJson('review/second.json', { decision: 'needs_human_review' });
+    const staleHash = sha256File(path.join(changeDir(), 'review/first.json'))!;
+    writeJson('review/first.json', { decision: 'needs_human_review', changed: true });
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'decide',
+        type: 'human_decision',
+        checkpoint: 'first-gate',
+        action: 'accept_risk',
+        reason: 'stale',
+        who: 'reviewer',
+        review_file: 'review/first.json',
+        review_sha256: staleHash,
+      },
+      {
+        source: 'decide',
+        type: 'human_decision',
+        checkpoint: 'second-gate',
+        action: 'accept_risk',
+        reason: 'another gate',
+        who: 'reviewer',
+        review_file: 'review/second.json',
+        review_sha256: sha256File(path.join(changeDir(), 'review/second.json'))!,
+      },
+      {
+        source: 'decide',
+        type: 'human_decision',
+        checkpoint: 'first-gate',
+        action: 'accept_risk',
+        reason: '',
+        who: '',
+        review_file: 'review/first.json',
+        review_sha256: sha256File(path.join(changeDir(), 'review/first.json'))!,
+      },
+    ]);
+
+    const g = checkGate({ schema: s, projectRoot, changeId, phaseId: 'first-review' });
+    expect(g.verdict).toBe('needs_human_review');
+    expect(computeStatus({ schema: s, projectRoot, changeId }).pending_decision).toMatchObject({
+      checkpoint: 'first-gate',
+      phase: 'first-review',
+      gate: 'first-gate',
+    });
+  });
+
+  it('does not fall back to an older valid decision when the latest matching decision is stale', () => {
+    const s = parseSchema(`
+phases:
+  - id: review
+    requires: []
+    produces: [review/review.json]
+    gate: review-gate
+gates:
+  review-gate:
+    reads: [review/review.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+`);
+    writeJson('review/review.json', { decision: 'needs_human_review' });
+    const currentHash = sha256File(path.join(changeDir(), 'review/review.json'))!;
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'review',
+        action: 'accept_risk', reason: 'older valid approval', who: 'reviewer',
+        review_file: 'review/review.json', review_sha256: currentHash,
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'review-gate',
+        action: 'accept_risk', reason: 'newer stale approval', who: 'reviewer',
+        review_file: 'review/review.json', review_sha256: 'stale-sha',
+      },
+    ]);
+
+    expect(checkGate({ schema: s, projectRoot, changeId, phaseId: 'review' }).verdict)
+      .toBe('needs_human_review');
+  });
+
+  it('does not let decisions override reject or codegen hard gates', () => {
+    const s = parseSchema(`
+phases:
+  - id: review
+    requires: []
+    produces: [review/review.json]
+    gate: review-gate
+  - id: api-codegen
+    requires: []
+    produces: [review/codegen.json]
+    gate: api-codegen-precondition-gate
+gates:
+  review-gate:
+    reads: [review/review.json]
+    reject_when: "decision == 'reject'"
+  api-codegen-precondition-gate:
+    reads: [review/codegen.json]
+    needs_human_review_when: "decision == 'needs_human_review'"
+`);
+    writeJson('review/review.json', { decision: 'reject' });
+    writeJson('review/codegen.json', { decision: 'needs_human_review' });
+    appendEvents(projectRoot, changeId, [
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'review',
+        action: 'accept_risk', reason: 'cannot revive reject', who: 'reviewer',
+        review_file: 'review/review.json',
+        review_sha256: sha256File(path.join(changeDir(), 'review/review.json'))!,
+      },
+      {
+        source: 'decide', type: 'human_decision', checkpoint: 'api-codegen',
+        action: 'accept_risk', reason: 'cannot bypass hard gate', who: 'reviewer',
+        review_file: 'review/codegen.json',
+        review_sha256: sha256File(path.join(changeDir(), 'review/codegen.json'))!,
+      },
+    ]);
+
+    expect(checkGate({ schema: s, projectRoot, changeId, phaseId: 'review' }).verdict).toBe('reject');
+    expect(checkGate({ schema: s, projectRoot, changeId, phaseId: 'api-codegen' }).verdict)
+      .toBe('needs_human_review');
+  });
+
+  it('consumes a SHA-bound healing.safety accept_risk decision at fixer-safety-gate', () => {
+    const s = parseSchema(`
+phases:
+  - id: healing-rerun
+    requires: []
+    produces: []
+    gate: fixer-safety-gate
+gates:
+  fixer-safety-gate:
+    reads: [healing/fixer-safety-check.json]
+    needs_human_review_when: "needs_review == true"
+`);
+    writeJson('healing/fixer-safety-check.json', { needs_review: true, passed: false });
+    appendEvents(projectRoot, changeId, [{
+      source: 'decide',
+      type: 'human_decision',
+      checkpoint: 'healing.safety',
+      action: 'accept_risk',
+      reason: 'operator reviewed the safety exception',
+      who: 'operator',
+      review_file: 'healing/fixer-safety-check.json',
+      review_sha256: sha256File(path.join(changeDir(), 'healing/fixer-safety-check.json'))!,
+    }]);
+
+    expect(checkGate({ schema: s, projectRoot, changeId, phaseId: 'healing-rerun' }).verdict)
+      .toBe('pass');
+  });
+});
+
+describe('force_continue gate matrix (real schema)', () => {
+  let realSchema: Schema;
+  beforeAll(() => { realSchema = loadSchemaFromFile(REAL_SCHEMA); });
+
+  function writeState(params: Record<string, unknown>): void {
+    fs.writeFileSync(
+      path.join(changeDir(), 'workflow-state.yaml'),
+      yaml.dump({ params, phases: {} }),
+      'utf-8',
+    );
+  }
+
+  it('defaults force_continue to false', () => {
+    expect(realSchema.params.force_continue).toEqual({ type: 'bool', default: false });
+  });
+
+  it('human_review_required + pass decision → needs_human_review without force_continue', () => {
+    writeState({ force_continue: false });
+    writeJson('review/api-plan-review.json', {
+      decision: 'pass',
+      codegen_readiness: 'ready',
+      human_review_required: true,
+      risk_level: 'low',
+    });
+    const g = checkGate({
+      schema: realSchema, projectRoot, changeId, phaseId: 'api-plan-review',
+    });
+    expect(g.verdict).toBe('needs_human_review');
+  });
+
+  it('force_continue bypasses human_review_required when decision is already pass', () => {
+    writeState({ force_continue: true });
+    writeJson('review/api-plan-review.json', {
+      decision: 'pass',
+      codegen_readiness: 'ready',
+      human_review_required: true,
+      risk_level: 'high',
+    });
+    const g = checkGate({
+      schema: realSchema, projectRoot, changeId, phaseId: 'api-plan-review',
+    });
+    expect(g.verdict).toBe('pass');
+  });
+
+  it('force_continue cannot bypass explicit decision needs_human_review', () => {
+    writeState({ force_continue: true });
+    writeJson('review/api-plan-review.json', {
+      decision: 'needs_human_review',
+      codegen_readiness: 'ready',
+      human_review_required: false,
+      risk_level: 'low',
+    });
+    const g = checkGate({
+      schema: realSchema, projectRoot, changeId, phaseId: 'api-plan-review',
+    });
+    expect(g.verdict).toBe('needs_human_review');
+  });
+
+  it('case-review: force_continue bypasses human_review_required on pass', () => {
+    writeState({ force_continue: true });
+    writeJson('review/case-review.json', {
+      decision: 'pass',
+      human_review_required: true,
+    });
+    const g = checkGate({
+      schema: realSchema, projectRoot, changeId, phaseId: 'case-review',
+    });
+    expect(g.verdict).toBe('pass');
+  });
 });
 
 describe('params resolution + healing summary', () => {
-  it('defaults from schema, overridden by workflow-state params', () => {
+  it('defaults params from schema and ignores persisted healing status counters', () => {
     fs.writeFileSync(
       path.join(changeDir(), 'workflow-state.yaml'),
       yaml.dump({
@@ -412,7 +721,7 @@ describe('params resolution + healing summary', () => {
     expect(e.params.run_mode).toBe('quick');
     expect(e.params.max_healing_attempts).toBe(3);
     const r = e.computeStatus();
-    expect(r.healing).toEqual({ attempts_used: 2, max: 3, status: 'resolved' });
+    expect(r.healing).toEqual({ attempts_used: 0, max: 3, status: 'pending' });
   });
 
   it('healing defaults to pending with 0 attempts', () => {
@@ -436,6 +745,45 @@ describe('real workflow-schema.yaml smoke', () => {
     // every phase has a valid status kind
     const kinds = new Set(['pruned', 'out_of_scope', 'blocked', 'ready', 'awaiting_gate', 'done', 'stopped']);
     expect(r.phases.every(p => kinds.has(p.status))).toBe(true);
+  });
+
+  it('routes a failed fixer safety check to human review rather than stop', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    writeJson('healing/fixer-safety-check.json', {
+      passed: false,
+      needs_review: false,
+      product_code_modified: true,
+      assertion_expected_value_changes_detected: false,
+      skip_or_xfail_added: false,
+      unrelated_tests_modified: false,
+      high_risk_proposal_applied: false,
+    });
+
+    expect(new Engine({ schema: real, projectRoot, changeId })
+      .resolveGate('fixer-safety-gate').verdict).toBe('needs_human_review');
+  });
+
+  it('ignores persisted attempt arrays and stale all_fixers_no_op in loop gates', () => {
+    const real = loadSchemaFromFile(REAL_SCHEMA);
+    fs.writeFileSync(path.join(changeDir(), 'workflow-state.yaml'), yaml.dump({
+      params: { max_healing_attempts: 2 },
+      phases: {
+        execution: { status: 'FAIL' },
+        healing: { attempts: [{}, {}], all_fixers_no_op: true },
+      },
+    }));
+    fs.mkdirSync(path.join(changeDir(), 'execution'), { recursive: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'execution', 'execution-manifest.yaml'),
+      yaml.dump({ batch_id: 'b1' }),
+    );
+    writeJson('inspect/failure-analysis.json', {
+      source_batch_id: 'b1',
+      failures: [{ case_id: 'TC-1', target: 'api', fix_proposal_eligible: true }],
+    });
+
+    expect(new Engine({ schema: real, projectRoot, changeId })
+      .resolveGate('healing-loop-gate').verdict).toBe('continue');
   });
 
   it('stops interactive intake case-design when user approval metadata is missing', () => {
@@ -520,8 +868,7 @@ gates:
     reads: [workflow-state.yaml]
     enter_when: >
       state.phases.execution.status == 'FAIL'
-      and (not defined(state.phases.healing.attempts)
-           or len(state.phases.healing.attempts) < params.max_healing_attempts)
+      and state.phases.healing.attempts_used < params.max_healing_attempts
     skip_when: "state.phases.execution.status == 'PASS'"
 `;
 
@@ -559,11 +906,23 @@ describe('ready_when readiness guard', () => {
 
   it('becomes ready once the healing decision is a resting status', () => {
     writeJson('inspect.json', { ok: true });
+    fs.mkdirSync(path.join(changeDir(), 'execution'), { recursive: true });
+    fs.writeFileSync(
+      path.join(changeDir(), 'execution', 'execution-manifest.yaml'),
+      yaml.dump({ batch_id: 'b1' }),
+    );
     fs.writeFileSync(
       path.join(changeDir(), 'workflow-state.yaml'),
       yaml.dump({ phases: { healing: { status: 'not_needed', attempts: [] } } }),
       'utf-8'
     );
+    appendEvents(projectRoot, changeId, [{
+      source: 'status',
+      type: 'heal_transition',
+      from: 'pending',
+      to: 'not_needed',
+      source_batch_id: 'b1',
+    }]);
     const r = computeStatus({ schema: healSchema, projectRoot, changeId });
     expect(healStatusOf('report')!.status).toBe('ready');
     expect(r.next).toContain('report');
@@ -607,10 +966,20 @@ phases:
     agent: aws-doc-author
     requires: []
     produces: [design.json]
-  - id: run
+    gate: design-gate
+  - id: skill-registry-check
+    skill: null
+    requires: []
+    produces: [workflow-state.yaml]
+    gate: registry-gate
+  - id: execution
     skill: null
     requires: [design]
     produces: [run.json]
+  - id: mystery-cli
+    skill: null
+    requires: [design]
+    produces: [mystery.json]
 loops: {}
 gates: {}
 `;
@@ -619,18 +988,51 @@ describe('resolveNextDispatch', () => {
   let dispatchSchema: Schema;
   beforeAll(() => { dispatchSchema = parseSchema(DISPATCH_MINI); });
 
-  it('maps an agent phase to kind:agent with skill and agent', () => {
+  it('maps an agent phase to agent:opencode with skill, agent, and gate', () => {
     const result = resolveNextDispatch(['design'], dispatchSchema);
     expect(result).toEqual<PhaseDispatchEntry[]>([
-      { phase: 'design', kind: 'agent', skill: 'aws-case-design', agent: 'aws-doc-author' },
+      {
+        phase: 'design',
+        kind: 'agent',
+        executor: 'agent:opencode',
+        skill: 'aws-case-design',
+        agent: 'aws-doc-author',
+        gate: 'design-gate',
+      },
     ]);
   });
 
-  it('maps a CLI phase (skill: null) to kind:cli with null skill and agent', () => {
-    const result = resolveNextDispatch(['run'], dispatchSchema);
+  it('maps skill-registry-check to internal executor', () => {
+    const result = resolveNextDispatch(['skill-registry-check'], dispatchSchema);
     expect(result).toEqual<PhaseDispatchEntry[]>([
-      { phase: 'run', kind: 'cli', skill: null, agent: null },
+      {
+        phase: 'skill-registry-check',
+        kind: 'internal',
+        executor: 'internal:skill-registry-check',
+        skill: null,
+        agent: null,
+        gate: 'registry-gate',
+      },
     ]);
+  });
+
+  it('maps execution (skill: null) to cli:aws-run', () => {
+    const result = resolveNextDispatch(['execution'], dispatchSchema);
+    expect(result).toEqual<PhaseDispatchEntry[]>([
+      {
+        phase: 'execution',
+        kind: 'cli',
+        executor: 'cli:aws-run',
+        skill: null,
+        agent: null,
+        gate: null,
+      },
+    ]);
+  });
+
+  it('throws for unknown skill:null phase', () => {
+    expect(() => resolveNextDispatch(['mystery-cli'], dispatchSchema))
+      .toThrow(/unknown skill:null phase|fail-closed|mystery-cli/i);
   });
 
   it('returns an empty array for an empty next list', () => {
@@ -643,23 +1045,57 @@ describe('resolveNextDispatch', () => {
   });
 
   it('handles multiple phases in one call', () => {
-    const result = resolveNextDispatch(['design', 'run'], dispatchSchema);
+    const result = resolveNextDispatch(['design', 'execution'], dispatchSchema);
     expect(result).toHaveLength(2);
-    expect(result[0].kind).toBe('agent');
-    expect(result[1].kind).toBe('cli');
+    expect(result[0].executor).toBe('agent:opencode');
+    expect(result[1].executor).toBe('cli:aws-run');
   });
 
   it('dispatches the real report phase to aws-reporter', () => {
     const realSchema = loadSchemaFromFile(REAL_SCHEMA);
     expect(resolveNextDispatch(['report'], realSchema)).toEqual<PhaseDispatchEntry[]>([
-      { phase: 'report', kind: 'agent', skill: 'aws-report-generator', agent: 'aws-reporter' },
+      {
+        phase: 'report',
+        kind: 'agent',
+        executor: 'agent:opencode',
+        skill: 'aws-report-generator',
+        agent: 'aws-reporter',
+        gate: null,
+      },
     ]);
   });
 
   it('dispatches the real archive phase to aws-archiver', () => {
     const realSchema = loadSchemaFromFile(REAL_SCHEMA);
     expect(resolveNextDispatch(['archive'], realSchema)).toEqual<PhaseDispatchEntry[]>([
-      { phase: 'archive', kind: 'agent', skill: 'aws-archive', agent: 'aws-archiver' },
+      {
+        phase: 'archive',
+        kind: 'agent',
+        executor: 'agent:opencode',
+        skill: 'aws-archive',
+        agent: 'aws-archiver',
+        gate: 'archive-gate',
+      },
     ]);
+  });
+
+  it('dispatches real healing-rerun to cli:aws-run with fixer-safety-gate', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['healing-rerun'], realSchema)).toEqual<PhaseDispatchEntry[]>([
+      {
+        phase: 'healing-rerun',
+        kind: 'cli',
+        executor: 'cli:aws-run',
+        skill: null,
+        agent: null,
+        gate: 'fixer-safety-gate',
+      },
+    ]);
+  });
+
+  it('dispatches real skill-registry-check to internal executor', () => {
+    const realSchema = loadSchemaFromFile(REAL_SCHEMA);
+    expect(resolveNextDispatch(['skill-registry-check'], realSchema)[0].executor)
+      .toBe('internal:skill-registry-check');
   });
 });

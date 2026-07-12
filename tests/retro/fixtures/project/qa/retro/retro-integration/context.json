@@ -79,9 +79,9 @@
         "RET-a#seq2"
       ]
     },
-    "human_overrides": [
+    "human_decisions": [
       {
-        "phase": "e2e-plan-review",
+        "checkpoint": "e2e-plan-review",
         "action": "fix_and_proceed",
         "count": 1,
         "reason_summary": "fixer refused high severity contract-only change",

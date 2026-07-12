@@ -110,14 +110,14 @@ After a formal run exists, `--rerun-reason` is only for **code-unchanged** retri
 If test files changed since the previous batch:
 
 - `aws run` hard-fails with `TESTS-CHANGED-WITHOUT-HEALING` unless `phases.healing.status == applied`.
-- The correct autonomous path is: `aws-fix-proposal` → fixer skill → `aws state heal --to applied` → `aws run`.
+- The correct autonomous path is: enter healing (which pins the entry baseline) → `aws-fix-proposal` → fixer skill → `aws heal record-apply` → CLI safety check and applied-tree pin → `aws run`.
 
-**`--allow-test-changes` is forbidden for the agent — no exceptions.** This project's `.aws/execution-policy.json` sets `healing.testChangesOverride: "forbidden"`, so the CLI rejects the flag with `ALLOW-TEST-CHANGES-FORBIDDEN`. Rules:
+**Test-change decisions are human-only.** This project's `.aws/execution-policy.json` may set `healing.testChangesOverride: "forbidden"`, in which case execution rejects even a recorded authorization. Rules:
 
-- The agent MUST NEVER construct a command containing `--allow-test-changes`, even when the user asks to "fix the tests and rerun" — that request routes through the healing loop.
-- On `TESTS-CHANGED-WITHOUT-HEALING` or `ALLOW-TEST-CHANGES-FORBIDDEN`, the correct reaction is to enter/continue the healing loop, or STOP and report — never to retry with an override flag.
-- The override exists only for a human who (a) verbatim authorizes a specific one-batch override in conversation, (b) temporarily relaxes `testChangesOverride` in `execution-policy.json` themselves, and (c) restores it to `"forbidden"` afterwards. One authorization covers exactly one batch. The CLI records a `human_override(action=allow_test_changes)` event plus `execution/runs/<batch-id>/test-changes-override.json` with changed files, old/new hashes, and a best-effort git diff pointer.
-- Note: before the first formal batch there is no `tests_tree_sha256` baseline, so infra backfill (factories, conftest) needs no override at all.
+- The agent MUST NEVER manufacture a test-change decision, even when the user asks to "fix the tests and rerun" — that request routes through the healing loop.
+- On `TESTS-CHANGED-WITHOUT-HEALING` or `ALLOW-TEST-CHANGES-FORBIDDEN`, enter/continue the healing loop, or STOP and report.
+- A human may explicitly authorize one current test tree with `aws decide --at execution.test-changes --action allow_test_changes --reason "<decision>"`, subject to the execution policy. `aws run` discovers it automatically, rejects stale trees and replay, consumes it once, and writes batch evidence when required.
+- Before the first formal batch there is no `tests_tree_sha256` baseline, so infra backfill (factories, conftest) needs no decision.
 
 ## Product Tree Integrity
 

@@ -5,8 +5,8 @@ description: Execute the bounded AWS report generation phase. Never run aws gate
 permission:
   edit:
     "**": deny
-    "**/qa/changes/**/report/**": allow
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**qa/changes/**/report/**": allow
+    "**qa/changes/**/workflow-state.yaml": deny
   bash:
     "*": deny
     "aws --version": allow

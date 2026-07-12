@@ -62,7 +62,9 @@ export function classifyFailure(input: ClassifyInput): {
     };
   }
 
-  if (isEnvironmentFailure(text)) {
+  if (isKnownProductIssue(text)) {
+    category = 'known_product_issue';
+  } else if (isEnvironmentFailure(text)) {
     category = 'environment_failure';
   } else if (isLocatorFailure(text, target)) {
     category = 'locator_failure';
@@ -91,6 +93,15 @@ export function classifyFailure(input: ClassifyInput): {
 
 function isEnvironmentFailure(text: string): boolean {
   return /connection refused|cannot connect|econnrefused|service unavailable|host not found|timeout connecting|failed to start server|502 bad gateway|503 service|no such file or directory.*server/i.test(text);
+}
+
+function isKnownProductIssue(text: string): boolean {
+  // Only trust explicit markers written by test authors / the case baseline.
+  // A bare "anomaly-N" is NOT enough on its own: failure text can legitimately
+  // contain that token (log lines, IDs), and misclassifying here silently
+  // removes fix-proposal eligibility. Require the fact-baseline context.
+  if (/expected-product-fail|known product issue|known-product/i.test(text)) return true;
+  return /anomaly-\d+/i.test(text) && /fact-baseline/i.test(text);
 }
 
 function isLocatorFailure(text: string, target: 'api' | 'e2e' | 'fuzz'): boolean {

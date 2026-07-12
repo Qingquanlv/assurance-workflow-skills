@@ -41,8 +41,8 @@ describe('buildRetroContext', () => {
       '(no evidence)',
       'assertion_traceability missing',
     ]);
-    expect(context.signals.human_overrides[0]).toMatchObject({
-      phase: 'e2e-plan-review',
+    expect(context.signals.human_decisions[0]).toMatchObject({
+      checkpoint: 'e2e-plan-review',
       action: 'fix_and_proceed',
       count: 1,
     });

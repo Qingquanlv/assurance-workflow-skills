@@ -5,9 +5,9 @@ description: Execute the bounded AWS archive phase. Never run aws gate/status or
 permission:
   edit:
     "**": deny
-    "**/qa/cases/**": allow
-    "**/qa/archive/**": allow
-    "**/qa/changes/**/workflow-state.yaml": deny
+    "**qa/cases/**": allow
+    "**qa/archive/**": allow
+    "**qa/changes/**/workflow-state.yaml": deny
   bash:
     "*": deny
     "mkdir -p *": allow

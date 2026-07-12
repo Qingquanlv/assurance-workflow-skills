@@ -1,7 +1,8 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import type { DatasetSample, SampleScore } from '../types';
+import { deriveHealingState } from '../../core/healing_state';
 import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,
@@ -32,19 +33,60 @@ export function scoreWallTimeSeconds(attemptDir: string): number {
   return ms / 1000;
 }
 
-export function scoreHealingTriggeredRate(rawOutputDir: string): number {
-  const statePath = path.join(rawOutputDir, 'workflow-state.yaml');
-  if (!fs.existsSync(statePath)) return 0;
+function archivedChangeId(rawOutputDir: string): string {
+  const manifestPath = path.join(rawOutputDir, 'archive-manifest.json');
+  if (!fs.existsSync(manifestPath)) return 'eval-change';
   try {
-    const state = yaml.load(fs.readFileSync(statePath, 'utf8')) as {
-      phases?: { healing?: { status?: string; attempts?: unknown[] } };
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+      change_id?: unknown;
     };
-    const healing = state.phases?.healing;
-    if (!healing) return 0;
-    const status = (healing.status ?? '').toLowerCase();
-    if (status === 'skipped' || status === 'pending' || status === '') return 0;
-    if (Array.isArray(healing.attempts) && healing.attempts.length > 0) return 1;
-    return status === 'done' || status === 'in_progress' || status === 'pass' ? 1 : 0;
+    return typeof manifest.change_id === 'string' && manifest.change_id
+      ? manifest.change_id
+      : 'eval-change';
+  } catch {
+    return 'eval-change';
+  }
+}
+
+/**
+ * Mount a flat change-dir archive (eval raw-output) so deriveHealingState can
+ * read events + healing artifacts instead of stale workflow-state.yaml fields.
+ */
+function withMountedChangeArchive<T>(
+  rawOutputDir: string,
+  fn: (projectRoot: string, changeId: string) => T,
+): T {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-eval-heal-'));
+  const changeId = archivedChangeId(rawOutputDir);
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  try {
+    fs.mkdirSync(path.dirname(changeDir), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
+    try {
+      fs.symlinkSync(path.resolve(rawOutputDir), changeDir, 'dir');
+    } catch {
+      fs.cpSync(path.resolve(rawOutputDir), changeDir, { recursive: true });
+    }
+    return fn(projectRoot, changeId);
+  } finally {
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 1 when the change entered healing beyond idle states; 0 otherwise.
+ * Uses evidence-derived healing state (events + artifacts), not YAML status.
+ */
+export function scoreHealingTriggeredRate(rawOutputDir: string): number {
+  if (!fs.existsSync(rawOutputDir)) return 0;
+  try {
+    return withMountedChangeArchive(rawOutputDir, (projectRoot, changeId) => {
+      const derived = deriveHealingState(projectRoot, changeId);
+      if (derived.attempts_used > 0) return 1;
+      const status = derived.status;
+      if (status === 'pending' || status === 'skipped' || status === 'not_needed') return 0;
+      return 1;
+    });
   } catch {
     return 0;
   }

@@ -36,6 +36,38 @@ describe('classifyFailure', () => {
     expect(r.fixProposalEligible).toBe(true);
   });
 
+  it('classifies documented anomaly IDs as known_product_issue before test-data heuristics', () => {
+    const r = classifyFailure({
+      message: 'AssertionError: expected controlled duplicate-name error',
+      logExcerpt: [
+        'EXPECTED-PRODUCT-FAIL — ANOMALY-003 from facts/fact-baseline.json:',
+        'backend does not translate ORM IntegrityError on duplicate Dept.name into 4xx;',
+        'second create may return HTTP 500.',
+      ].join('\n'),
+      target: 'api',
+      hasTrace: false,
+      hasScreenshot: false,
+    });
+
+    expect(r.category).toBe('known_product_issue');
+    expect(r.fixProposalEligible).toBe(false);
+    expect(r.needsReview).toBe(false);
+  });
+
+  it('does not treat a bare anomaly-N token as a known product issue', () => {
+    const r = classifyFailure({
+      message: 'AssertionError: expected 200, got 404',
+      logExcerpt: 'case anomaly-42: response status did not match',
+      target: 'api',
+      hasTrace: false,
+      hasScreenshot: false,
+    });
+
+    // Falls through to the normal heuristics (assertion text → assertion_failure)
+    // instead of being silently routed to the known-product-issue bucket.
+    expect(r.category).toBe('assertion_failure');
+  });
+
   it('marks environment_failure as not allowed for fix proposal', () => {
     const r = classifyFailure({ message: 'Service Unavailable: 503', logExcerpt: '', target: 'e2e', hasTrace: false, hasScreenshot: false });
     expect(r.category).toBe('environment_failure');

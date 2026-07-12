@@ -1,8 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { readEvents, GateVerdictEvent, QaEvent } from './events';
+import * as yaml from 'js-yaml';
+import { readEvents, GateVerdictEvent, HumanDecisionEvent, QaEvent } from './events';
 import { sha256File } from './hash';
 import { isAuditedGateRead } from './audit_scope';
+import { resolveDecisionSupport } from './decision_support';
 import type { Schema, PhaseDef } from '../orchestration/schema';
 import type { PhaseStatus, StatusReport, Terminal } from '../orchestration/engine';
 
@@ -16,21 +18,29 @@ export interface AuditResult {
   issues: AuditIssue[];
 }
 
-const DOWNSTREAM_HEALING_ARTIFACTS = [
-  'healing/api-apply-summary.json',
-  'healing/e2e-apply-summary.json',
-  'healing/fixer-safety-check.json',
-];
+const SKILL_LOAD_EXEMPT_PHASES = new Set([
+  'skill_registry_check',
+  'layers',
+  'execution',
+  'healing-rerun',
+  'healing_rerun',
+]);
 
-// Statuses that are acceptable once healing downstream artifacts already exist
-// (i.e. the loop has started and produced apply-summaries / a rerun).
-const HEALING_OK_STATUSES = new Set(['applied', 'resolved', 'exhausted', 'failed']);
-
-// Terminal healing statuses that are acceptable once the run has reached report
-// or completion. `pending` (never started), `applied` and `proposal_created`
-// (mid-loop) are NOT acceptable resting states: the healing decision must be
-// recorded via `aws state heal` before report, never left dangling.
-const HEALING_RESTING_OK = new Set(['not_needed', 'skipped', 'resolved', 'exhausted', 'failed']);
+const TERMINAL_SKILL_STATUSES = new Set([
+  'done',
+  'pass',
+  'needs_fix',
+  'needs_human_review',
+  'reject',
+  'failed',
+  'partial',
+  'unavailable',
+  'stopped',
+  'proposal_created',
+  'applied',
+  'resolved',
+  'exhausted',
+]);
 
 export function runStatusAudits(
   projectRoot: string,
@@ -40,7 +50,7 @@ export function runStatusAudits(
 ): AuditResult {
   const issues: AuditIssue[] = [];
   issues.push(...auditGateTampering(projectRoot, changeId, report, schema));
-  issues.push(...auditHealingConsistency(projectRoot, changeId, report));
+  issues.push(...auditSkillLoadGate(projectRoot, changeId));
   issues.push(...auditVerdictTransitions(projectRoot, changeId, schema));
   issues.push(...auditReclassificationEvents(projectRoot, changeId));
   return { issues };
@@ -78,7 +88,7 @@ function auditGateTampering(
   const issues: AuditIssue[] = [];
   const events = readEvents(projectRoot, changeId);
   const lastVerdictByGate = latestGateVerdicts(events);
-  issues.push(...auditHumanOverrideEvidence(projectRoot, changeId, events));
+  issues.push(...auditHumanDecisionEvidence(projectRoot, changeId, events));
 
   for (const phase of report.phases) {
     if (phase.status !== 'done' && phase.status !== 'stopped') continue;
@@ -107,70 +117,71 @@ function auditGateTampering(
   return issues;
 }
 
-function auditHumanOverrideEvidence(
+function auditSkillLoadGate(projectRoot: string, changeId: string): AuditIssue[] {
+  const issues: AuditIssue[] = [];
+  const statePath = path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
+  if (!fs.existsSync(statePath)) return issues;
+
+  let state: unknown;
+  try {
+    state = yaml.load(fs.readFileSync(statePath, 'utf-8'));
+  } catch {
+    return issues;
+  }
+  if (!isRecord(state) || !isRecord(state.phases)) return issues;
+
+  for (const [phase, raw] of Object.entries(state.phases)) {
+    if (!isRecord(raw)) continue;
+    if (!phaseRequiresSkillLoad(phase, raw)) continue;
+    if (raw.skill_loaded === true) continue;
+    issues.push({
+      code: 'SKILL_LOAD_GATE_VIOLATION',
+      phase,
+      message:
+        `SKILL_LOAD_GATE_VIOLATION: phase ${phase} cannot be terminal because ` +
+        `skill_loaded is ${String(raw.skill_loaded)}; read the phase SKILL.md and ` +
+        `record skill_loaded=true via the orchestrator/CLI before completion.`,
+    });
+  }
+
+  return issues;
+}
+
+function phaseRequiresSkillLoad(phase: string, state: Record<string, unknown>): boolean {
+  if (SKILL_LOAD_EXEMPT_PHASES.has(phase)) return false;
+  const status = firstString(state.status);
+  if (!status) return false;
+  if (phase === 'healing' && (status === 'not_needed' || status === 'skipped' || status === 'pending')) {
+    return false;
+  }
+  // The workflow's archive eligibility recommendation is evaluated by the
+  // orchestrator without loading aws-archive; the real archive skill runs only
+  // on an explicit archive command.
+  if (phase === 'archive' && (status === 'eligible' || status === 'not_eligible' || status === 'skipped')) {
+    return false;
+  }
+  return TERMINAL_SKILL_STATUSES.has(status);
+}
+
+function auditHumanDecisionEvidence(
   projectRoot: string,
   changeId: string,
   events: QaEvent[],
 ): AuditIssue[] {
   const issues: AuditIssue[] = [];
   for (const event of events) {
-    if (event.type !== 'human_override') continue;
+    if (event.type !== 'human_decision') continue;
     if (!event.evidence_file || !event.evidence_sha256) continue;
     const abs = resolveChangePath(projectRoot, changeId, event.evidence_file);
     const current = sha256File(abs);
     if (current && current !== event.evidence_sha256) {
       issues.push({
         code: 'ARTIFACT-TAMPERED',
-        phase: event.phase,
-        message: `ARTIFACT-TAMPERED: ${event.phase} ${event.evidence_file}`,
+        phase: event.checkpoint,
+        message: `ARTIFACT-TAMPERED: ${event.checkpoint} ${event.evidence_file}`,
       });
     }
   }
-  return issues;
-}
-
-function auditHealingConsistency(
-  projectRoot: string,
-  changeId: string,
-  report: StatusReport,
-): AuditIssue[] {
-  const issues: AuditIssue[] = [];
-  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
-  const hasArtifact = DOWNSTREAM_HEALING_ARTIFACTS.some(p => fs.existsSync(path.join(changeDir, p)));
-  const hasRerunEvent = readEvents(projectRoot, changeId).some(
-    e => e.type === 'phase_transition' && e.phase === 'healing-rerun',
-  );
-  const healingStatus = report.healing.status;
-
-  // (1) Healing loop has produced downstream artifacts / a rerun, but the
-  // CLI-authoritative status was never advanced past its starting point.
-  if ((hasArtifact || hasRerunEvent) && !HEALING_OK_STATUSES.has(healingStatus)) {
-    issues.push({
-      code: 'HEAL-STATE-INCONSISTENT',
-      phase: 'healing',
-      message: `HEAL-STATE-INCONSISTENT: healing downstream artifacts exist but healing.status=${healingStatus}`,
-    });
-  }
-
-  // (2) The run reached report / completion after a real inspect, but the
-  // healing decision was never recorded. `pending` means "should heal but never
-  // started"; leaving it at rest (report done or terminal completed) is illegal.
-  // If healing is genuinely not required, the orchestrator MUST record it via
-  // `aws state heal --to not_needed|skipped` — not leave it pending.
-  const inspectDone = report.phases.some(p => p.id === 'inspect' && p.status === 'done');
-  const reportDone = report.phases.some(p => p.id === 'report' && p.status === 'done');
-  const completed = report.terminal?.kind === 'completed';
-  if (inspectDone && (reportDone || completed) && !HEALING_RESTING_OK.has(healingStatus)) {
-    issues.push({
-      code: 'HEAL-STATE-INCONSISTENT',
-      phase: 'healing',
-      message:
-        `HEAL-STATE-INCONSISTENT: inspect completed and the run reached report/terminal, but ` +
-        `healing.status=${healingStatus}. The healing decision must be recorded via 'aws state heal' ` +
-        `(not left pending): run the healing loop, or set 'not_needed'/'skipped' if healing is not required.`,
-    });
-  }
-
   return issues;
 }
 
@@ -224,6 +235,16 @@ function auditVerdictTransitions(
     for (let i = 1; i < verdicts.length; i++) {
       const prev = verdicts[i - 1];
       const next = verdicts[i];
+      // A review can re-check several times during one needs_fix episode
+      // (verdict stays needs_fix across attempts). The repair evidence may land
+      // during an *earlier* attempt of the same episode, so scan for it from the
+      // start of the current needs_fix streak, not just the immediately prior
+      // verdict. Otherwise a legit multi-attempt fix (needs_fix → fix →
+      // needs_fix → pass) is flagged as an illegal needs_fix→pass.
+      let streakStart = i - 1;
+      while (streakStart > 0 && verdicts[streakStart - 1].verdict === prev.verdict) {
+        streakStart--;
+      }
       const issue = checkVerdictMigration(
         events,
         schema,
@@ -231,6 +252,7 @@ function auditVerdictTransitions(
         prev,
         next,
         repairByReviewPhase,
+        verdicts[streakStart].seq,
       );
       if (issue) issues.push(issue);
     }
@@ -246,6 +268,7 @@ function checkVerdictMigration(
   prev: GateVerdictEvent,
   next: GateVerdictEvent,
   repairByReviewPhase: Map<string, string>,
+  repairSinceSeq: number = prev.seq,
 ): AuditIssue | null {
   const from = prev.verdict;
   const to = next.verdict;
@@ -257,13 +280,28 @@ function checkVerdictMigration(
     };
   }
 
-  const between = events.filter(e => e.seq > prev.seq && e.seq < next.seq);
+  // Repair/override evidence is searched from the start of the needs_fix streak
+  // (repairSinceSeq) so multi-attempt fixes count. Content-change checks for
+  // pass→pass use the immediately adjacent window (prev.seq) to stay strict.
+  const betweenRepair = events.filter(e => e.seq > repairSinceSeq && e.seq < next.seq);
+  const betweenAdjacent = events.filter(e => e.seq > prev.seq && e.seq < next.seq);
   const reviewPhase = findReviewPhaseForGate(schema, gateId);
   const repairPhase = reviewPhase ? repairByReviewPhase.get(reviewPhase) : undefined;
+  // A repair phase whose status is already `done` from an earlier attempt in
+  // the same needs_fix streak produces no fresh `phase_transition ... to=done`
+  // on a later re-dispatch (no-op transition) — so also accept a
+  // `phase_dispatched` driver event for the repair phase as valid evidence.
+  // This keeps legitimate multi-attempt fixer loops (attempt 2, 3, ...) from
+  // being flagged GATE-TRANSITION-ILLEGAL just because the phase state didn't
+  // change on repeat attempts.
   const repairDone = repairPhase
-    ? between.some(e => e.type === 'phase_transition' && e.phase === repairPhase && e.to === 'done')
+    ? betweenRepair.some(e => (
+        (e.type === 'phase_transition' && e.phase === repairPhase && e.to === 'done')
+        || (e.type === 'phase_dispatched' && e.phase === repairPhase)
+      ))
     : false;
-  const overrideDone = between.some(e => e.type === 'human_override');
+  const latestDecision = latestMatchingGateDecision(betweenAdjacent, schema, gateId);
+  const acceptRiskDecision = isValidAcceptRiskDecision(latestDecision, schema, gateId, next);
 
   if (from === 'needs_fix' && to === 'pass' && !repairDone) {
     return {
@@ -272,7 +310,12 @@ function checkVerdictMigration(
     };
   }
 
-  if (from === 'needs_human_review' && to === 'pass' && (!overrideDone || !repairDone)) {
+  if (
+    from === 'needs_human_review'
+    && to === 'pass'
+    && !acceptRiskDecision
+    && !repairDone
+  ) {
     return {
       code: 'GATE-TRANSITION-ILLEGAL',
       message: `GATE-TRANSITION-ILLEGAL: ${gateId} needs_human_review→pass`,
@@ -283,11 +326,14 @@ function checkVerdictMigration(
     const prevHash = prev.reads_sha256 ?? {};
     const nextHash = next.reads_sha256 ?? {};
     const hashChanged = Object.keys(nextHash).some(k => prevHash[k] && nextHash[k] !== prevHash[k]);
-    const healingEvidenceRefresh = isSafetyGate(schema, gateId) && between.some(e =>
+    const repairDoneAdjacent = repairPhase
+      ? betweenAdjacent.some(e => e.type === 'phase_transition' && e.phase === repairPhase && e.to === 'done')
+      : false;
+    const healingEvidenceRefresh = isSafetyGate(schema, gateId) && betweenAdjacent.some(e =>
       (e.type === 'phase_transition' && (e.phase === 'healing-rerun' || e.phase === 'healing-reinspect')) ||
       e.type === 'execution_start',
     );
-    if (hashChanged && !repairDone && !healingEvidenceRefresh) {
+    if (hashChanged && !repairDoneAdjacent && !healingEvidenceRefresh) {
       return {
         code: 'GATE-TRANSITION-ILLEGAL',
         message: `GATE-TRANSITION-ILLEGAL: ${gateId} pass→pass (content changed)`,
@@ -296,6 +342,48 @@ function checkVerdictMigration(
   }
 
   return null;
+}
+
+function latestMatchingGateDecision(
+  events: QaEvent[],
+  schema: Schema,
+  gateId: string,
+): HumanDecisionEvent | null {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.source !== 'decide' || event.type !== 'human_decision') continue;
+    const phase = schema.phasesById.get(event.checkpoint);
+    if (event.checkpoint === gateId || phase?.gate === gateId) return event;
+  }
+  return null;
+}
+
+function isValidAcceptRiskDecision(
+  event: HumanDecisionEvent | null,
+  schema: Schema,
+  gateId: string,
+  next: GateVerdictEvent,
+): boolean {
+  if (
+    !event
+    || event.action !== 'accept_risk'
+    || typeof event.reason !== 'string'
+    || event.reason.trim() === ''
+    || typeof event.who !== 'string'
+    || event.who.trim() === ''
+    || !event.review_file
+    || !event.review_sha256
+  ) {
+    return false;
+  }
+  try {
+    const support = resolveDecisionSupport(schema, event.checkpoint, event.action);
+    if (support.consumer !== 'gate-decision' || support.gateId !== gateId) return false;
+  } catch {
+    return false;
+  }
+  const nextReads = next.reads_sha256;
+  return Boolean(nextReads && nextReads[event.review_file] === event.review_sha256);
 }
 
 function isSafetyGate(schema: Schema, gateId: string): boolean {

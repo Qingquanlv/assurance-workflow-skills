@@ -5,7 +5,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { InitAnswers } from '../core/types';
 import { generateProject, repairProject, registerOpenCode } from '../core/generator';
-import { copyAgentAssets, syncAgentAssets } from '../core/agents_assets';
+import { copyOpencodeAssets, syncOpencodeAssets } from '../core/agents_assets';
 import { logOk, logWarn, logError, logInfo, logBlank } from '../utils/logger';
 
 export function registerInitCommand(program: Command): void {
@@ -135,9 +135,11 @@ async function runInit(root: string): Promise<void> {
     logOk('updated: opencode.json (plugin entry added)');
   }
 
-  const agentRes = copyAgentAssets(root, packageRoot);
-  for (const f of agentRes.created) logOk(`created: ${f}`);
-  for (const f of agentRes.skipped) logWarn(`skipped (exists): ${f}`);
+  const assets = copyOpencodeAssets(root, packageRoot);
+  for (const f of assets.agents.created) logOk(`created: ${f}`);
+  for (const f of assets.agents.skipped) logWarn(`skipped (exists): ${f}`);
+  for (const f of assets.tools.created) logOk(`created: ${f}`);
+  for (const f of assets.tools.skipped) logWarn(`skipped (exists): ${f}`);
 
   logBlank();
   console.log(chalk.green.bold('AWS initialized successfully.'));
@@ -146,7 +148,8 @@ async function runInit(root: string): Promise<void> {
   logBlank();
   console.log(chalk.bold('OpenCode setup complete. Next steps:'));
   console.log('  1. Restart OpenCode');
-  console.log('  2. Start: ' + chalk.cyan('use skill aws-workflow'));
+  console.log('  2. Start intake: ' + chalk.cyan('use agent aws-intake-host') + ' / skill aws-intake');
+  console.log('  3. Or full driver: ' + chalk.cyan('aws workflow run --change <id> --scope full'));
 }
 
 async function runRepair(root: string): Promise<void> {
@@ -171,13 +174,16 @@ async function runRepair(root: string): Promise<void> {
     }
 
     const packageRoot = path.resolve(__dirname, '../../');
-    const agentRes = syncAgentAssets(root, packageRoot);
-    for (const f of agentRes.created) logOk(`created: ${f}`);
-    for (const f of agentRes.updated) logOk(`updated: ${f}`);
-    for (const f of agentRes.unchanged) logInfo(`unchanged: ${f}`);
+    const assets = syncOpencodeAssets(root, packageRoot);
+    for (const f of [...assets.agents.created, ...assets.tools.created]) logOk(`created: ${f}`);
+    for (const f of [...assets.agents.updated, ...assets.tools.updated]) logOk(`updated: ${f}`);
+    for (const f of [...assets.agents.unchanged, ...assets.tools.unchanged]) logInfo(`unchanged: ${f}`);
 
     logBlank();
     console.log(chalk.green.bold('Repair complete.'));
+    if (assets.agents.updated.length > 0 || assets.tools.updated.length > 0) {
+      logWarn('OpenCode assets updated — restart OpenCode to pick up agents/tools.');
+    }
   } catch (err) {
     logError((err as Error).message);
     process.exit(1);

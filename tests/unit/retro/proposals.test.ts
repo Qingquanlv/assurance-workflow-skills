@@ -24,7 +24,7 @@ const context: RetroContext = {
       no_op_rate: 0,
       evidence_ids: [],
     },
-    human_overrides: [],
+    human_decisions: [],
     reclassifications: [],
     skill_execution: [],
     eval_trend: [],

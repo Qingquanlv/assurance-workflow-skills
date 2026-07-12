@@ -103,8 +103,8 @@ export interface HealingEfficiencySignal {
   evidence_ids: EvidenceId[];
 }
 
-export interface HumanOverrideSignal extends CountedSignal {
-  phase: string;
+export interface HumanDecisionSignal extends CountedSignal {
+  checkpoint: string;
   action: string;
   reason_summary: string;
 }
@@ -131,7 +131,7 @@ export interface RetroSignalSet {
   failure_distribution: FailureDistributionSignal[];
   gate_pushback: GatePushbackSignal[];
   healing_efficiency: HealingEfficiencySignal;
-  human_overrides: HumanOverrideSignal[];
+  human_decisions: HumanDecisionSignal[];
   reclassifications: ReclassificationSignal[];
   skill_execution: SkillExecutionSignal[];
   eval_trend: EvalTrendSignal[];

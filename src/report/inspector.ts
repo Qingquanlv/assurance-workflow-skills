@@ -474,16 +474,32 @@ function extractLogExcerpt(logPath: string, testName: string): string {
   try {
     const content = fs.readFileSync(logPath, 'utf-8');
     const lines = content.split('\n');
-    // Find the block around the test name
-    const idx = lines.findIndex(l => l.includes(testName));
+    // Pytest logs list failed tests in the progress summary before the
+    // "FAILURES" section. Prefer the concrete failure block so each case gets
+    // its own stack/excerpt instead of inheriting the first summary hit.
+    const failureMarker = lines.findIndex(l => /FAILURES/.test(l));
+    const blockIdx = failureMarker >= 0
+      ? lines.findIndex((l, i) => i > failureMarker && l.includes(testName))
+      : -1;
+    const idx = blockIdx >= 0 ? blockIdx : lines.findIndex(l => l.includes(testName));
     const excerpt =
       idx === -1
         ? lines.slice(-20).join('\n')
-        : lines.slice(Math.max(0, idx - 2), idx + 15).join('\n');
+        : lines.slice(Math.max(0, idx - 2), endOfFailureBlock(lines, idx)).join('\n');
     return sanitizeSecrets(excerpt);
   } catch {
     return '';
   }
+}
+
+function endOfFailureBlock(lines: string[], startIdx: number): number {
+  const nextHeader = lines.findIndex((line, i) => i > startIdx && isPytestFailureHeader(line));
+  if (nextHeader >= 0) return nextHeader;
+  return Math.min(lines.length, startIdx + 60);
+}
+
+function isPytestFailureHeader(line: string): boolean {
+  return /^_+\s+\S.*\s+_+$/.test(line);
 }
 
 function resolveArtifact(existing: string, dir: string, caseId: string, ext: string): string {
@@ -510,6 +526,8 @@ function buildDiagnosis(message: string, category: string): string {
       return `Test data or fixture not available. ${first}`.trim();
     case 'business_logic_failure':
       return `Server returned an error suggesting a product-level issue. ${first}`.trim();
+    case 'known_product_issue':
+      return `Known product issue matched from failure evidence. ${first}`.trim();
     case 'fuzz_configuration_error':
       return `Fuzz setup/config error (schema fetch, auth, or generation health check). Not a product bug. ${first}`.trim();
     case 'fuzz_stateful_failure':
@@ -537,6 +555,8 @@ function buildRecommendedAction(category: string, changeId: string): string {
       return `Review test fixtures and seed data. A Fix Proposal may be generated with manual review.`;
     case 'business_logic_failure':
       return 'File a bug against the product team. This is not a test issue.';
+    case 'known_product_issue':
+      return 'Known product issue already documented in the case/fact baseline. Do not generate a test fix proposal; route to product/developer fix tracking.';
     case 'fuzz_configuration_error':
       return 'Manual review required: fuzz/performance files are not supported by the healing auto-fix loop. If this is a fuzz harness issue, create a separate test-maintenance change or use an explicit human-approved test-change override; do not generate an API/E2E Fix Proposal.';
     case 'fuzz_stateful_failure':

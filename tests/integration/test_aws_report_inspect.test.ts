@@ -53,6 +53,49 @@ describe('aws report inspect integration', () => {
     expect(result.analysis.failures[0].case_id).toBe('TC-C-001');
   });
 
+  it('extracts the matching e2e failure block instead of the pytest summary line', () => {
+    const execDir = makeExecDir(projectRoot, changeId);
+    const rawLog = path.join(execDir, 'raw', 'e2e.log');
+    const e2eResult: E2eResult = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'test-batch',
+      target: 'e2e',
+      status: 'failed',
+      command: 'pytest tests/e2e',
+      source: { framework: 'pytest-playwright', raw_log: rawLog, json_report: '', html_report: '' },
+      total: 2,
+      passed: 0,
+      failed: 2,
+      skipped: 0,
+      cases: [
+        { case_id: 'TC-E2E-001', status: 'failed', file: 'tests/e2e/test_users.py', test_name: 'test_alpha_flow[chromium]', duration_ms: 1000, message: 'Locator not found', trace: '', screenshot: '', video: '' },
+        { case_id: 'TC-E2E-002', status: 'failed', file: 'tests/e2e/test_users.py', test_name: 'test_beta_flow[chromium]', duration_ms: 1000, message: 'TimeoutError: timed out waiting for beta toast', trace: '', screenshot: '', video: '' },
+      ],
+      unmapped_tests: [],
+    };
+    fs.writeFileSync(path.join(execDir, 'e2e-result.json'), JSON.stringify(e2eResult), 'utf-8');
+    fs.writeFileSync(rawLog, [
+      'tests/e2e/test_users.py::test_alpha_flow[chromium] FAILED [ 50%]',
+      'tests/e2e/test_users.py::test_beta_flow[chromium] FAILED [100%]',
+      '',
+      '=================================== FAILURES ===================================',
+      '________________________ test_alpha_flow[chromium] ________________________',
+      'E   AssertionError: alpha failed',
+      '',
+      '________________________ test_beta_flow[chromium] ________________________',
+      'E   TimeoutError: timed out waiting for beta toast',
+      'beta-specific detail',
+    ].join('\n'), 'utf-8');
+
+    const result = inspect({ changeId, projectRoot });
+    const beta = result.analysis.failures.find(f => f.case_id === 'TC-E2E-002');
+
+    expect(beta?.evidence.log_excerpt).toContain('test_beta_flow[chromium]');
+    expect(beta?.evidence.log_excerpt).toContain('beta-specific detail');
+    expect(beta?.evidence.log_excerpt).not.toContain('test_alpha_flow[chromium]');
+  });
+
   it('failure-analysis.json has required schema fields', () => {
     const execDir = makeExecDir(projectRoot, changeId);
     const apiResult: ApiResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'api', status: 'failed', command: 'pytest', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-D-001', status: 'failed', file: 'tests/api/test_d.py', test_name: 'TC-D-001 test_d', duration_ms: 50, message: 'AssertionError: expected 200, got 404', raw_log_ref: '' }], unmapped_tests: [] };
