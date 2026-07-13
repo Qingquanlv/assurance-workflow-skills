@@ -3,7 +3,11 @@ import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
 import { ArtifactValidationResult } from './types';
 import { validateCaseYaml } from './case_yaml';
+import { validateExecutionManifest } from './execution_manifest';
+import { validateFailureAnalysis } from './failure_analysis';
 import { validateQaYaml } from './qa_yaml';
+import { validateQualityGateResult } from './quality_gate_result';
+import { validateQualityReport } from './quality_report';
 
 export interface ArtifactSpec {
   artifact_type: string;
@@ -15,6 +19,10 @@ export interface ArtifactSpec {
 export const ARTIFACT_SPECS: ArtifactSpec[] = [
   { artifact_type: 'case_yaml', glob: 'cases/**/case.yaml', validate: validateCaseYaml },
   { artifact_type: 'qa_yaml', glob: '.qa.yaml', validate: validateQaYaml },
+  { artifact_type: 'execution_manifest', glob: 'execution/execution-manifest.yaml', validate: validateExecutionManifest },
+  { artifact_type: 'failure_analysis', glob: 'inspect/failure-analysis.json', validate: validateFailureAnalysis },
+  { artifact_type: 'quality_gate_result', glob: 'inspect/quality-gate-result.json', validate: validateQualityGateResult },
+  { artifact_type: 'quality_report', glob: 'report/quality-report.json', validate: validateQualityReport },
 ];
 
 export function resolveSpecs(relPath: string): ArtifactSpec[] {
