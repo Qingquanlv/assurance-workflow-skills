@@ -142,6 +142,24 @@ For each **not_eligible** failure, record it in the `not_eligible` array with a 
 
 ## fix-proposal.json Schema
 
+> **Schema source of truth:** the complete, enforced field contract for fix proposals
+> lives in `src/schema/fix_proposal.ts` (validated by `aws validate`). The example below is
+> illustrative only. After writing the proposal you MUST run:
+>
+> ```
+> aws validate --change <change-id> --artifact healing/fix-proposal.json
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
+Write valid JSON to:
+
+```text
+qa/changes/<change-id>/healing/fix-proposal.json
+```
+
+**Minimal top-level structure (illustrative — see `src/schema/fix_proposal.ts` for the full contract):**
+
 ```json
 {
   "schema_version": "1.0",
@@ -150,59 +168,13 @@ For each **not_eligible** failure, record it in the `not_eligible` array with a 
   "source_batch_id": "<exact batch_id from failure-analysis.json and latest execution-manifest.yaml>",
   "source_analysis_sha256": "<SHA256 of the exact current inspect/failure-analysis.json bytes>",
   "created_at": "YYYY-MM-DDTHH:mm:ssZ",
-  "summary": {
-    "eligible_count": 0,
-    "not_eligible_count": 0,
-    "targets": {
-      "api": 0,
-      "e2e": 0
-    }
-  },
-  "proposals": [
-    {
-      "proposal_id": "FIX-001",
-      "failure_ids": ["FAIL-001"],
-      "target": "api|e2e",
-      "category": "locator_failure|wait_strategy_failure|test_code_error|test_data_failure",
-      "eligible": true,
-      "risk_level": "low|medium|high",
-      "reason": "description of why this is eligible",
-      "files_to_modify": ["tests/e2e/test_<module>_e2e.py"],
-      "forbidden_files": ["app/**", "web/**", "src/**"],
-      "allowed_operations": ["replace_locator", "fix_wait_strategy", "fix_api_call"],
-      "forbidden_operations": [
-        "modify_product_code",
-        "change_assertion_expected_values",
-        "hide_known_product_issue",
-        "delete_test_case_without_review"
-      ],
-      "patch_plan": [
-        {
-          "file": "tests/e2e/test_<module>_e2e.py",
-          "operation": "replace|insert|refactor|add_helper",
-          "description": "Concrete description of the change needed",
-          "constraints": ["must not weaken assertions", "must not delete test"]
-        }
-      ],
-      "verification": {
-        "rerun_required": true,
-        "command": "aws run --change <change-id>",
-        "expected_effect": "test passes with the fix applied",
-        "success_case_ids": ["TC_MODULE_020"]
-      }
-    }
-  ],
-  "not_eligible": [
-    {
-      "failure_id": "FAIL-002",
-      "target": "api|e2e|fuzz|performance",
-      "category": "assertion_failure",
-      "reason": "Assertion failure may reflect real product behavior change; cannot fix without human review",
-      "recommended_next_action": "developer_fix_required|manual_investigation|environment_fix_required|separate_change_required"
-    }
-  ]
+  "summary": { "eligible_count": 0, "not_eligible_count": 0, "targets": { "api": 0, "e2e": 0 } },
+  "proposals": [],
+  "not_eligible": []
 }
 ```
+
+Each eligible `proposals[]` entry must include `proposal_id`, `failure_ids`, `target`, `category`, `eligible`, `risk_level`, `files_to_modify`, `forbidden_files`, `allowed_operations`, `forbidden_operations`, `patch_plan`, and `verification` with `rerun_required: true`.
 
 ---
 

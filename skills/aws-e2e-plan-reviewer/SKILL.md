@@ -475,13 +475,23 @@ Not auto-fixable:
 
 ## Required JSON Format
 
+> **Schema source of truth:** the complete, enforced field contract for review gate JSON
+> lives in `src/schema/review.ts` (validated by `aws validate`). The example below is
+> illustrative only. After writing review files you MUST run:
+>
+> ```
+> aws validate --change <change-id> --artifact review/plan-review.json
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
 Write valid JSON to:
 
 ```text
 qa/changes/<change-id>/review/plan-review.json
 ```
 
-Use this exact top-level structure (no comments in the actual file):
+**Minimal top-level structure (illustrative — see `src/schema/review.ts` for the full contract):**
 
 ```json
 {
@@ -517,58 +527,6 @@ Field constraints (documented here — do **not** embed as JSON comments):
 - `qa/changes/<change-id>/plans/m4-review-summary.md`
 - `qa/changes/<change-id>/plans/data-knowledge.proposal.yaml` (if present)
 - `.aws/data-knowledge.yaml` (if read for capability validation)
-
-Each finding must use:
-
-```json
-{
-  "id": "PLAN-FINDING-001",
-  "severity": "low|medium|high|critical",
-  "category": "coverage|flow|data|auth|route|selector|assertion|fixture|codegen|execution|knowledge",
-  "file": "qa/changes/<change-id>/plans/...",
-  "message": "What is wrong.",
-  "suggestion": "How to fix it.",
-  "auto_fix_allowed": true,
-  "human_review_required": false
-}
-```
-
-Each blocker must use:
-
-```json
-{
-  "id": "PLAN-BLOCKER-001",
-  "severity": "high|critical",
-  "file": "qa/changes/<change-id>/plans/...",
-  "message": "Why codegen cannot continue.",
-  "required_action": "What must be clarified or fixed."
-}
-```
-
-Each `auto_fix_plan` item must use:
-
-```json
-{
-  "finding_id": "PLAN-FINDING-001",
-  "target_file": "qa/changes/<change-id>/plans/...",
-  "operation": "edit|append|normalize|add_todo|move_section",
-  "description": "What the fixer should do."
-}
-```
-
-Each `needs_review` item must use:
-
-```json
-{
-  "id": "E2E-PLAN-REVIEW-001",
-  "severity": "medium|high|critical",
-  "category": "route|selector|auth|data|fixture|scope|flow|knowledge",
-  "file": "qa/changes/<change-id>/plans/...",
-  "question": "What needs human clarification?",
-  "reason": "Why this cannot be decided from files.",
-  "blocking": true
-}
-```
 
 Set `blocking: true` when route, selector, auth state, setup capability, cleanup, expected UI copy, or scope must be confirmed before codegen. Set `blocking: false` only for non-blocking clarifications that do not affect gate safety.
 

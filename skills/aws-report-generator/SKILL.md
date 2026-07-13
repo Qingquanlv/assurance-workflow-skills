@@ -100,9 +100,19 @@ quality_score = round(sum of active dimension points)
 
 ## Output Files (read after CLI completes)
 
+> **Schema source of truth:** the complete, enforced field contract for quality reports
+> lives in `src/schema/quality_report.ts` (validated by `aws validate`). After report
+> generation completes you MUST run:
+>
+> ```
+> aws validate --change <change-id> --phase report
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
 ```
 qa/changes/<change-id>/report/
-├── quality-report.json     ← structured (CLI-written, deterministic)
+├── quality-report.json     ← structured (CLI-written, deterministic; see src/schema/quality_report.ts)
 ├── quality-report.md       ← full report (CLI-written)
 ├── executive-summary.md    ← one-page conclusion (CLI-written)
 └── minimum-coverage-result.json ← MRC mapped/executed/verified status when advisory MRC exists
