@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const workflowStateSchema = z.object({
   schema_version: z.string().optional(),
-  params: z.record(z.string(), z.any()),
-  phases: z.record(z.string(), z.any()),
+  params: z.record(z.string(), z.any()).optional(),
+  phases: z.record(z.string(), z.any()).optional(),
 }).passthrough();
 
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
