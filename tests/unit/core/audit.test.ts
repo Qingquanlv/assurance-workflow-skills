@@ -606,6 +606,50 @@ describe('status audits', () => {
     expect(adjusted.terminal?.kind).toBe('stopped');
   });
 
+  it('does not flag ARTIFACT-TAMPERED while last gate verdict is needs_fix (re-review window)', () => {
+    // Incident replay: concurrent aws status saw decision=pass on disk while the
+    // latest recorded gate_verdict was still needs_fix (reviewer had rewritten
+    // the file; driver had not yet gate-checked the new SHA).
+    fs.mkdirSync(path.join(changeDir(projectRoot), 'review'), { recursive: true });
+    fs.writeFileSync(
+      path.join(changeDir(projectRoot), 'review', 'case-review.json'),
+      JSON.stringify({
+        decision: 'pass',
+        human_review_required: false,
+        auto_fix_allowed: false,
+      }),
+      'utf-8',
+    );
+
+    appendEvents(projectRoot, changeId, [{
+      source: 'gate',
+      type: 'gate_verdict',
+      phase: 'case-review',
+      gate: 'case-review-gate',
+      verdict: 'needs_fix',
+      blocks: 0,
+      evidence: { decision: 'needs_fix' },
+      reads_sha256: { 'review/case-review.json': 'old-needs-fix-sha' },
+    }]);
+
+    const schema = loadSchemaFromFile(schemaFile(projectRoot));
+    let report = computeStatus({ schema, projectRoot, changeId });
+    // File says pass → status may already derive done; force it if schema deps block.
+    if (report.phases.find(p => p.id === 'case-review')?.status !== 'done') {
+      report = {
+        ...report,
+        phases: report.phases.map(p =>
+          p.id === 'case-review' ? { ...p, status: 'done', gate_verdict: 'pass' } : p,
+        ),
+      };
+    }
+
+    const audit = runStatusAudits(projectRoot, changeId, report, schema);
+    expect(audit.issues.some(i => i.code === 'ARTIFACT-TAMPERED')).toBe(false);
+    const adjusted = applyAuditsToReport(report, audit);
+    expect(adjusted.phases.find(p => p.id === 'case-review')?.status).not.toBe('tampered');
+  });
+
   it('flags ARTIFACT-TAMPERED when fixer safety check hash drifts', () => {
     fs.mkdirSync(path.join(changeDir(projectRoot), 'healing'), { recursive: true });
     fs.writeFileSync(

@@ -79,6 +79,14 @@ export function applyAuditsToReport(report: StatusReport, audit: AuditResult): S
   return { ...report, phases, terminal };
 }
 
+/** Verdicts that close a gate episode. Hash drift against these is real tamper. */
+const SETTLED_GATE_VERDICTS = new Set([
+  'pass',
+  'reject',
+  'needs_human_review',
+  'stop',
+]);
+
 function auditGateTampering(
   projectRoot: string,
   changeId: string,
@@ -99,6 +107,10 @@ function auditGateTampering(
 
     const verdictEvent = lastVerdictByGate.get(phase.gate);
     if (!verdictEvent?.reads_sha256) continue;
+    // During needs_fix the reviewer may rewrite the review JSON before the
+    // next gate check records the new SHA. Concurrent `aws status` must not
+    // treat that window as ARTIFACT-TAMPERED (TOCTOU false positive).
+    if (!SETTLED_GATE_VERDICTS.has(verdictEvent.verdict)) continue;
 
     for (const [relPath, recordedHash] of Object.entries(verdictEvent.reads_sha256)) {
       if (!isAuditedGateRead(relPath)) continue;

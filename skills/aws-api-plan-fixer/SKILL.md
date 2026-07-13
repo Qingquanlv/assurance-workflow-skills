@@ -195,7 +195,8 @@ Do not invent:
 - Business state transition
 - Product behavior
 - Endpoint coverage-gap documentation (`known-product-issues.md`)
-- **`tests/factories/` implementations** — fixer may only document in plan that codegen should add `make_*` in the appropriate `test_<module>_<library>.py` module; must not write factory code
+- **`tests/testdata/domain/` implementations** — fixer may only document a `create-if-missing` or `reuse` shared capability; it must not write factory code
+- **`tests/api/adapters/` implementations** — fixer may only repair the plan mapping/ownership text; it must not write adapter code
 
 Do not create or modify:
 

@@ -7,6 +7,13 @@ description: Use only after plan-review.json has decision == "pass" and codegen_
 
 Before producing output, check whether `.aws/memory/aws-e2e-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared business-valid builders live in `tests/testdata/domain/`; E2E-owned setup/cleanup transport and pytest wrappers live in `tests/e2e/adapters/`.
+- Sync Playwright code **must not import shared domain factories directly** and **must not call `asyncio.run()`** or another in-thread event-loop bridge.
+- Prefer an authenticated admin/test HTTP adapter. When direct project code is unavoidable, use an **isolated subprocess** worker with bounded timeout, plain JSON input/output, checked exit status, no inherited open handles, and cleanup through the same adapter.
+- Read `capabilities.domain_factories` and `capabilities.adapters.e2e`. Create a missing shared file only when marked `create-if-missing`; otherwise reuse it without modification.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -32,7 +39,7 @@ Do not rely on prior conversation context.
 1. Write generated test files per `e2e-codegen-plan.md` Target Files and **Generated File Policy**:
    - `tests/e2e/test_<module>_e2e.py` — required when mapped in plan
    - `tests/e2e/scripts/<module>_data_setup.py` — only when plan + data-knowledge authorize new script
-   - `tests/fixtures/**/*.py` — only when plan + data-knowledge authorize new fixture wrappers
+   - `tests/e2e/adapters/**/*.py` — only when plan + data-knowledge authorize E2E setup/cleanup adapters
    - `tests/e2e/conftest.py` — only if plan explicitly requires it (see **conftest.py Policy**)
    - `qa/changes/<change-id>/known-product-issues.md` — append implementation notes only when file already exists and reviewer acknowledged the issue (never first writer for coverage gaps)
    - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` (create `codegen/` directory if missing)
@@ -185,7 +192,7 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 
 - `tests/e2e/test_<module>_e2e.py` — test functions (required when mapped)
 - `tests/e2e/scripts/<module>_data_setup.py` — **only when** plan + data-knowledge authorize new setup script
-- `tests/fixtures/**/*.py` — **only when** plan + data-knowledge authorize new fixture wrappers
+- `tests/e2e/adapters/**/*.py` — **only when** plan + data-knowledge authorize E2E setup/cleanup adapters
 - `tests/e2e/conftest.py` — **only if** plan explicitly requires conftest changes (see below)
 - `qa/changes/<change-id>/codegen/e2e-codegen-summary.md` — always
 
@@ -193,7 +200,7 @@ If `codegen_readiness == "ready_with_warnings"` due to E2E workaround / coverage
 
 **pytest `fixture` vs factory pattern — do not confuse them:**
 
-- **pytest `fixture`** is the *injection mechanism*. The `tests/fixtures/` directory refers to this mechanism — do NOT rename or remove it.
+- **pytest `fixture`** is the injection mechanism. E2E-owned fixtures live with their transport in `tests/e2e/adapters/`.
 - **factory pattern** refers to how data is generated *inside* a fixture: return a callable factory rather than a static dict.
 
 Rules:
@@ -231,7 +238,7 @@ def entity_factory(api_client):
 不得生成：
 
 - `/tests/e2e/*.spec.ts`（不使用 TypeScript Playwright）
-- `/tests/fixtures/*.ts`
+- `/tests/e2e/adapters/*.ts`
 - `/tests/helpers/*`
 - `/tests/e2e/pages/*`
 - POM / Page Object Model
@@ -280,7 +287,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 9. 校验 route、natural steps、selector strategy（含 Source / Confidence）、assertion、fixture、auth、cleanup、data setup script 映射完整性。
 10. 根据 `e2e-codegen-plan.md` **Target Files** 生成或追加 `tests/e2e/test_<module>_e2e.py`。
 11. 仅当 plan + data-knowledge 授权且 Target Files 列出时，生成 `tests/e2e/scripts/<module>_data_setup.py`；若 capability 已存在，复用现有脚本/fixture，不新建文件。
-12. 仅当 plan + data-knowledge 授权且 Target Files 列出时，生成 `tests/fixtures/**/*.py`。
+12. 仅当 plan + data-knowledge 授权且 Target Files 列出时，生成 `tests/e2e/adapters/**/*.py`。
 12b. 仅当 plan 明确要求时，按 **conftest.py Policy** 更新 `tests/e2e/conftest.py`。
 13. **不执行 pytest** — 测试执行由 `aws-run` 负责（Phase 8）。
 14. 创建 `qa/changes/<change-id>/codegen/`（若不存在），写入 `codegen/e2e-codegen-summary.md`。
@@ -302,7 +309,7 @@ Update `tests/e2e/conftest.py` **only if** `e2e-codegen-plan.md` explicitly requ
 - [ ] 校验 route、selector（Source / Confidence）、data setup capability
 - [ ] 生成或追加 `tests/e2e/test_<module>_e2e.py`（仅 Target Files 授权）
 - [ ] 生成 `tests/e2e/scripts/<module>_data_setup.py`（仅 plan + data-knowledge 授权）
-- [ ] 生成 `tests/fixtures/**/*.py`（仅 plan + data-knowledge 授权）
+- [ ] 生成 `tests/e2e/adapters/**/*.py`（仅 plan + data-knowledge 授权）
 - [ ] 更新 `tests/e2e/conftest.py`（仅 plan 明确要求时）
 - [ ] 更新 `workflow-state.yaml`（`phases.e2e_codegen` 含 review_gate_file、codegen_readiness、data_setup、fixtures、warnings_carried、known_product_issues）
 - [ ] 创建 `codegen/` 目录（若不存在），写入 `e2e-codegen-summary.md`
@@ -341,7 +348,7 @@ Apply **conftest.py Policy** above.
 - fixture 不得隐藏业务失败。
 - fixture 不得硬编码真实账号、密码、Token。
 
-### tests/fixtures/**/*.py
+### tests/e2e/adapters/**/*.py
 
 Generate **only when**:
 
@@ -375,7 +382,7 @@ Do not create new business data factories or setup endpoints unless `.aws/data-k
 必须满足：
 
 - 用于构造 E2E 前置业务数据。
-- 优先通过 API / backend factory / seed 脚本构造数据。
+- 优先通过 E2E HTTP adapter 构造数据；必须调用共享 domain factory 时，只能由有超时和 JSON I/O 的 isolated subprocess adapter 执行。
 - 不得通过 UI 点击构造复杂业务数据，除非 plan 已明确批准。
 - 必须可重复执行。
 - 必须从环境变量或测试配置读取 baseURL、账号、密码、token。
@@ -427,12 +434,10 @@ E2E 前置数据必须优先通过脚本构造。
 
 推荐实现顺序：
 
-1. `tests/e2e/scripts/<module>_data_setup.py`
-2. API setup call
-3. backend factory / seed script
-4. Playwright request fixture
-5. shared fixture
-6. UI setup（仅作为最后 fallback，必须写入 flaky risk）
+1. `tests/e2e/adapters/<module>.py` authenticated admin/test HTTP transport
+2. `tests/e2e/adapters/<module>_worker.py` isolated subprocess transport when no safe HTTP setup exists
+3. Playwright request fixture wrapping the E2E adapter
+4. UI setup（仅作为最后 fallback，必须写入 flaky risk）
 
 脚本生成规则：
 

@@ -120,7 +120,8 @@ For any failure where `needs_review == true` (including `assertion_expectation_e
 tests/api/test_<module>_api.py
 tests/api/helpers/<module>_api.py
 tests/api/conftest.py
-tests/fixtures/**/*.py
+tests/api/adapters/**/*.py
+tests/testdata/domain/**/*.py
 ```
 
 **Allowed files (E2E target):**
@@ -129,7 +130,8 @@ tests/fixtures/**/*.py
 tests/e2e/test_<module>_e2e.py
 tests/e2e/scripts/<module>_data_setup.py
 tests/e2e/conftest.py
-tests/fixtures/**/*.py
+tests/e2e/adapters/**/*.py
+tests/testdata/domain/**/*.py
 ```
 
 There is deliberately no `fuzz` or `performance` target in this fixer. Do not generate proposals that modify `tests/fuzz/**` or `tests/perf/**`; those changes require a separate test-maintenance change or an explicit human-approved test-change override.

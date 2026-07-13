@@ -69,7 +69,8 @@ A file is eligible for modification only if **all three** conditions are satisfi
 tests/e2e/test_<module>_e2e.py
 tests/e2e/scripts/<module>_data_setup.py
 tests/e2e/conftest.py
-tests/fixtures/**/*.py
+tests/e2e/adapters/**/*.py
+tests/testdata/domain/**/*.py  # only when explicitly selected and trusted; preserve shared contract
 ```
 
 **Condition 2 — Proposal request:** the file appears in `fix-proposal.json.proposals[].files_to_modify`.

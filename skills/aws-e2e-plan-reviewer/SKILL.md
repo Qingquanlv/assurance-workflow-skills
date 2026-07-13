@@ -3,6 +3,13 @@ name: aws-e2e-plan-reviewer
 description: "Review AWS E2E planning artifacts before code generation. Use after aws-e2e-plan has generated test planning files. Read-only: writes plan-review.json and plan-review-summary.md, never modifies plan files."
 ---
 
+## Test Data Architecture Contract
+
+- Shared domain builders belong only in `tests/testdata/domain/`; E2E transport belongs only in `tests/e2e/adapters/`.
+- Require `capabilities.domain_factories` plus `capabilities.adapters.e2e`; reject API fixtures/adapters reused as E2E execution glue.
+- Reject direct async-domain imports from sync Playwright, any in-thread event-loop bridge, or subprocess setup without timeout, JSON/plain-data I/O, exit-code checking, and symmetric cleanup.
+- Conflicting shared-factory creators are `severity: high` and make codegen `not_ready`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

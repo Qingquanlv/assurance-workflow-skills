@@ -7,6 +7,12 @@ description: "AWS M3 Fuzz Stage 2: generate schemathesis fuzz tests from a revie
 
 Before producing output, check whether `.aws/memory/aws-fuzz-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared business-valid builders live in `tests/testdata/domain/`; fuzz state adapters live in `tests/fuzz/adapters/`; Hypothesis/Schemathesis value strategies live in `tests/fuzz/strategies/`.
+- Strategies must be pure value generation. Persistent setup/cleanup is owned by the fuzz adapter, which may call a shared factory through a project-confirmed async or process boundary.
+- Read `capabilities.domain_factories` and `capabilities.adapters.fuzz`; never import API/E2E adapters or their pytest fixtures. Shared files are create-if-missing, then immutable to later layers.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -30,6 +36,9 @@ Do not rely on prior conversation context.
 
 1. Write generated fuzz test files per `fuzz-codegen-plan.md` Target Files:
    - `tests/fuzz/test_<module>_fuzz.py` (required path — runner discovers `tests/fuzz/`)
+   - `tests/fuzz/strategies/<module>.py` (when the plan maps reusable value strategies)
+   - `tests/fuzz/adapters/<module>.py` (only for mapped stateful setup/cleanup)
+   - `tests/testdata/domain/<entity>.py` (only when absent and marked `create-if-missing`)
    - `qa/changes/<change-id>/codegen/fuzz-codegen-summary.md`
 2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - `phases.fuzz_codegen.status = done`
@@ -65,6 +74,8 @@ def test_tc_menu_fuzz_001__menu_create(case):
 - Use `from_asgi` (in-process) when the plan specifies it; otherwise `from_uri` against the live base URL.
 - Pass auth via the plan's strategy (reuse fixtures / data-knowledge). Never hardcode real tokens.
 - Output exactly to `tests/fuzz/test_<module>_fuzz.py` so the CLI runner discovers it.
+- Put reusable pure value generation in `tests/fuzz/strategies/`. Put persistent setup/cleanup in `tests/fuzz/adapters/`; never create state inside a Hypothesis strategy.
+- Never import `tests/api/adapters/` or `tests/e2e/adapters/`. Reuse shared domain code only through the mapped fuzz adapter.
 
 ## Test Failure Integrity
 

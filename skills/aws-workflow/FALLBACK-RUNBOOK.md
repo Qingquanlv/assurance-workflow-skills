@@ -2278,8 +2278,8 @@ Only files listed in `api-codegen-plan.md` Target Files (helpers / fixtures / co
 qa/changes/<change-id>/codegen/api-codegen-summary.md   ← always
 tests/api/test_<module>_api.py                          ← when mapped in Target Files
 tests/api/helpers/<module>_api.py                       ← only if plan helper mapping non-empty
-tests/factories/test_<module>_<library>.py              ← required before domain-data fixture wrappers
-tests/fixtures/<module>_fixtures.py                     ← wrapper-only; calls make_* from tests/factories
+tests/testdata/domain/<entity>.py                       ← shared factory; create-if-missing or reuse
+tests/api/adapters/<module>.py                          ← API-only pytest/transport adapter
 tests/api/conftest.py                                   ← only if plan explicitly requires
 ```
 
@@ -2295,7 +2295,7 @@ E2E framework: **Python Playwright** — default naming `tests/e2e/test_<module>
 qa/changes/<change-id>/codegen/e2e-codegen-summary.md   ← always
 tests/e2e/test_<module>_e2e.py                          ← when mapped in Target Files
 tests/e2e/scripts/<module>_data_setup.py                ← only if plan + data-knowledge authorize
-tests/fixtures/**/*.py                                  ← only if plan + data-knowledge authorize
+tests/e2e/adapters/**/*.py                              ← only if plan + data-knowledge authorize
 tests/e2e/conftest.py                                   ← only if plan explicitly requires
 ```
 
@@ -2614,7 +2614,7 @@ Read `review/api-plan-review.json` and verify:
 - no `needs_review` item has `blocking == true`
 - `.aws/data-knowledge.yaml` exists on disk
 - required plan files exist (`api-plan.md`, `api-test-data-plan.md`, `api-codegen-plan.md`, `m3-review-summary.md`)
-- generated fixtures follow **factory-first** rule in `aws-api-codegen` (no HTTP create in setup except create-focused cases; use `make_*` from `tests/factories/test_<module>_<library>.py` modules when present; cleanup preserves invariants and does not raw-delete M2M / closure / soft-delete entities)
+- generated setup follows the shared-domain plus API-adapter rule in `aws-api-codegen`; shared factories preserve invariants, adapters own execution/cleanup, and no adapter is reused across test layers
 
 ### E2E Codegen (Phase 6B)
 
@@ -3576,4 +3576,3 @@ completed_with_warnings        (workflow-level status)
 PASS_WITH_WARNINGS             (execution final_status)
 archive eligible with warnings (Phase 14 recommendation, not an executed archive status)
 ```
-

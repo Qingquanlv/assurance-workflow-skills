@@ -22,7 +22,9 @@ archive_status: archived | archived_with_warnings
 
 - `tests/api/{module}/test_{file}_api.py`
 - `tests/api/{module}/helpers/{file}_api.py`
-- `tests/fixtures/{module}_fixtures.py`
+- `tests/testdata/domain/{entity}.py`
+- `tests/api/adapters/{module}.py`
+- `tests/e2e/adapters/{module}.py`
 - `tests/e2e/test_{module}_e2e.py`
 
 ## Execution Results

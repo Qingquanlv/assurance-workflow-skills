@@ -121,6 +121,46 @@ describe('healing core regressions', () => {
     );
   });
 
+  it('ignores another layer adapter during API record-apply', () => {
+    const apiAdapter = path.join(projectRoot, 'tests', 'api', 'adapters', 'role.py');
+    const e2eAdapter = path.join(projectRoot, 'tests', 'e2e', 'adapters', 'role.py');
+    fs.mkdirSync(path.dirname(apiAdapter), { recursive: true });
+    fs.mkdirSync(path.dirname(e2eAdapter), { recursive: true });
+    fs.writeFileSync(apiAdapter, 'old\n');
+    fs.writeFileSync(e2eAdapter, 'old\n');
+    const baseline = hashTestTree(projectRoot);
+    writeManifest(projectRoot, {
+      batch_id: 'b1',
+      test_files_sha256: baseline.files,
+      tests_tree_sha256: baseline.aggregate,
+    });
+    writeAnalysis(projectRoot);
+    writeProposal(projectRoot, ['tests/api/adapters/role.py']);
+    fs.writeFileSync(apiAdapter, 'new\n');
+    fs.writeFileSync(e2eAdapter, 'new\n');
+
+    expect(recordApplySummary(projectRoot, changeId, 'api', ['FIX-API-001']).modifiedFiles)
+      .toEqual(['tests/api/adapters/role.py']);
+  });
+
+  it('allows an explicitly selected shared domain factory during API record-apply', () => {
+    const domainFactory = path.join(projectRoot, 'tests', 'testdata', 'domain', 'role.py');
+    fs.mkdirSync(path.dirname(domainFactory), { recursive: true });
+    fs.writeFileSync(domainFactory, 'old\n');
+    const baseline = hashTestTree(projectRoot);
+    writeManifest(projectRoot, {
+      batch_id: 'b1',
+      test_files_sha256: baseline.files,
+      tests_tree_sha256: baseline.aggregate,
+    });
+    writeAnalysis(projectRoot);
+    writeProposal(projectRoot, ['tests/testdata/domain/role.py']);
+    fs.writeFileSync(domainFactory, 'new\n');
+
+    expect(recordApplySummary(projectRoot, changeId, 'api', ['FIX-API-001']).modifiedFiles)
+      .toEqual(['tests/testdata/domain/role.py']);
+  });
+
   it('rejects record-apply when the proposal is not bound to the active analysis batch', () => {
     fs.mkdirSync(path.join(projectRoot, 'tests', 'api'), { recursive: true });
     fs.writeFileSync(path.join(projectRoot, 'tests', 'api', 'test.py'), 'old\n');

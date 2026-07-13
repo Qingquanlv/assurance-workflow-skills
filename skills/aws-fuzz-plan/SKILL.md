@@ -7,6 +7,12 @@ description: "AWS M3 Fuzz Stage 1: generate reviewable fuzz test plans from Fuzz
 
 Before producing output, check whether `.aws/memory/aws-fuzz-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared domain builders live in `tests/testdata/domain/`; fuzz execution adapters live in `tests/fuzz/adapters/`; generated-input strategies live in `tests/fuzz/strategies/`.
+- Strategies generate values only. Stateful setup/cleanup belongs to the fuzz adapter and maps through `capabilities.domain_factories` plus `capabilities.adapters.fuzz`.
+- Do not reuse API/E2E pytest fixtures as fuzz adapters. Shared files are `create-if-missing` for the first active layer and reuse-only thereafter.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -53,6 +59,7 @@ This skill does **not** generate test code and does **not** run pytest. It is St
 qa/changes/<change-id>/cases/**/case.yaml      (type == Fuzz)
 qa/changes/<change-id>/proposal.md
 .aws/config.yaml                               (fuzz settings, if present)
+.aws/data-knowledge.yaml                       (domain factory + fuzz adapter capabilities)
 ```
 
 Recommended (for schema source resolution):
@@ -76,9 +83,10 @@ For each Fuzz target, document:
 
 ### `plans/fuzz-codegen-plan.md`
 
-- **Target Files** — `tests/fuzz/test_<module>_fuzz.py` per module (this exact path so the runner can discover them)
+- **Target Files** — `tests/fuzz/test_<module>_fuzz.py`; `tests/fuzz/strategies/<module>.py` for reusable value generation; `tests/fuzz/adapters/<module>.py` only for stateful setup/cleanup; shared `tests/testdata/domain/<entity>.py` is marked `create-if-missing` or `reuse`
 - **Schema acquisition strategy** — `from_asgi` vs `from_uri`, app import path or base URL
 - **Auth strategy** — how authenticated endpoints receive a token (reuse existing fixtures/data-knowledge; never hardcode real tokens)
+- **Capability Mapping** — shared domain capability, fuzz adapter transport, cleanup, and strategy module; no API/E2E adapter reuse
 - **Generated File Policy** — append vs overwrite; do not clobber existing fuzz tests
 
 ### `plans/fuzz-review-summary.md`

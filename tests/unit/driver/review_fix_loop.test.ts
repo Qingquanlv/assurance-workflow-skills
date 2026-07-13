@@ -78,7 +78,8 @@ describe('review_fix_loop', () => {
     expect(calls.some(c => c.startsWith('state apply'))).toBe(false);
     expect(applies.map(apply => apply.phase)).toEqual(['api-plan-fix', 'api-plan-review']);
     expect(applies.every(apply => apply.skill?.endsWith('/SKILL.md'))).toBe(true);
-    expect(applies.every(apply => typeof apply.minMtimeMs === 'number')).toBe(true);
+    expect(applies[0].minMtimeMs).toBeUndefined();
+    expect(typeof applies[1].minMtimeMs).toBe('number');
   });
 
   it('exhausts when still needs_fix after max attempts', async () => {

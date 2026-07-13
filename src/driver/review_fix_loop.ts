@@ -81,20 +81,22 @@ export async function runReviewFixLoop(
     const fixerSession = await deps.adapter.createPhaseSession({
       title: `Phase ${routed.recommended_phase} attempt ${attempts}`,
     });
-    const fixerDispatchAt = Date.now();
     await deps.adapter.promptSync(fixerSession.id, {
       agent: fixerEntry.agent,
       text: buildPhasePrompt(fixerEntry.skill, routed.recommended_phase, deps.changeId),
     });
 
     try {
+      // Fixer skills rewrite plan/case artifacts / apply-summaries; they must NOT
+      // rewrite the review JSON produce (see aws-*-fixer: "Never write review
+      // JSON"). Enforce presence only here; freshness is checked on the
+      // subsequent reviewer re-apply after the review file is regenerated.
       (deps.applyPhase ?? applyPhaseState)(
         deps.projectRoot,
         deps.changeId,
         routed.recommended_phase,
         {
           skillMdPath: deps.skillMdPathFor?.(fixerEntry.skill),
-          minMtimeMs: fixerDispatchAt,
         },
       );
     } catch (err) {

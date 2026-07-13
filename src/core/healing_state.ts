@@ -362,11 +362,12 @@ export function recordApplySummary(
   const changed = diffTestFiles(manifest.test_files_sha256, hashTestTree(projectRoot).files);
   const changedPaths = changed.map(file => file.path);
   const modifiedFiles = changedPaths.filter(file => selectedFiles.has(file));
-  const unauthorized = changedPaths.filter(file => {
-    if (target === 'api' && !file.startsWith('tests/api/') && !file.startsWith('tests/fixtures/')) return false;
-    if (target === 'e2e' && !file.startsWith('tests/e2e/') && !file.startsWith('tests/fixtures/')) return false;
-    return !selectedFiles.has(file);
-  });
+  const ownedRoots = target === 'api'
+    ? ['tests/api/', 'tests/testdata/domain/']
+    : ['tests/e2e/', 'tests/testdata/domain/'];
+  const unauthorized = changedPaths.filter(file => (
+    ownedRoots.some(root => file.startsWith(root)) && !selectedFiles.has(file)
+  ));
   if (unauthorized.length > 0) {
     throw new Error(`record-apply found changed ${target} test files not authorized by selected proposals: ${unauthorized.join(', ')}`);
   }
