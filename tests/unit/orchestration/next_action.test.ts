@@ -24,13 +24,24 @@ function snapshot(partial: Partial<ProgressSnapshot['report']>): ProgressSnapsho
   };
 }
 
+function gateEvents(
+  phase: string,
+  verdict: string,
+  gate = 'review-gate',
+): Array<{ type: string; phase: string; verdict: string; gate: string }> {
+  return [
+    { type: 'gate_verdict', phase, verdict, gate },
+    { type: 'phase_outcome_committed', phase, attempt_id: `${phase}#1` } as any,
+  ];
+}
+
 describe('deriveNextAction — base routing', () => {
   const schema = { phases: [], phasesById: new Map(), gates: {}, loops: {} } as any;
 
   it('projects a dispatch_phase for the first pending phase', () => {
     const snap = snapshot({});
     snap.nextActions = [{ phase: 'design', kind: 'agent', skill: 'aws-design' } as any];
-    const action = deriveNextAction(snap, { schema });
+    const action = deriveNextAction(snap, { schema, events: [] });
     expect(action.kind).toBe('dispatch_phase');
     expect(action).toMatchObject({ phase: 'design' });
   });
@@ -38,7 +49,7 @@ describe('deriveNextAction — base routing', () => {
   it('projects terminal completed', () => {
     const action = deriveNextAction(
       snapshot({ terminal: { kind: 'completed', reason: 'all gates passed' } as any }),
-      { schema },
+      { schema, events: [] },
     );
     expect(action).toMatchObject({ kind: 'terminal', status: 'completed', exitCode: 0 });
   });
@@ -46,7 +57,7 @@ describe('deriveNextAction — base routing', () => {
   it('projects terminal stopped with exit 20', () => {
     const action = deriveNextAction(
       snapshot({ terminal: { kind: 'stopped', reason: 'gate reject' } as any }),
-      { schema },
+      { schema, events: [] },
     );
     expect(action).toMatchObject({ kind: 'terminal', status: 'stopped', exitCode: 20 });
   });
@@ -54,8 +65,51 @@ describe('deriveNextAction — base routing', () => {
   it('projects pause_for_human from pending_decision', () => {
     const action = deriveNextAction(
       snapshot({ pending_decision: { phase: 'review', reason: 'needs human' } as any }),
-      { schema },
+      { schema, events: [] },
     );
     expect(action).toMatchObject({ kind: 'pause_for_human', checkpoint: 'review', reason: 'needs human' });
+  });
+});
+
+describe('deriveNextAction — gate folding', () => {
+  const schema = {
+    phases: [{ id: 'api-fixer', repair_of: 'review', max_attempts_param: 'max_fix_attempts' }],
+    phasesById: new Map([
+      ['review', { id: 'review' }],
+      ['api-fixer', { id: 'api-fixer', repair_of: 'review', max_attempts_param: 'max_fix_attempts' }],
+    ]),
+    gates: {},
+    loops: {},
+  } as any;
+
+  it('needs_fix routes to the schema repair phase with budget remaining', () => {
+    const snap = snapshot({ params: { max_fix_attempts: 3 } });
+    const events = gateEvents('review', 'needs_fix') as any;
+    const action = deriveNextAction(snap, { schema, events });
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'api-fixer' });
+  });
+
+  it('needs_fix with budget exhausted routes to terminal exhausted', () => {
+    const snap = snapshot({ params: { max_fix_attempts: 1 } });
+    const events = [
+      ...gateEvents('review', 'needs_fix'),
+      { type: 'dispatch_signed', phase: 'api-fixer', attempt_id: 'api-fixer#1' },
+    ] as any;
+    const action = deriveNextAction(snap, { schema, events });
+    expect(action).toMatchObject({ kind: 'terminal', status: 'exhausted', exitCode: 40 });
+  });
+
+  it('needs_human_review routes to pause', () => {
+    const snap = snapshot({});
+    const events = gateEvents('review', 'needs_human_review', 'review-gate') as any;
+    const action = deriveNextAction(snap, { schema, events });
+    expect(action).toMatchObject({ kind: 'pause_for_human', checkpoint: 'review' });
+  });
+
+  it('stop routes to terminal stopped', () => {
+    const snap = snapshot({});
+    const events = gateEvents('review', 'stop', 'review-gate') as any;
+    const action = deriveNextAction(snap, { schema, events });
+    expect(action).toMatchObject({ kind: 'terminal', status: 'stopped', exitCode: 20 });
   });
 });
