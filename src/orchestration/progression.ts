@@ -5,6 +5,7 @@ import { applyAuditsToReport, AuditIssue, runStatusAudits } from '../core/audit'
 import {
   appendEventsStrict,
   buildGateVerdictEvent,
+  DispatchSignedEvent,
   getEventsFile,
   PhaseOutcomeCommittedEvent,
   HealingAttemptAllocatedEvent,
@@ -28,8 +29,17 @@ import {
   HealingEpisodeSnapshot,
   projectHealingEpisode,
 } from './healing_episode';
+import { deriveNextAction, Action } from './next_action';
+import {
+  computeStateGuard,
+  signDispatch,
+  signHeal,
+} from './action_envelope';
 
-export interface ProgressionOptions extends EngineOptions {}
+export interface ProgressionOptions extends EngineOptions {
+  /** Package root containing skills/<skill>/SKILL.md for skill-load attestation. */
+  packageRoot?: string;
+}
 
 export interface ProgressSnapshot {
   report: StatusReport;
@@ -39,13 +49,21 @@ export interface ProgressSnapshot {
 }
 
 export interface PhaseOutcome {
-  phase: string;
   attemptId: string;
-  minMtimeMs?: number;
-  skillMdPath?: string;
+  stateGuard: string;
+  kind: 'dispatch_phase' | 'heal';
+  phase?: string;
+  target?: 'api' | 'e2e';
+  agentExit?: number;
+  agentLog?: string;
 }
 
 export interface ProgressResult {
+  snapshot: ProgressSnapshot;
+  action: Action;
+}
+
+export interface PhaseApplicationResult {
   snapshot: ProgressSnapshot;
   gate: GateReport | null;
   decision: GateDecision | null;
@@ -70,28 +88,40 @@ export interface HealingProgressResult {
 }
 
 export interface WorkflowProgressionRuntime {
-  inspect(): ProgressSnapshot;
-  applyOutcome(outcome: PhaseOutcome): ProgressResult;
-  resolveRepair(reviewerPhase: string): RepairRoute;
-  inspectGate(gateId: string): GateReport;
-  decideGate(gate: GateReport): GateDecision;
-  resolveLoopBudget(loopId: string): number;
-  adjudicatePhaseGate(phaseId: string): GateReport;
-  applyHealing(operation: HealingOperation): HealingProgressResult;
+  inspect(): ProgressResult;
+  advance(outcome: PhaseOutcome): ProgressResult;
+  resume(): ProgressResult;
 }
 
 export function createWorkflowProgression(
   options: ProgressionOptions,
 ): WorkflowProgressionRuntime {
+  const project = (): ProgressResult => {
+    const snapshot = inspectProgression(options);
+    const events = readEvents(options.projectRoot, options.changeId);
+    const raw = deriveNextAction(snapshot, {
+      schema: options.schema,
+      events,
+      healingTarget: resolveHealingTarget(options.projectRoot, options.changeId),
+    });
+    const action = raw.kind === 'dispatch_phase'
+      ? signDispatch(raw, { ...options, events })
+      : raw.kind === 'heal'
+        ? signHeal(raw, { ...options, events })
+        : raw;
+    return { snapshot, action };
+  };
+
   return {
-    inspect: () => inspectProgression(options),
-    applyOutcome: (outcome) => applyPhaseOutcome(options, outcome),
-    resolveRepair: (reviewerPhase) => resolveRepair(options, reviewerPhase),
-    inspectGate: (gateId) => inspectNamedGate(options, gateId),
-    decideGate,
-    resolveLoopBudget: (loopId) => resolveLoopBudget(options, loopId),
-    adjudicatePhaseGate: (phaseId) => adjudicatePhaseGate(options, phaseId),
-    applyHealing: (operation) => applyHealingOperation(options, operation),
+    inspect: project,
+    advance: (outcome) => {
+      commitOutcome(options, outcome);
+      return project();
+    },
+    resume: () => {
+      reconcileDispatchedAttempts(options);
+      return project();
+    },
   };
 }
 
@@ -273,11 +303,19 @@ export function applyHealingOperation(
 /**
  * Apply one dispatched Phase outcome through the Workflow Progression write
  * boundary, then return the resulting Gate decision and dispatch snapshot.
+ * Kept as a standalone compatibility seam while the driver migrates.
  */
+export interface LegacyPhaseOutcome {
+  phase: string;
+  attemptId: string;
+  minMtimeMs?: number;
+  skillMdPath?: string;
+}
+
 export function applyPhaseOutcome(
   options: ProgressionOptions,
-  outcome: PhaseOutcome,
-): ProgressResult {
+  outcome: LegacyPhaseOutcome,
+): PhaseApplicationResult {
   if (!outcome.attemptId.trim()) {
     throw new Error('Workflow Progression requires a non-empty attemptId');
   }
@@ -349,6 +387,154 @@ export function applyPhaseOutcome(
     decision: gate ? decideGate(gate) : null,
     replayed: false,
   };
+}
+
+/**
+ * Commit a signed dispatch after its executor returns. The envelope is the
+ * authority for phase and freshness; agent diagnostics cannot select either.
+ */
+function commitOutcome(options: ProgressionOptions, outcome: PhaseOutcome): void {
+  if (!outcome.attemptId.trim()) {
+    throw new Error('Workflow Progression requires a non-empty attemptId');
+  }
+
+  const committed = findCommittedOutcome(options, outcome.attemptId);
+  if (committed) return;
+
+  let events = readEvents(options.projectRoot, options.changeId);
+  let dispatch = events.find(
+    (event): event is DispatchSignedEvent =>
+      event.type === 'dispatch_signed' && event.attempt_id === outcome.attemptId,
+  );
+  const phase = dispatch?.phase ?? sealedPhase(outcome);
+  if (!dispatch) {
+    appendEventsStrict(options.projectRoot, options.changeId, [{
+      source: 'progression',
+      type: 'dispatch_signed',
+      phase,
+      attempt_id: outcome.attemptId,
+      state_guard: outcome.stateGuard,
+      dispatched_at: Date.now(),
+    }]);
+    events = readEvents(options.projectRoot, options.changeId);
+    dispatch = events.find(
+      (event): event is DispatchSignedEvent =>
+        event.type === 'dispatch_signed' && event.attempt_id === outcome.attemptId,
+    );
+  }
+  if (!dispatch) {
+    throw new Error(`Workflow Progression could not persist dispatch '${outcome.attemptId}'`);
+  }
+
+  const currentGuard = computeStateGuard(options.projectRoot, options.changeId);
+  if (
+    outcome.stateGuard !== '' &&
+    (currentGuard !== outcome.stateGuard || dispatch.state_guard !== outcome.stateGuard)
+  ) {
+    throw new Error(`H0 violation: workflow-state changed since dispatch '${outcome.attemptId}'`);
+  }
+
+  // Heal dispatches are reconciled as durable no-op outcomes for now. Their
+  // dedicated state machine owns evidence application in the healing driver.
+  if (outcome.kind === 'heal') {
+    appendEventsStrict(options.projectRoot, options.changeId, [{
+      source: 'progression',
+      type: 'phase_outcome_committed',
+      phase,
+      attempt_id: outcome.attemptId,
+      gate_report: null,
+    }]);
+    return;
+  }
+
+  if (!options.schema.phasesById.has(phase)) {
+    throw new Error(`Workflow Progression: unknown phase '${phase}'`);
+  }
+  applyPhaseOutcome(options, {
+    phase,
+    attemptId: outcome.attemptId,
+    minMtimeMs: dispatch.dispatched_at,
+    skillMdPath: resolveSkillMdPath(options, phase),
+  });
+}
+
+function reconcileDispatchedAttempts(options: ProgressionOptions): void {
+  const events = readEvents(options.projectRoot, options.changeId);
+  const committed = new Set(
+    events
+      .filter((event): event is PhaseOutcomeCommittedEvent => event.type === 'phase_outcome_committed')
+      .map(event => event.attempt_id),
+  );
+  for (const dispatch of events) {
+    if (dispatch.type !== 'dispatch_signed' || committed.has(dispatch.attempt_id)) continue;
+    if (!expectedEvidencePresent(options, dispatch.phase)) continue;
+    const target = dispatch.phase.startsWith('heal:')
+      ? dispatch.phase.slice('heal:'.length) as 'api' | 'e2e'
+      : undefined;
+    commitOutcome(options, {
+      attemptId: dispatch.attempt_id,
+      stateGuard: dispatch.state_guard,
+      kind: target ? 'heal' : 'dispatch_phase',
+      phase: target ? undefined : dispatch.phase,
+      target,
+    });
+  }
+}
+
+function sealedPhase(outcome: PhaseOutcome): string {
+  if (outcome.kind === 'heal') {
+    if (!outcome.target) throw new Error('Workflow Progression heal outcome requires a target');
+    return `heal:${outcome.target}`;
+  }
+  if (!outcome.phase) throw new Error('Workflow Progression dispatch outcome requires a phase');
+  return outcome.phase;
+}
+
+function resolveSkillMdPath(options: ProgressionOptions, phaseId: string): string | undefined {
+  const skill = options.schema.phasesById.get(phaseId)?.skill;
+  if (!skill || !options.packageRoot) return undefined;
+  const candidate = path.join(options.packageRoot, 'skills', skill, 'SKILL.md');
+  return fs.existsSync(candidate) ? candidate : undefined;
+}
+
+function expectedEvidencePresent(options: ProgressionOptions, phase: string): boolean {
+  const expected = phase.startsWith('heal:')
+    ? [`healing/${phase.slice('heal:'.length)}-apply-summary.json`, 'healing/fix-proposal.json']
+    : options.schema.phasesById.get(phase)?.produces ?? [];
+  return expected.every(pattern => changeEvidenceMatches(
+    path.join(options.projectRoot, 'qa', 'changes', options.changeId),
+    pattern,
+  ));
+}
+
+function changeEvidenceMatches(changeDir: string, pattern: string): boolean {
+  if (!/[*?[\]{}]/.test(pattern)) {
+    return fs.existsSync(path.join(changeDir, pattern));
+  }
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const absolute = path.join(dir, entry.name);
+    return entry.isDirectory() ? walk(absolute) : [path.relative(changeDir, absolute)];
+  });
+  const matcher = require('minimatch').minimatch as (value: string, pattern: string) => boolean;
+  return walk(changeDir).some(file => matcher(file, pattern));
+}
+
+/** Disk-only adapter; deriveNextAction remains deterministic over its inputs. */
+export function resolveHealingTarget(projectRoot: string, changeId: string): 'api' | 'e2e' {
+  const file = path.join(projectRoot, 'qa', 'changes', changeId, 'healing', 'fix-proposal.json');
+  if (!fs.existsSync(file)) return 'api';
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    const targets = [
+      parsed.eligible_targets,
+      parsed.eligibleTargets,
+      parsed.targets,
+    ].find(Array.isArray) as unknown[] | undefined;
+    const target = targets?.find(value => value === 'api' || value === 'e2e');
+    return target === 'e2e' ? 'e2e' : 'api';
+  } catch {
+    return 'api';
+  }
 }
 
 interface FileSnapshot {

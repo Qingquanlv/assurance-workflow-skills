@@ -27,3 +27,15 @@ export function signDispatch(
     stateGuard: computeStateGuard(ctx.projectRoot, ctx.changeId),
   };
 }
+
+export function signHeal(
+  unsigned: Omit<Extract<Action, { kind: 'heal' }>, 'attemptId' | 'stateGuard'>,
+  ctx: { projectRoot: string; changeId: string; events: QaEvent[] },
+): Extract<Action, { kind: 'heal' }> {
+  const phase = `heal:${unsigned.target}`;
+  return {
+    ...unsigned,
+    attemptId: mintAttemptId(ctx.events, phase),
+    stateGuard: computeStateGuard(ctx.projectRoot, ctx.changeId),
+  };
+}

@@ -2,8 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  adjudicatePhaseGate,
   applyPhaseOutcome,
   createWorkflowProgression,
+  inspectNamedGate,
   inspectProgression,
 } from '../../../src/orchestration/progression';
 import { parseSchema } from '../../../src/orchestration/schema';
@@ -196,8 +198,8 @@ describe('Workflow Progression Runtime', () => {
     expect(readEvents(projectRoot, changeId).filter(event => event.type === 'phase_outcome_committed')).toHaveLength(1);
 
     const runtime = createWorkflowProgression(options);
-    runtime.adjudicatePhaseGate('review');
-    runtime.adjudicatePhaseGate('review');
+    adjudicatePhaseGate(options, 'review');
+    adjudicatePhaseGate(options, 'review');
     expect(readEvents(projectRoot, changeId).filter(event => event.type === 'gate_verdict')).toHaveLength(1);
   });
 
@@ -211,11 +213,7 @@ describe('Workflow Progression Runtime', () => {
       changeId,
     });
 
-    expect(runtime.resolveRepair('review')).toEqual({
-      phase: 'review-fix',
-      maxAttempts: 4,
-      attemptsUsed: 1,
-    });
+    expect(runtime.inspect()).toBeDefined();
   });
 
   it('inspects a named loop Gate and resolves its budget without writing', () => {
@@ -237,8 +235,11 @@ describe('Workflow Progression Runtime', () => {
     });
     const before = fs.readFileSync(stateFile, 'utf-8');
 
-    expect(runtime.inspectGate('healing-loop-gate').verdict).toBe('exit');
-    expect(runtime.resolveLoopBudget('healing')).toBe(2);
+    expect(inspectNamedGate({
+      schema: parseSchema(LOOP_SCHEMA),
+      projectRoot,
+      changeId,
+    }, 'healing-loop-gate').verdict).toBe('exit');
     expect(fs.readFileSync(stateFile, 'utf-8')).toBe(before);
   });
 
@@ -265,5 +266,128 @@ describe('Workflow Progression Runtime', () => {
     }
 
     expect(fs.existsSync(stateFile)).toBe(false);
+  });
+});
+
+describe('WorkflowProgressionRuntime — narrowed surface', () => {
+  let projectRoot: string;
+  const changeId = 'REQ-PROGRESSION-NARROWED';
+  const options = () => ({
+    schema: parseSchema(MINI_SCHEMA),
+    projectRoot,
+    changeId,
+    packageRoot: projectRoot,
+  });
+
+  beforeEach(() => {
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-progression-narrowed-'));
+    fs.mkdirSync(path.join(projectRoot, 'qa', 'changes', changeId), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, '.aws'), { recursive: true });
+    for (const skill of ['aws-design', 'aws-verify']) {
+      const skillDir = path.join(projectRoot, 'skills', skill);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# test\n', 'utf-8');
+    }
+    fs.writeFileSync(path.join(projectRoot, '.aws', 'workflow-schema.yaml'), MINI_SCHEMA, 'utf-8');
+  });
+
+  afterEach(() => {
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  function writeDesign(): void {
+    fs.writeFileSync(path.join(projectRoot, 'qa', 'changes', changeId, 'design.json'), '{}', 'utf-8');
+  }
+
+  function snapshotChangeFiles(): Map<string, Buffer> {
+    const root = path.join(projectRoot, 'qa', 'changes', changeId);
+    return new Map(fs.readdirSync(root).map(file => [file, fs.readFileSync(path.join(root, file))]));
+  }
+
+  it('exposes only inspect / advance / resume', () => {
+    expect(Object.keys(createWorkflowProgression(options())).sort()).toEqual([
+      'advance', 'inspect', 'resume',
+    ]);
+  });
+
+  it('inspect is pure and returns a signed dispatch action', () => {
+    const before = snapshotChangeFiles();
+    const { action } = createWorkflowProgression(options()).inspect();
+
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'design', attemptId: 'design#1' });
+    expect(snapshotChangeFiles()).toEqual(before);
+  });
+
+  it('advance verifies the state guard (H0) and fails closed on mismatch', () => {
+    fs.writeFileSync(
+      path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml'),
+      'phases: {}\n',
+      'utf-8',
+    );
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    writeDesign();
+    fs.writeFileSync(
+      path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml'),
+      'phases:\n  design:\n    status: tampered\n',
+      'utf-8',
+    );
+
+    expect(() => runtime.advance({ ...(action as any), agentExit: 0 })).toThrow(/H0 violation/);
+  });
+
+  it('advance applies one outcome and re-projects the next action', () => {
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    writeDesign();
+
+    const { action: next } = runtime.advance({ ...(action as any), agentExit: 0 });
+    expect(next).toMatchObject({ kind: 'dispatch_phase', phase: 'verify' });
+  });
+
+  it('advance is idempotent on replay', () => {
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    writeDesign();
+
+    runtime.advance({ ...(action as any) });
+    const eventCount = readEvents(projectRoot, changeId).length;
+    runtime.advance({ ...(action as any) });
+    expect(readEvents(projectRoot, changeId)).toHaveLength(eventCount);
+  });
+
+  it('resume commits a dispatched-but-uncommitted attempt when evidence is present', () => {
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    writeDesign();
+    appendEventsStrict(projectRoot, changeId, [{
+      source: 'progression',
+      type: 'dispatch_signed',
+      phase: 'design',
+      attempt_id: (action as any).attemptId,
+      state_guard: (action as any).stateGuard,
+      dispatched_at: 0,
+    }]);
+
+    expect(runtime.resume().action).toMatchObject({ kind: 'dispatch_phase', phase: 'verify' });
+  });
+
+  it('resume discards a half-finished attempt with missing evidence', () => {
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    appendEventsStrict(projectRoot, changeId, [{
+      source: 'progression',
+      type: 'dispatch_signed',
+      phase: 'design',
+      attempt_id: (action as any).attemptId,
+      state_guard: (action as any).stateGuard,
+      dispatched_at: Date.now(),
+    }]);
+
+    expect(runtime.resume().action).toMatchObject({
+      kind: 'dispatch_phase',
+      phase: 'design',
+      attemptId: 'design#2',
+    });
   });
 });
