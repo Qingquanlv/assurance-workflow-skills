@@ -15,6 +15,7 @@ import { registerHealCommand } from './commands/heal';
 import { registerRetroCommand } from './commands/retro';
 import { registerWorkflowCommand } from './commands/workflow';
 import { registerDecideCommand } from './commands/decide';
+import { registerValidateCommand } from './commands/validate';
 
 const program = new Command();
 
@@ -38,5 +39,6 @@ registerSkillCommand(program);
 registerEvalCommand(program);
 registerWorkflowCommand(program);
 registerDecideCommand(program);
+registerValidateCommand(program);
 
 program.parse(process.argv);
