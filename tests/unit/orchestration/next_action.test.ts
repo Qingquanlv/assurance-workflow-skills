@@ -113,3 +113,69 @@ describe('deriveNextAction — gate folding', () => {
     expect(action).toMatchObject({ kind: 'terminal', status: 'stopped', exitCode: 20 });
   });
 });
+
+describe('deriveNextAction — healing (coarse grained)', () => {
+  const schema = {
+    phases: [],
+    phasesById: new Map(),
+    gates: {},
+    loops: { healing: { max_param: 'max_healing_attempts' } },
+  } as any;
+  const ctx = { schema, events: [], healingTarget: 'api' as const };
+
+  it('projects a heal action for an active episode under budget', () => {
+    const snap = snapshot({ params: { max_healing_attempts: 3 } });
+    snap.healingEpisode = {
+      state: 'active',
+      episodeId: 'ep-1',
+      attemptKey: 'heal-api#1',
+      attemptNumber: 1,
+      stage: 'proposal_required',
+      nextActions: [{ kind: 'dispatch_phase', phase: 'fix-proposal' }],
+    };
+    const action = deriveNextAction(snap, ctx);
+    expect(action).toMatchObject({
+      kind: 'heal',
+      target: 'api',
+      attemptNumber: 2,
+      maxAttempts: 3,
+      expectedEvidence: ['healing/api-apply-summary.json', 'healing/fix-proposal.json'],
+      attemptId: '',
+      stateGuard: '',
+    });
+  });
+
+  it('projects terminal exhausted when healing budget spent', () => {
+    const snap = snapshot({ params: { max_healing_attempts: 2 } });
+    snap.healingEpisode = {
+      state: 'active',
+      episodeId: 'ep-1',
+      attemptKey: 'heal-api#2',
+      attemptNumber: 2,
+      stage: 'rerun_required',
+      nextActions: [{ kind: 'dispatch_phase', phase: 'healing-rerun' }],
+    };
+    const action = deriveNextAction(snap, ctx);
+    expect(action).toMatchObject({ kind: 'terminal', status: 'exhausted', exitCode: 40 });
+  });
+
+  it('projects pause_for_human when a healing safety gate needs a decision', () => {
+    const snap = snapshot({ params: { max_healing_attempts: 3 } });
+    snap.healingEpisode = {
+      state: 'awaiting_human',
+      episodeId: 'ep-1',
+      attemptKey: 'heal-api#1',
+      attemptNumber: 1,
+      stage: 'awaiting_human',
+      nextActions: [
+        { kind: 'await_human', checkpoint: 'healing.safety', reason: 'unrelated tests modified' },
+      ],
+    };
+    const action = deriveNextAction(snap, ctx);
+    expect(action).toMatchObject({
+      kind: 'pause_for_human',
+      checkpoint: 'healing.safety',
+      reason: 'unrelated tests modified',
+    });
+  });
+});

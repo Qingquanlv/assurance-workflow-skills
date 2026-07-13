@@ -94,9 +94,13 @@ export function resolveRepairRoute(
   return { phase: repair.id, maxAttempts: configured, attemptsUsed };
 }
 
+export function healingEvidence(target: 'api' | 'e2e'): string[] {
+  return [`healing/${target}-apply-summary.json`, 'healing/fix-proposal.json'];
+}
+
 export function deriveNextAction(
   snapshot: ProgressSnapshot,
-  ctx: { schema: Schema; events: QaEvent[] },
+  ctx: { schema: Schema; events: QaEvent[]; healingTarget?: 'api' | 'e2e' },
 ): Action | UnsignedDispatch {
   const { report } = snapshot;
 
@@ -111,6 +115,44 @@ export function deriveNextAction(
       kind: 'pause_for_human',
       checkpoint: report.pending_decision.phase,
       reason: report.pending_decision.reason,
+    };
+  }
+
+  const healing = snapshot.healingEpisode;
+  if (healing.state === 'awaiting_human') {
+    const awaitHuman = healing.nextActions.find(
+      (action): action is Extract<typeof action, { kind: 'await_human' }> =>
+        action.kind === 'await_human',
+    );
+    if (awaitHuman) {
+      return {
+        kind: 'pause_for_human',
+        checkpoint: awaitHuman.checkpoint,
+        reason: awaitHuman.reason,
+      };
+    }
+  }
+  if (healing.state === 'active') {
+    const maxAttempts = Number(
+      report.params[ctx.schema.loops.healing?.max_param ?? ''] ?? 0,
+    );
+    if (healing.attemptNumber >= maxAttempts) {
+      return {
+        kind: 'terminal',
+        status: 'exhausted',
+        exitCode: 40,
+        reason: `max_healing_attempts=${maxAttempts}`,
+      };
+    }
+    const target = ctx.healingTarget ?? 'api';
+    return {
+      kind: 'heal',
+      target,
+      attemptNumber: healing.attemptNumber + 1,
+      maxAttempts,
+      expectedEvidence: healingEvidence(target),
+      attemptId: '',
+      stateGuard: '',
     };
   }
 
