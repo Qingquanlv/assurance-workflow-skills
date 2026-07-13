@@ -61,4 +61,15 @@ removed: []
     const r = run(['validate', '--change', 'NOPE', '--json'], root);
     expect(r.code).toBe(1);
   });
+
+  it('with --phase validates only that phase\'s artifacts', () => {
+    // valid case.yaml (case-design) + malformed manifest (execution) present
+    fs.writeFileSync(path.join(caseDir, 'case.yaml'), goodCase);
+    const execDir = path.join(root, 'qa', 'changes', changeId, 'execution');
+    fs.mkdirSync(execDir, { recursive: true });
+    fs.writeFileSync(path.join(execDir, 'execution-manifest.yaml'), 'schema_version: "9.9"\n');
+    // case-design phase → should pass, ignoring the bad manifest
+    const r = run(['validate', '--change', changeId, '--phase', 'case-design', '--json'], root);
+    expect(r.code).toBe(0);
+  });
 });

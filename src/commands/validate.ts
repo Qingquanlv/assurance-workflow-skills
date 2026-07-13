@@ -6,6 +6,7 @@ import {
   resolveSpecs,
   validateArtifactFile,
 } from '../schema';
+import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
 import { ArtifactValidationResult } from '../schema/types';
 import { logError, logHeader, logOk, logBlank } from '../utils/logger';
 
@@ -26,12 +27,21 @@ function collectArtifactPaths(changeDir: string): string[] {
   return out.sort();
 }
 
+/** Whether a change-relative artifact path is covered by a phase `produces` entry. */
+function artifactBelongsToProduce(rel: string, produce: string): boolean {
+  const norm = rel.replace(/\\/g, '/');
+  const prod = produce.replace(/\\/g, '/');
+  if (resolveSpecs(prod).length > 0) return norm === prod;
+  if (prod.endsWith('/')) return norm.startsWith(prod);
+  return norm === prod;
+}
+
 export function registerValidateCommand(program: Command): void {
   program
     .command('validate')
     .description('Validate per-change YAML/JSON artifacts against their schemas (deterministic, no LLM)')
     .requiredOption('--change <change-id>', 'Change ID')
-    .option('--phase <phase-id>', 'Only validate artifacts a phase produces (reserved; validates all by default)')
+    .option('--phase <phase-id>', 'Only validate artifacts a phase produces')
     .option('--artifact <relpath>', 'Validate a single change-relative artifact path')
     .option('--json', 'Machine-readable JSON output')
     .action((options) => {
@@ -47,6 +57,18 @@ export function registerValidateCommand(program: Command): void {
       let relPaths: string[];
       if (options.artifact) {
         relPaths = [String(options.artifact).replace(/\\/g, '/')];
+      } else if (options.phase) {
+        const schemaFile = findSchemaFile(projectRoot);
+        const schema = loadSchemaFromFile(schemaFile);
+        const phase = schema.phasesById.get(String(options.phase));
+        if (!phase) {
+          logError(`unknown phase '${options.phase}'`);
+          process.exit(2);
+          return;
+        }
+        relPaths = collectArtifactPaths(changeDir).filter((rel) =>
+          phase.produces.some((produce) => artifactBelongsToProduce(rel, produce)),
+        );
       } else {
         relPaths = collectArtifactPaths(changeDir);
       }
