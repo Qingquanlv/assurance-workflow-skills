@@ -4,15 +4,15 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiResult, CoverageGapEntry, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, FailureEntry, FuzzResult, PerformanceResult, QualityGateResult } from '../core/types';
+import { CoverageGapEntry, CoverageResult, FailureAnalysis, FailureEntry, QualityGateResult } from '../core/types';
 import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
 import { buildQualityGate } from './quality_gate';
 import { loadCoverageConfig } from '../execution/coverage_parser';
 import {
-  loadExecutionManifest,
-  resultFilePath,
-} from './execution_artifacts';
+  ExecutionEvidenceIntegrityIssue,
+  loadExecutionEvidence,
+} from '../execution/evidence';
 import { sanitizeSecrets } from '../utils/secret_sanitize';
 
 export interface InspectOptions {
@@ -37,24 +37,24 @@ export function inspect(opts: InspectOptions): InspectResult {
   const analysisPath = path.join(inspectDir, 'failure-analysis.json');
   const summaryPath = path.join(inspectDir, 'failure-summary.md');
   const qualityGatePath = path.join(inspectDir, 'quality-gate-result.json');
-  const manifestInfo = loadExecutionManifest(executionDir);
-  const manifest = manifestInfo?.manifest ?? null;
-  const sourceManifest = manifestInfo?.path ?? '';
-  const isCompatFallback = manifest === null;
-  const selectedTargets = manifest?.selected_targets ?? { api: true, e2e: true, fuzz: true, performance: true };
-  const resultRoot = manifest ? path.join(executionDir, 'runs', manifest.batch_id) : executionDir;
+  const evidence = loadExecutionEvidence(executionDir);
+  const {
+    apiResult,
+    e2eResult,
+    coverageResult,
+    fuzzResult,
+    performanceResult,
+    sourceManifest,
+    resultRoot,
+    resultPaths,
+    batchId,
+  } = evidence;
+  const isCompatFallback = evidence.mode === 'compat';
   const compatWarnings: string[] = isCompatFallback
-    ? ['execution-manifest.yaml missing; inspected latest pointer files as compatibility fallback. Results are informational — healing gate should not treat this as primary evidence.']
+    ? [evidence.manifest
+        ? 'execution-manifest.yaml contains metadata only; inspected latest pointer files as compatibility fallback. Results are informational — healing gate should not treat this as primary evidence.'
+        : 'execution-manifest.yaml missing; inspected latest pointer files as compatibility fallback. Results are informational — healing gate should not treat this as primary evidence.']
     : [];
-
-  const apiResult = selectedTargets.api ? loadJson<ApiResult>(resultFilePath(executionDir, resultRoot, manifest, 'api', 'api-result.json')) : null;
-  const e2eResult = selectedTargets.e2e ? loadJson<E2eResult>(resultFilePath(executionDir, resultRoot, manifest, 'e2e', 'e2e-result.json')) : null;
-  const coverageResult = selectedTargets.api ? loadJson<CoverageResult>(resultFilePath(executionDir, resultRoot, manifest, 'coverage', 'coverage-result.json')) : null;
-  const fuzzResult = selectedTargets.fuzz ? loadJson<FuzzResult>(resultFilePath(executionDir, resultRoot, manifest, 'fuzz', 'fuzz-result.json')) : null;
-  const performanceResult = selectedTargets.performance ? loadJson<PerformanceResult>(resultFilePath(executionDir, resultRoot, manifest, 'performance', 'performance-result.json')) : null;
-
-  // Extract batch_id from any result file (all carry the same batch_id per run)
-  const batchId = manifest?.batch_id ?? apiResult?.batch_id ?? e2eResult?.batch_id ?? coverageResult?.batch_id ?? fuzzResult?.batch_id ?? performanceResult?.batch_id ?? '';
 
   const coverageGateMode = loadCoverageConfig(projectRoot).gate_mode;
   const coverageGaps = buildCoverageGaps(coverageResult);
@@ -72,19 +72,14 @@ export function inspect(opts: InspectOptions): InspectResult {
 
   // Prefer the gate pre-computed by runner (written to batch dir) so run and inspect
   // always use the same computation. Fall back to re-computing if not available.
-  const loadedGate = manifest
-    ? loadJson<QualityGateResult>(path.join(resultRoot, 'quality-gate-result.json'))
-    : null;
+  const loadedGate =
+    evidence.mode === 'primary' ? evidence.qualityGate : null;
 
   // ── Manifest integrity guard ───────────────────────────────────────────────
   // If manifest is present (primary mode) and declares a target as selected, but
   // its result file is absent, the execution asset is corrupted — not just SKIPPED.
-  if (manifest && !isCompatFallback) {
-    const integrityFailures = buildIntegrityFailures(
-      manifest, selectedTargets, executionDir, resultRoot,
-      { apiResult, e2eResult, coverageResult, fuzzResult, performanceResult },
-      batchId,
-    );
+  if (evidence.mode === 'primary') {
+    const integrityFailures = buildIntegrityFailures(evidence.integrityIssues);
     if (integrityFailures.length > 0) {
       completeFailureEntries(integrityFailures);
       const analysis: FailureAnalysis = {
@@ -165,7 +160,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: resultFilePath(executionDir, resultRoot, manifest, 'api', 'api-result.json'),
+          result_file: resultPaths.api,
           test_file: c.file,
           trace: '',
           screenshot: '',
@@ -212,7 +207,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: resultFilePath(executionDir, resultRoot, manifest, 'e2e', 'e2e-result.json'),
+          result_file: resultPaths.e2e,
           test_file: c.file,
           trace,
           screenshot,
@@ -253,7 +248,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: classification.fixProposalEligible,
         severity: classification.severity,
         evidence: {
-          result_file: resultFilePath(executionDir, resultRoot, manifest, 'fuzz', 'fuzz-result.json'),
+          result_file: resultPaths.fuzz,
           test_file: c.file,
           trace: '',
           screenshot: '',
@@ -285,7 +280,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: false,
         severity: 'high',
         evidence: {
-          result_file: resultFilePath(executionDir, resultRoot, manifest, 'performance', 'performance-result.json'),
+          result_file: resultPaths.performance,
           test_file: sc.endpoint,
           trace: '',
           screenshot: '',
@@ -315,7 +310,7 @@ export function inspect(opts: InspectOptions): InspectResult {
         fix_proposal_eligible: false,
         severity: 'high',
         evidence: {
-          result_file: resultFilePath(executionDir, resultRoot, manifest, 'coverage', 'coverage-result.json'),
+          result_file: resultPaths.coverage,
           test_file: gap.file,
           trace: '',
           screenshot: '',
@@ -398,75 +393,36 @@ function completeFailureEntries(failures: FailureEntry[]): void {
  * and missing coverage must never escalate to a critical hard fail here.
  */
 function buildIntegrityFailures(
-  manifest: ExecutionManifest,
-  selectedTargets: ExecutionManifest['selected_targets'],
-  executionDir: string,
-  resultRoot: string,
-  loaded: {
-    apiResult: unknown | null;
-    e2eResult: unknown | null;
-    coverageResult: unknown | null;
-    fuzzResult: unknown | null;
-    performanceResult: unknown | null;
-  },
-  batchId: string,
+  issues: ExecutionEvidenceIntegrityIssue[],
 ): FailureEntry[] {
-  const checks: Array<{
-    target: FailureEntry['target'];
-    selected: boolean;
-    result: unknown | null;
-    manifestKey: keyof ExecutionManifest['result_files'];
-    fallbackName: string;
-  }> = [
-    { target: 'api',         selected: selectedTargets.api,         result: loaded.apiResult,         manifestKey: 'api',         fallbackName: 'api-result.json'         },
-    { target: 'e2e',         selected: selectedTargets.e2e,         result: loaded.e2eResult,         manifestKey: 'e2e',         fallbackName: 'e2e-result.json'         },
-    { target: 'fuzz',        selected: selectedTargets.fuzz,        result: loaded.fuzzResult,        manifestKey: 'fuzz',        fallbackName: 'fuzz-result.json'        },
-    { target: 'performance', selected: selectedTargets.performance, result: loaded.performanceResult, manifestKey: 'performance', fallbackName: 'performance-result.json' },
-  ];
-
-  const failures: FailureEntry[] = [];
-  let idx = 1;
-
-  for (const { target, selected, result, manifestKey, fallbackName } of checks) {
-    if (!selected) continue;
-    if (result !== null) continue; // file loaded successfully — OK
-
-    // File was selected in manifest but could not be loaded.
-    const expectedPath = resultFilePath(executionDir, resultRoot, manifest, manifestKey, fallbackName);
-    const id = `INTEGRITY-${String(idx++).padStart(3, '0')}`;
-    const entry: FailureEntry = {
+  return issues.map((issue, index): FailureEntry => {
+    const id = `INTEGRITY-${String(index + 1).padStart(3, '0')}`;
+    const batchDetail = issue.reason === 'batch_mismatch'
+      ? `contains batch_id=${issue.actualBatchId ?? '<missing>'}`
+      : 'is absent or unreadable';
+    return {
       id,
-      case_id: `manifest:${target}`,
-      test: expectedPath,
-      target,
+      case_id: `manifest:${issue.target}`,
+      test: issue.path,
+      target: issue.target,
       category: 'manifest_asset_missing',
       fix_proposal_eligible: false,
       severity: 'critical',
       evidence: {
-        result_file: expectedPath,
+        result_file: issue.path,
         test_file: '',
         trace: '',
         screenshot: '',
         video: '',
         raw_log: '',
-        log_excerpt: `Manifest batch_id=${batchId} declares selected_targets.${target}=true but ${expectedPath} is absent or unreadable.`,
+        log_excerpt: `Manifest batch_id=${issue.batchId} declares selected_targets.${issue.target}=true but ${issue.path} ${batchDetail}.`,
       },
-      diagnosis: `Execution asset missing for target '${target}'. The result file declared in execution-manifest.yaml does not exist: ${expectedPath}`,
+      diagnosis: issue.reason === 'batch_mismatch'
+        ? `Execution asset is stale for target '${issue.target}'. Expected batch '${issue.batchId}', got '${issue.actualBatchId ?? '<missing>'}': ${issue.path}`
+        : `Execution asset missing for target '${issue.target}'. The result file declared in execution-manifest.yaml does not exist: ${issue.path}`,
       recommended_action: 'Re-run aws run for this change to regenerate the missing execution asset. Do not archive until all selected target result files are present.',
     };
-    failures.push(entry);
-  }
-
-  return failures;
-}
-
-function loadJson<T>(filePath: string): T | null {
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
-  } catch {
-    return null;
-  }
+  });
 }
 
 function extractLogExcerpt(logPath: string, testName: string): string {

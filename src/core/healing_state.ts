@@ -13,6 +13,7 @@ import {
 import { hashProductTree, hashTestTree, sha256File, TestTreeHash } from './hash';
 import { getWorkflowStateFile } from './workflow_state';
 import type { ExecutionManifest } from './types';
+import { loadExecutionEvidence } from '../execution/evidence';
 
 export type HealingStatus =
   | 'pending'
@@ -1195,14 +1196,14 @@ function eligibleProposalTargets(proposal: Record<string, unknown> | null): Appl
 }
 
 function readLatestExecutionManifest(projectRoot: string, changeId: string): ExecutionManifest | null {
-  const manifestPath = path.join(projectRoot, 'qa', 'changes', changeId, 'execution', 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return null;
-  try {
-    const parsed = yaml.load(fs.readFileSync(manifestPath, 'utf-8')) as unknown;
-    return isRecord(parsed) ? parsed as unknown as ExecutionManifest : null;
-  } catch {
-    return null;
-  }
+  const executionDir = path.join(
+    projectRoot,
+    'qa',
+    'changes',
+    changeId,
+    'execution',
+  );
+  return loadExecutionEvidence(executionDir).manifest;
 }
 
 function diffTestFiles(previous: Record<string, string>, current: Record<string, string>): ChangedTestFile[] {

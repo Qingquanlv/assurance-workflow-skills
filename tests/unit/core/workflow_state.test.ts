@@ -560,10 +560,7 @@ describe('configureWorkflowParams + agent/review reducers', () => {
     });
     const reviewDir = path.join(changeDir(projectRoot), 'review');
     fs.mkdirSync(reviewDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(reviewDir, 'api-plan-review.json'),
-      JSON.stringify({ decision: 'needs_fix', auto_fix_allowed: true }),
-    );
+    fs.writeFileSync(path.join(reviewDir, 'api-plan-review-apply-summary.md'), '# Applied\n');
     applyPhaseState(projectRoot, changeId, 'api-plan-fix');
     const state = readWorkflowState(projectRoot);
     expect(state.phases.api_plan_review.status).toBe('needs_fix');

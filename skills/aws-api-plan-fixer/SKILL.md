@@ -10,21 +10,25 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify `phases.api_plan_review.status == needs_fix`.
+2. Read `events.jsonl` and determine the execution mode before validating the old review fields:
+   - **automatic mode**: `phases.api_plan_review.status == needs_fix`.
+   - **human-approved mode**: the latest `human_decision` for checkpoint `api-plan-review-gate` (or legacy checkpoint `api-plan-review`) has action `fix_and_proceed`, and its `review_sha256` matches the current `review/api-plan-review.json`.
+   - Otherwise stop.
 3. Read input files from disk: `review/api-plan-review.json`, `plans/api-plan.md`, `plans/api-test-data-plan.md`, `plans/api-codegen-plan.md`, `plans/m3-review-summary.md`.
-4. Verify all gate fields in `api-plan-review.json`:
-   - `review_type == "api-plan"` — if not, stop.
-   - `change_id == <change-id>` — if mismatch, stop as reviewer contract error.
+4. Always verify `review_type == "api-plan"` and `change_id == <change-id>`. Then apply mode-specific validation:
+   - In automatic mode, verify all default gate fields below.
+   - In human-approved mode, the hash-bound human decision is the authorization source: apply only findings and plan changes explicitly resolved by its `reason`, using review findings and files on disk as evidence. **human-approved mode bypasses the default auto-fix gate-field requirements** for `decision`, `next_action`, `human_review_required`, `auto_fix_allowed`, and non-empty `auto_fix_plan`.
+5. Default automatic-mode gate fields:
    - `decision == "needs_fix"` — if not, stop.
    - `next_action == "run_api_plan_fixer"` — if not, stop as reviewer contract error.
    - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true` — if not, stop.
    - `auto_fix_plan` exists and is non-empty — if missing or empty, stop as reviewer contract error.
 
-**human-approved exception**: If the latest `human_decision` for checkpoint `api-plan-review` has action `fix_and_proceed` **and** its `review_sha256` matches current `review/api-plan-review.json`, allow fixing blocker/high severity findings; record in `api-plan-review-apply-summary.md` under `human_approved_fixes[]`. Never write review JSON.
+**human-approved exception**: In human-approved mode, allow fixing blocker/high severity findings explicitly resolved by the decision reason and safe mechanical findings explicitly approved there. Record them in `api-plan-review-apply-summary.md` under `human_approved_fixes[]`. Never write review JSON.
 
-5. For **every** `auto_fix_plan` item, resolve and validate before applying any fix (see **Fix Source Rule**). If any item fails validation, **STOP** as reviewer contract error — do not skip and continue.
-6. Use files as the sole source of truth.
+6. In automatic mode, resolve every `auto_fix_plan` item before applying fixes. In human-approved mode, validate each approved change against the decision reason, matching finding, and target-file allowlist.
+7. Use files as the sole source of truth.
 
 **After completing work:**
 

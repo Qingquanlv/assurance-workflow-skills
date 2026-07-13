@@ -10,11 +10,13 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify `phases.case_review.status == needs_fix`.
+2. Read `events.jsonl` and determine the execution mode before validating the old review fields:
+   - **automatic mode**: `phases.case_review.status == needs_fix`.
+   - **human-approved mode**: the latest `human_decision` for checkpoint `case-review-gate` (or legacy checkpoint `case-review`) has action `fix_and_proceed`, and its `review_sha256` matches the current `review/case-review.json`.
+   - Otherwise stop.
 3. Read input files from disk: `review/case-review.json`, `cases/<module>/case.yaml`, `proposal.md`.
-4. Verify `case-review.json` gate fields in order — stop on first failure:
-   - `review_type == "case"`.
-   - `change_id` matches the current `<change-id>`.
+4. Always verify `review_type == "case"` and `change_id == <change-id>`. In human-approved mode, apply only changes explicitly resolved by the decision reason. **human-approved mode bypasses the default auto-fix gate-field requirements** for `decision`, `next_action`, `human_review_required`, `auto_fix_allowed`, and non-empty `auto_fix_plan`.
+5. In automatic mode, verify the remaining `case-review.json` gate fields in order — stop on first failure:
    - `decision == "needs_fix"`.
    - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true`.
@@ -22,9 +24,9 @@ Do not rely on prior conversation context.
    - `next_action == "run_case_fixer"`.
    - No `auto_fix_plan` item references a `high` or `critical` severity finding **unless** human_approved exception applies.
 
-**human-approved exception**: If the latest `human_decision` for checkpoint `case-review` has action `fix_and_proceed` **and** its `review_sha256` matches current `review/case-review.json`, allow fixing blocker/high severity findings; record in apply-summary `human_approved_fixes[]`. Never write review JSON.
+**human-approved exception**: In human-approved mode, allow fixing blocker/high severity findings explicitly resolved by the decision reason; record them in apply-summary `human_approved_fixes[]`. Never write review JSON.
 
-5. Use files as the sole source of truth.
+6. Use files as the sole source of truth.
 
 **After completing work:**
 

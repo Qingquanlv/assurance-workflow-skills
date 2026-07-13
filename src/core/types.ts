@@ -181,7 +181,7 @@ export interface FailureAnalysis {
   final_status: InspectFinalStatus;
   /**
    * "primary" — manifest present, batch-scoped, fully trusted.
-   * "compat_fallback" — no execution-manifest.yaml; inspected latest pointer files as compatibility fallback.
+   * "compat_fallback" — no primary-routing manifest; inspected latest pointer files as compatibility fallback.
    *   Results are informational only; healing gate should not treat them as primary evidence.
    */
   inspect_mode: 'primary' | 'compat_fallback';

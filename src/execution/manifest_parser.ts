@@ -7,7 +7,7 @@
  *   optional layer_results / warnings / final_status (ignored for inspect routing)
  */
 import * as path from 'path';
-import { ExecutionManifest, SelectedTargets } from '../core/types';
+import type { ExecutionManifest, SelectedTargets } from '../core/types';
 
 const BASENAME_TO_KEY: Record<string, keyof ExecutionManifest['result_files']> = {
   'api-result.json': 'api',
@@ -24,13 +24,17 @@ const VALID_RESULT_KEYS = new Set<string>(Object.values(BASENAME_TO_KEY));
 export function normalizeExecutionManifest(
   raw: unknown,
   executionDir: string,
+  options: { allowMissingSelectedTargets?: boolean } = {},
 ): ExecutionManifest | null {
   if (!raw || typeof raw !== 'object') return null;
   const doc = raw as Record<string, unknown>;
 
   const batchId = typeof doc.batch_id === 'string' ? doc.batch_id : '';
   const changeId = typeof doc.change_id === 'string' ? doc.change_id : '';
-  const selectedTargets = normaliseTargets(doc.selected_targets);
+  const selectedTargets =
+    doc.selected_targets === undefined && options.allowMissingSelectedTargets
+      ? { api: true, e2e: true, fuzz: true, performance: true }
+      : normaliseTargets(doc.selected_targets);
   if (!batchId || !selectedTargets) return null;
 
   let resultFiles = normaliseResultFilesMap(doc.result_files, executionDir);
@@ -43,6 +47,8 @@ export function normalizeExecutionManifest(
       );
     }
   }
+  const testFilesSha256 = normaliseHashMap(doc.test_files_sha256);
+  const finalStatus = normaliseFinalStatus(doc);
 
   return {
     schema_version: '1.0',
@@ -50,8 +56,55 @@ export function normalizeExecutionManifest(
     batch_id: batchId,
     selected_targets: selectedTargets,
     result_files: resultFiles,
-    ...(typeof doc.final_status === 'string' ? { final_status: doc.final_status as ExecutionManifest['final_status'] } : {}),
+    ...(typeof doc.tests_tree_sha256 === 'string'
+      ? { tests_tree_sha256: doc.tests_tree_sha256 }
+      : {}),
+    ...(testFilesSha256
+      ? { test_files_sha256: testFilesSha256 }
+      : {}),
+    ...(typeof doc.product_tree_sha256 === 'string'
+      ? { product_tree_sha256: doc.product_tree_sha256 }
+      : {}),
+    ...(finalStatus
+      ? { final_status: finalStatus }
+      : {}),
   };
+}
+
+function normaliseHashMap(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  );
+  return Object.fromEntries(entries);
+}
+
+function normaliseFinalStatus(
+  doc: Record<string, unknown>,
+): ExecutionManifest['final_status'] | null {
+  const direct = doc.final_status;
+  if (isFinalStatus(direct)) return direct;
+  const qualityGate = doc.quality_gate;
+  if (
+    qualityGate &&
+    typeof qualityGate === 'object' &&
+    !Array.isArray(qualityGate)
+  ) {
+    const nested = (qualityGate as Record<string, unknown>).final_status;
+    if (isFinalStatus(nested)) return nested;
+  }
+  return null;
+}
+
+function isFinalStatus(
+  value: unknown,
+): value is NonNullable<ExecutionManifest['final_status']> {
+  return (
+    value === 'PASS' ||
+    value === 'PASS_WITH_WARNINGS' ||
+    value === 'FAIL' ||
+    value === 'SKIPPED'
+  );
 }
 
 function normaliseTargets(value: unknown): SelectedTargets | null {

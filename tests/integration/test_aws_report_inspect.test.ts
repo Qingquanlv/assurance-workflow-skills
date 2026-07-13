@@ -40,6 +40,44 @@ describe('aws report inspect integration', () => {
     expect(result.analysis.failures.length).toBe(0);
   });
 
+  it('treats a metadata-only legacy manifest as compat evidence', () => {
+    const execDir = makeExecDir(projectRoot, changeId);
+    const apiResult: ApiResult = {
+      schema_version: '1.0',
+      change_id: changeId,
+      batch_id: 'legacy-pointer',
+      target: 'api',
+      status: 'passed',
+      command: 'pytest',
+      source: {
+        framework: 'pytest',
+        raw_log: '',
+        junit_xml: '',
+        json_report: '',
+      },
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      cases: [],
+      unmapped_tests: [],
+    };
+    fs.writeFileSync(
+      path.join(execDir, 'execution-manifest.yaml'),
+      'batch_id: legacy-metadata\nfinal_status: PASS\n',
+    );
+    fs.writeFileSync(
+      path.join(execDir, 'api-result.json'),
+      JSON.stringify(apiResult),
+    );
+
+    const result = inspect({ changeId, projectRoot });
+
+    expect(result.analysis.inspect_mode).toBe('compat_fallback');
+    expect(result.analysis.batch_id).toBe('legacy-pointer');
+    expect(result.analysis.failures).toEqual([]);
+  });
+
   it('classifies e2e locator failure and sets fix_proposal_eligible=true', () => {
     const execDir = makeExecDir(projectRoot, changeId);
     const e2eResult: E2eResult = { schema_version: '1.0', change_id: changeId, batch_id: 'test-batch', target: 'e2e', status: 'failed', command: 'npx playwright test', source: { framework: 'playwright', raw_log: path.join(execDir, 'raw', 'e2e.log'), json_report: '', html_report: '' }, total: 1, passed: 0, failed: 1, skipped: 0, cases: [{ case_id: 'TC-C-001', status: 'failed', file: 'tests/e2e/checkout.spec.ts', test_name: 'TC-C-001 checkout', duration_ms: 3000, message: 'Locator not found: button[data-testid=pay]', trace: '', screenshot: '', video: '' }], unmapped_tests: [] };
