@@ -77,6 +77,10 @@ export interface DispatchSignedEvent extends QaEventBase {
   source: 'progression';
   type: 'dispatch_signed';
   phase: string;
+  /** Signed action kind; absent on dispatches written before envelope metadata. */
+  kind?: 'dispatch_phase' | 'heal';
+  /** Heal target; absent for phase dispatches and legacy signed dispatches. */
+  target?: 'api' | 'e2e';
   attempt_id: string;
   state_guard: string;
   dispatched_at: number;

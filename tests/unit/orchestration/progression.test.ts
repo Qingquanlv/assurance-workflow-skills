@@ -332,8 +332,31 @@ describe('WorkflowProgressionRuntime — narrowed surface', () => {
       'phases:\n  design:\n    status: tampered\n',
       'utf-8',
     );
+    const eventsBefore = readEvents(projectRoot, changeId);
 
     expect(() => runtime.advance({ ...(action as any), agentExit: 0 })).toThrow(/H0 violation/);
+    expect(readEvents(projectRoot, changeId)).toEqual(eventsBefore);
+  });
+
+  it('advance rejects an outcome kind that differs from its signed dispatch', () => {
+    const runtime = createWorkflowProgression(options());
+    const { action } = runtime.inspect();
+    appendEventsStrict(projectRoot, changeId, [{
+      source: 'progression',
+      type: 'dispatch_signed',
+      phase: 'design',
+      kind: 'dispatch_phase',
+      attempt_id: (action as any).attemptId,
+      state_guard: (action as any).stateGuard,
+      dispatched_at: Date.now(),
+    }]);
+
+    expect(() => runtime.advance({
+      ...(action as any),
+      kind: 'heal',
+      target: 'api',
+      phase: undefined,
+    })).toThrow(/envelope mismatch/);
   });
 
   it('advance applies one outcome and re-projects the next action', () => {

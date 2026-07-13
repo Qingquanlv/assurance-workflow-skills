@@ -96,6 +96,9 @@ export interface WorkflowProgressionRuntime {
 export function createWorkflowProgression(
   options: ProgressionOptions,
 ): WorkflowProgressionRuntime {
+  const inspectedDispatches = new Map<string, Extract<Action, {
+    kind: 'dispatch_phase' | 'heal';
+  }>>();
   const project = (): ProgressResult => {
     const snapshot = inspectProgression(options);
     const events = readEvents(options.projectRoot, options.changeId);
@@ -109,13 +112,16 @@ export function createWorkflowProgression(
       : raw.kind === 'heal'
         ? signHeal(raw, { ...options, events })
         : raw;
+    if (action.kind === 'dispatch_phase' || action.kind === 'heal') {
+      inspectedDispatches.set(action.attemptId, action);
+    }
     return { snapshot, action };
   };
 
   return {
     inspect: project,
     advance: (outcome) => {
-      commitOutcome(options, outcome);
+      commitOutcome(options, outcome, inspectedDispatches.get(outcome.attemptId));
       return project();
     },
     resume: () => {
@@ -393,7 +399,11 @@ export function applyPhaseOutcome(
  * Commit a signed dispatch after its executor returns. The envelope is the
  * authority for phase and freshness; agent diagnostics cannot select either.
  */
-function commitOutcome(options: ProgressionOptions, outcome: PhaseOutcome): void {
+function commitOutcome(
+  options: ProgressionOptions,
+  outcome: PhaseOutcome,
+  expectedAction?: Extract<Action, { kind: 'dispatch_phase' | 'heal' }>,
+): void {
   if (!outcome.attemptId.trim()) {
     throw new Error('Workflow Progression requires a non-empty attemptId');
   }
@@ -401,23 +411,32 @@ function commitOutcome(options: ProgressionOptions, outcome: PhaseOutcome): void
   const committed = findCommittedOutcome(options, outcome.attemptId);
   if (committed) return;
 
-  let events = readEvents(options.projectRoot, options.changeId);
+  const events = readEvents(options.projectRoot, options.changeId);
   let dispatch = events.find(
     (event): event is DispatchSignedEvent =>
       event.type === 'dispatch_signed' && event.attempt_id === outcome.attemptId,
   );
-  const phase = dispatch?.phase ?? sealedPhase(outcome);
-  if (!dispatch) {
+  const currentGuard = computeStateGuard(options.projectRoot, options.changeId);
+  if (currentGuard !== outcome.stateGuard) {
+    throw new Error(`H0 violation: workflow-state changed since dispatch '${outcome.attemptId}'`);
+  }
+
+  if (dispatch) {
+    assertOutcomeMatchesDispatch(outcome, dispatch);
+  } else {
+    assertOutcomeMatchesExpectedAction(outcome, expectedAction);
+    const phase = sealedPhase(outcome);
     appendEventsStrict(options.projectRoot, options.changeId, [{
       source: 'progression',
       type: 'dispatch_signed',
       phase,
+      kind: outcome.kind,
+      ...(outcome.target ? { target: outcome.target } : {}),
       attempt_id: outcome.attemptId,
       state_guard: outcome.stateGuard,
       dispatched_at: Date.now(),
     }]);
-    events = readEvents(options.projectRoot, options.changeId);
-    dispatch = events.find(
+    dispatch = readEvents(options.projectRoot, options.changeId).find(
       (event): event is DispatchSignedEvent =>
         event.type === 'dispatch_signed' && event.attempt_id === outcome.attemptId,
     );
@@ -426,13 +445,7 @@ function commitOutcome(options: ProgressionOptions, outcome: PhaseOutcome): void
     throw new Error(`Workflow Progression could not persist dispatch '${outcome.attemptId}'`);
   }
 
-  const currentGuard = computeStateGuard(options.projectRoot, options.changeId);
-  if (
-    outcome.stateGuard !== '' &&
-    (currentGuard !== outcome.stateGuard || dispatch.state_guard !== outcome.stateGuard)
-  ) {
-    throw new Error(`H0 violation: workflow-state changed since dispatch '${outcome.attemptId}'`);
-  }
+  const phase = dispatch.phase;
 
   // Heal dispatches are reconciled as durable no-op outcomes for now. Their
   // dedicated state machine owns evidence application in the healing driver.
@@ -488,6 +501,44 @@ function sealedPhase(outcome: PhaseOutcome): string {
   }
   if (!outcome.phase) throw new Error('Workflow Progression dispatch outcome requires a phase');
   return outcome.phase;
+}
+
+function assertOutcomeMatchesDispatch(outcome: PhaseOutcome, dispatch: DispatchSignedEvent): void {
+  const dispatchKind = dispatch.kind ?? (
+    dispatch.phase.startsWith('heal:') ? 'heal' : 'dispatch_phase'
+  );
+  if (
+    dispatch.state_guard !== outcome.stateGuard ||
+    dispatchKind !== outcome.kind ||
+    dispatch.phase !== sealedPhase(outcome) ||
+    (dispatch.target !== undefined && dispatch.target !== outcome.target)
+  ) {
+    throw new Error(
+      `Workflow Progression envelope mismatch for dispatch '${outcome.attemptId}'`,
+    );
+  }
+}
+
+function assertOutcomeMatchesExpectedAction(
+  outcome: PhaseOutcome,
+  action: Extract<Action, { kind: 'dispatch_phase' | 'heal' }> | undefined,
+): void {
+  if (!action) {
+    throw new Error(
+      `Workflow Progression envelope mismatch for dispatch '${outcome.attemptId}'`,
+    );
+  }
+  const expectedPhase = action.kind === 'heal' ? `heal:${action.target}` : action.phase;
+  if (
+    action.kind !== outcome.kind ||
+    action.attemptId !== outcome.attemptId ||
+    expectedPhase !== sealedPhase(outcome) ||
+    (action.kind === 'heal' && action.target !== outcome.target)
+  ) {
+    throw new Error(
+      `Workflow Progression envelope mismatch for dispatch '${outcome.attemptId}'`,
+    );
+  }
 }
 
 function resolveSkillMdPath(options: ProgressionOptions, phaseId: string): string | undefined {
