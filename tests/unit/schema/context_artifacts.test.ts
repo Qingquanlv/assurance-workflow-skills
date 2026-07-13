@@ -1,15 +1,27 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 import { validateAdvisory } from '../../../src/schema/advisory';
 import { validateFactBaseline } from '../../../src/schema/fact_baseline';
 import { validateReview } from '../../../src/schema/review';
 
 describe('review validator', () => {
-  it('accepts a review json with schema_version, verdict, findings', () => {
-    const r = { schema_version: '1.0', verdict: 'pass', findings: [] };
+  it('accepts a review json with schema_version, decision, findings', () => {
+    const r = { schema_version: '1.0', decision: 'pass', findings: [] };
     expect(validateReview(r)).toEqual({ ok: true, errors: [] });
   });
 
+  it('accepts real api-plan-review fixture from eval-sample-001', () => {
+    const fixturePath = path.join(
+      __dirname,
+      '../../../eval/fixtures/samples/eval-sample-001/review/api-plan-review.json',
+    );
+    const raw = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    expect(validateReview(raw)).toEqual({ ok: true, errors: [] });
+  });
+
   it('rejects a review json missing findings', () => {
-    expect(validateReview({ schema_version: '1.0', verdict: 'pass' }).ok).toBe(false);
+    expect(validateReview({ schema_version: '1.0', decision: 'pass' }).ok).toBe(false);
   });
 });
 
@@ -27,8 +39,26 @@ describe('fact_baseline validator', () => {
     expect(validateFactBaseline(fb)).toEqual({ ok: true, errors: [] });
   });
 
-  it('rejects a fact-baseline json missing schema_version', () => {
-    expect(validateFactBaseline({ change_id: 'REQ-001', source: 'unavailable', facts: {}, warnings: [] }).ok).toBe(false);
+  it('accepts unavailable degraded fact-baseline shape', () => {
+    const fb = {
+      source: 'unavailable',
+      facts: {},
+      warnings: ['seed file not found and db_probe disabled'],
+    };
+    expect(validateFactBaseline(fb)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects a full fact-baseline json missing schema_version', () => {
+    expect(
+      validateFactBaseline({
+        change_id: 'REQ-001',
+        generated_at: '2026-07-13T00:00:00Z',
+        source: 'seed_file',
+        seed_file: 'db/seed.py',
+        facts: {},
+        warnings: [],
+      }).ok,
+    ).toBe(false);
   });
 });
 

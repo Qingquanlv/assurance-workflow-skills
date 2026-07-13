@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const reviewSchema = z.object({
   schema_version: z.string().min(1),
-  verdict: z.string().min(1),
+  decision: z.string().min(1),
   findings: z.array(z.any()),
 }).passthrough();
 
