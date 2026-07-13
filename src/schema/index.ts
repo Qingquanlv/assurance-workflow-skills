@@ -2,9 +2,11 @@ import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
 import { ArtifactValidationResult } from './types';
+import { validateApplySummary } from './apply_summary';
 import { validateCaseYaml } from './case_yaml';
 import { validateExecutionManifest } from './execution_manifest';
 import { validateFailureAnalysis } from './failure_analysis';
+import { validateFixProposal } from './fix_proposal';
 import { validateQaYaml } from './qa_yaml';
 import { validateQualityGateResult } from './quality_gate_result';
 import { validateQualityReport } from './quality_report';
@@ -23,6 +25,8 @@ export const ARTIFACT_SPECS: ArtifactSpec[] = [
   { artifact_type: 'failure_analysis', glob: 'inspect/failure-analysis.json', validate: validateFailureAnalysis },
   { artifact_type: 'quality_gate_result', glob: 'inspect/quality-gate-result.json', validate: validateQualityGateResult },
   { artifact_type: 'quality_report', glob: 'report/quality-report.json', validate: validateQualityReport },
+  { artifact_type: 'fix_proposal', glob: 'healing/fix-proposal.json', validate: validateFixProposal },
+  { artifact_type: 'apply_summary', glob: 'healing/*-apply-summary.json', validate: validateApplySummary },
 ];
 
 export function resolveSpecs(relPath: string): ArtifactSpec[] {
