@@ -19,6 +19,11 @@ import {
   StatusReport,
 } from './engine';
 import { decideGate, GateDecision } from './gate_routing';
+import { deriveHealingState } from '../core/healing_state';
+import {
+  HealingEpisodeSnapshot,
+  projectHealingEpisode,
+} from './healing_episode';
 
 export interface ProgressionOptions extends EngineOptions {}
 
@@ -26,6 +31,7 @@ export interface ProgressSnapshot {
   report: StatusReport;
   nextActions: PhaseDispatchEntry[];
   auditIssues: AuditIssue[];
+  healingEpisode: HealingEpisodeSnapshot;
 }
 
 export interface PhaseOutcome {
@@ -179,6 +185,12 @@ export function inspectProgression(options: ProgressionOptions): ProgressSnapsho
     report,
     nextActions: resolveNextDispatch(report.next, options.schema),
     auditIssues: audit.issues,
+    healingEpisode: projectHealingEpisode({
+      schema: options.schema,
+      derived: options.schema.loops.healing
+        ? deriveHealingState(options.projectRoot, options.changeId)
+        : undefined,
+    }),
   };
 }
 

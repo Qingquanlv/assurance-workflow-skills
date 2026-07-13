@@ -128,6 +128,14 @@ describe('Workflow Progression Runtime', () => {
     expect(snapshot.nextActions.map(action => action.phase)).toEqual(['design']);
     expect(snapshot.report.next).toEqual(['design']);
     expect(snapshot.auditIssues).toEqual([]);
+    expect(snapshot.healingEpisode).toEqual({
+      state: 'inactive',
+      episodeId: null,
+      attemptKey: null,
+      attemptNumber: 0,
+      stage: null,
+      nextActions: [],
+    });
     expect(fs.readdirSync(changeDir)).toEqual(before);
   });
 
