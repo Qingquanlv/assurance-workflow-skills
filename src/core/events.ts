@@ -107,6 +107,16 @@ export interface HealingEntryBaselinePinnedEvent extends QaEventBase {
   episode_id: string;
 }
 
+export interface HealingAttemptAllocatedEvent extends QaEventBase {
+  source: 'progression';
+  type: 'healing_attempt_allocated';
+  episode_id: string;
+  attempt_id: string;
+  attempt_number: number;
+  operation_id: string;
+  source_batch_id: string;
+}
+
 export interface HumanDecisionEvent extends QaEventBase {
   source: 'decide';
   type: 'human_decision';
@@ -182,6 +192,7 @@ export type QaEvent =
   | HealTransitionEvent
   | HealRecordApplyEvent
   | HealingEntryBaselinePinnedEvent
+  | HealingAttemptAllocatedEvent
   | HumanDecisionEvent
   | ExecutionStartEvent
   | ProductTreeChangedEvent
@@ -196,6 +207,7 @@ export type QaEventInput =
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealRecordApplyEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealingEntryBaselinePinnedEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HealingAttemptAllocatedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HumanDecisionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ProductTreeChangedEvent, 'seq' | 'ts' | 'change_id'>

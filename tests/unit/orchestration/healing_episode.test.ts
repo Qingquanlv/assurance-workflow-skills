@@ -1,5 +1,12 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { projectHealingEpisode } from '../../../src/orchestration/healing_episode';
 import { parseSchema } from '../../../src/orchestration/schema';
+import { createWorkflowProgression } from '../../../src/orchestration/progression';
+import { hashTestTree } from '../../../src/core/hash';
+import { readEvents } from '../../../src/core/events';
 
 const HEALING_SCHEMA = `
 schema_version: "test-1"
@@ -49,5 +56,94 @@ describe('Healing Episode projection', () => {
       stage: 'rerun_required',
       nextActions: [{ kind: 'dispatch_phase', phase: 'healing-rerun' }],
     });
+  });
+
+  it('allocates one durable attempt and replays the same operation id', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-healing-episode-'));
+    const changeId = 'REQ-HEALING-EPISODE';
+    try {
+      const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+      fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
+      fs.writeFileSync(path.join(projectRoot, 'tests', 'test_sample.py'), '# fixture\n');
+      fs.mkdirSync(path.join(changeDir, 'execution'), { recursive: true });
+      const tests = hashTestTree(projectRoot);
+      fs.writeFileSync(
+        path.join(changeDir, 'execution', 'execution-manifest.yaml'),
+        yaml.dump({
+          batch_id: 'batch-1',
+          tests_tree_sha256: tests.aggregate,
+          test_files_sha256: tests.files,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(changeDir, 'workflow-state.yaml'),
+        yaml.dump({ params: { max_healing_attempts: 3 }, phases: {} }),
+      );
+      const runtime = createWorkflowProgression({
+        schema: parseSchema(HEALING_SCHEMA),
+        projectRoot,
+        changeId,
+      });
+
+      const first = runtime.applyHealing({
+        kind: 'allocate_attempt',
+        operationId: 'operation-1',
+      });
+      const replay = runtime.applyHealing({
+        kind: 'allocate_attempt',
+        operationId: 'operation-1',
+      });
+
+      expect(first.replayed).toBe(false);
+      expect(first.healingEpisode.episodeId).toBeTruthy();
+      expect(first.healingEpisode.attemptKey).toBeTruthy();
+      expect(replay.replayed).toBe(true);
+      expect(replay.healingEpisode.attemptKey).toBe(first.healingEpisode.attemptKey);
+      expect(
+        readEvents(projectRoot, changeId).filter(event =>
+          event.type === 'healing_attempt_allocated'),
+      ).toHaveLength(1);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rolls back Episode entry when attempt allocation cannot be committed', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-healing-rollback-'));
+    const changeId = 'REQ-HEALING-ROLLBACK';
+    try {
+      const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+      fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
+      fs.writeFileSync(path.join(projectRoot, 'tests', 'test_sample.py'), '# fixture\n');
+      fs.mkdirSync(path.join(changeDir, 'execution'), { recursive: true });
+      fs.writeFileSync(
+        path.join(changeDir, 'execution', 'execution-manifest.yaml'),
+        yaml.dump({ batch_id: 'batch-1' }),
+      );
+      fs.writeFileSync(
+        path.join(changeDir, 'workflow-state.yaml'),
+        yaml.dump({ params: { max_healing_attempts: 3 }, phases: {} }),
+      );
+      const eventsFile = path.join(changeDir, 'events.jsonl');
+      fs.writeFileSync(eventsFile, '');
+      fs.chmodSync(eventsFile, 0o444);
+      const runtime = createWorkflowProgression({
+        schema: parseSchema(HEALING_SCHEMA),
+        projectRoot,
+        changeId,
+      });
+
+      expect(() => runtime.applyHealing({
+        kind: 'allocate_attempt',
+        operationId: 'operation-fails',
+      })).toThrow();
+
+      expect(fs.existsSync(path.join(changeDir, 'healing', 'entry-baseline.json'))).toBe(false);
+      expect(readEvents(projectRoot, changeId)).toEqual([]);
+    } finally {
+      const eventsFile = path.join(projectRoot, 'qa', 'changes', changeId, 'events.jsonl');
+      if (fs.existsSync(eventsFile)) fs.chmodSync(eventsFile, 0o644);
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 });

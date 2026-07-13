@@ -1,4 +1,9 @@
 import type { DerivedHealingState } from '../core/healing_state';
+import type {
+  HealingAttemptAllocatedEvent,
+  HealingEntryBaselinePinnedEvent,
+  QaEvent,
+} from '../core/events';
 import type { Schema } from './schema';
 
 export type HealingEpisodeStage =
@@ -32,6 +37,7 @@ export interface HealingEpisodeSnapshot {
 export interface HealingEpisodeProjectionOptions {
   schema: Schema;
   derived?: DerivedHealingState;
+  events?: QaEvent[];
 }
 
 const TERMINAL = new Set([
@@ -46,15 +52,32 @@ const TERMINAL = new Set([
 export function projectHealingEpisode(
   options: HealingEpisodeProjectionOptions,
 ): HealingEpisodeSnapshot {
-  const { schema, derived } = options;
+  const { schema, derived, events = [] } = options;
   if (!schema.loops.healing || !derived) return inactiveEpisode();
+
+  const episode = currentEpisode(events);
+  const allocation = episode
+    ? [...events].reverse().find((event): event is HealingAttemptAllocatedEvent =>
+        event.type === 'healing_attempt_allocated' && event.episode_id === episode.episode_id)
+    : undefined;
+
+  if (episode && allocation && derived.status === 'pending') {
+    return {
+      state: 'active',
+      episodeId: episode.episode_id,
+      attemptKey: allocation.attempt_id,
+      attemptNumber: allocation.attempt_number,
+      stage: 'proposal_required',
+      nextActions: [{ kind: 'dispatch_phase', phase: 'fix-proposal' }],
+    };
+  }
 
   if (derived.status === 'applied') {
     return {
       state: 'active',
-      episodeId: null,
-      attemptKey: derived.attempt_key,
-      attemptNumber: derived.attempts_used,
+      episodeId: episode?.episode_id ?? null,
+      attemptKey: allocation?.attempt_id ?? derived.attempt_key,
+      attemptNumber: allocation?.attempt_number ?? derived.attempts_used,
       stage: 'rerun_required',
       nextActions: [{ kind: 'dispatch_phase', phase: 'healing-rerun' }],
     };
@@ -79,6 +102,23 @@ export function projectHealingEpisode(
     stage: null,
     nextActions: [],
   };
+}
+
+function currentEpisode(events: QaEvent[]): HealingEntryBaselinePinnedEvent | undefined {
+  const pin = [...events].reverse().find(
+    (event): event is HealingEntryBaselinePinnedEvent =>
+      event.type === 'healing_entry_baseline_pinned',
+  );
+  if (!pin) return undefined;
+  const ended = events.some(event =>
+    event.seq > pin.seq && (
+      (event.type === 'heal_transition' && [
+        'resolved', 'not_needed', 'skipped', 'exhausted', 'failed',
+      ].includes(event.to))
+      || (event.type === 'human_decision' && event.action === 'stop')
+    ),
+  );
+  return ended ? undefined : pin;
 }
 
 function inactiveEpisode(): HealingEpisodeSnapshot {

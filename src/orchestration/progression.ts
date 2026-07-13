@@ -1,10 +1,13 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { applyAuditsToReport, AuditIssue, runStatusAudits } from '../core/audit';
 import {
   appendEventsStrict,
   buildGateVerdictEvent,
   getEventsFile,
   PhaseOutcomeCommittedEvent,
+  HealingAttemptAllocatedEvent,
   readEvents,
 } from '../core/events';
 import { applyPhaseState, getWorkflowStateFile } from '../core/workflow_state';
@@ -20,6 +23,7 @@ import {
 } from './engine';
 import { decideGate, GateDecision } from './gate_routing';
 import { deriveHealingState } from '../core/healing_state';
+import { pinHealingEntryBaseline } from '../core/healing_state';
 import {
   HealingEpisodeSnapshot,
   projectHealingEpisode,
@@ -54,6 +58,17 @@ export interface RepairRoute {
   attemptsUsed: number;
 }
 
+export interface HealingOperation {
+  kind: 'allocate_attempt';
+  operationId: string;
+}
+
+export interface HealingProgressResult {
+  snapshot: ProgressSnapshot;
+  healingEpisode: HealingEpisodeSnapshot;
+  replayed: boolean;
+}
+
 export interface WorkflowProgressionRuntime {
   inspect(): ProgressSnapshot;
   applyOutcome(outcome: PhaseOutcome): ProgressResult;
@@ -62,6 +77,7 @@ export interface WorkflowProgressionRuntime {
   decideGate(gate: GateReport): GateDecision;
   resolveLoopBudget(loopId: string): number;
   adjudicatePhaseGate(phaseId: string): GateReport;
+  applyHealing(operation: HealingOperation): HealingProgressResult;
 }
 
 export function createWorkflowProgression(
@@ -75,6 +91,7 @@ export function createWorkflowProgression(
     decideGate,
     resolveLoopBudget: (loopId) => resolveLoopBudget(options, loopId),
     adjudicatePhaseGate: (phaseId) => adjudicatePhaseGate(options, phaseId),
+    applyHealing: (operation) => applyHealingOperation(options, operation),
   };
 }
 
@@ -181,6 +198,7 @@ export function inspectProgression(options: ProgressionOptions): ProgressSnapsho
   );
   const report = applyAuditsToReport(computed, audit);
 
+  const events = readEvents(options.projectRoot, options.changeId);
   return {
     report,
     nextActions: resolveNextDispatch(report.next, options.schema),
@@ -190,8 +208,66 @@ export function inspectProgression(options: ProgressionOptions): ProgressSnapsho
       derived: options.schema.loops.healing
         ? deriveHealingState(options.projectRoot, options.changeId)
         : undefined,
+      events,
     }),
   };
+}
+
+export function applyHealingOperation(
+  options: ProgressionOptions,
+  operation: HealingOperation,
+): HealingProgressResult {
+  if (!operation.operationId.trim()) {
+    throw new Error('Workflow Progression requires a non-empty Healing operationId');
+  }
+  if (!options.schema.loops.healing) {
+    throw new Error("Workflow Progression: schema has no 'healing' loop");
+  }
+
+  const existing = readEvents(options.projectRoot, options.changeId).find(
+    (event): event is HealingAttemptAllocatedEvent =>
+      event.type === 'healing_attempt_allocated' &&
+      event.operation_id === operation.operationId,
+  );
+  if (existing) {
+    const snapshot = inspectProgression(options);
+    return { snapshot, healingEpisode: snapshot.healingEpisode, replayed: true };
+  }
+
+  const baselineBefore = captureFile(path.join(
+    options.projectRoot,
+    'qa',
+    'changes',
+    options.changeId,
+    'healing',
+    'entry-baseline.json',
+  ));
+  const eventsBefore = captureFile(getEventsFile(options.projectRoot, options.changeId));
+  try {
+    const baseline = pinHealingEntryBaseline(options.projectRoot, options.changeId);
+    if (!baseline.batch_id) {
+      throw new Error('Workflow Progression requires an active batch for Healing');
+    }
+    const attempts = readEvents(options.projectRoot, options.changeId).filter(event =>
+      event.type === 'healing_attempt_allocated' && event.episode_id === baseline.episode_id,
+    );
+    appendEventsStrict(options.projectRoot, options.changeId, [{
+      source: 'progression',
+      type: 'healing_attempt_allocated',
+      episode_id: baseline.episode_id,
+      attempt_id: randomUUID(),
+      attempt_number: attempts.length + 1,
+      operation_id: operation.operationId,
+      source_batch_id: baseline.batch_id,
+    }]);
+  } catch (err) {
+    restoreFile(eventsBefore);
+    restoreFile(baselineBefore);
+    throw err;
+  }
+
+  const snapshot = inspectProgression(options);
+  return { snapshot, healingEpisode: snapshot.healingEpisode, replayed: false };
 }
 
 /**
