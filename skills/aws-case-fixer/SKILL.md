@@ -22,7 +22,7 @@ Do not rely on prior conversation context.
    - `next_action == "run_case_fixer"`.
    - No `auto_fix_plan` item references a `high` or `critical` severity finding **unless** human_approved exception applies.
 
-**human_approved exception**: If `phases.case_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches current `review/case-review.json` SHA256, allow fixing blocker/high severity findings; record in apply-summary `human_approved_fixes[]`. Never write review JSON.
+**human-approved exception**: If the latest `human_decision` for checkpoint `case-review` has action `fix_and_proceed` **and** its `review_sha256` matches current `review/case-review.json`, allow fixing blocker/high severity findings; record in apply-summary `human_approved_fixes[]`. Never write review JSON.
 
 5. Use files as the sole source of truth.
 
@@ -92,6 +92,7 @@ Update only the allowed files:
 ```text
 qa/changes/<change-id>/proposal.md
 qa/changes/<change-id>/cases/**/*.yaml
+qa/changes/<change-id>/trace/minimum-coverage-matrix.yaml
 ```
 
 Write an apply summary:
@@ -120,11 +121,14 @@ Only modify files under these paths:
 ```text
 qa/changes/<change-id>/cases/**/*.yaml
 qa/changes/<change-id>/proposal.md
+qa/changes/<change-id>/trace/minimum-coverage-matrix.yaml
 ```
 
 **Rules:**
 
 - Reject or skip any `auto_fix_plan` item whose `target_file` is outside these paths.
+- `trace/minimum-coverage-matrix.yaml` is the Minimum Required Coverage (MRC) matrix that `aws-case-reviewer` hard-gates on. You may only make **mechanical** edits here: add/adjust a covered_by_cases entry when a case's `trace.minimum_required_coverage` already lists that MRC id, or align a matrix row with an existing case trace. Do NOT invent coverage, and do NOT author a `skipped_by_scope` decision — deciding that an MRC item is out of scope is a human/reviewer judgement (the reviewer routes those to `needs_human_review`, not `needs_fix`).
+- Never modify `qa/changes/<change-id>/trace/traceability-matrix.yaml` — that file is owned by `aws-run` / `aws-archive`, not the case layer.
 - Never modify `qa/cases/**` — these are stable main assets; only `aws-archive` may merge into them.
 - Never modify `tests/**`, `plans/**`, `src/**`, or any path outside `qa/changes/<change-id>/`.
 

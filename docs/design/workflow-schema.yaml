@@ -21,6 +21,7 @@ params:
   max_plan_fix_attempts: { type: int, default: 3 }
   max_healing_attempts: { type: int, default: 3 }
   auto_archive: { type: bool, default: false }
+  force_continue: { type: bool, default: false }
 
 phases:
   - id: skill-registry-check
@@ -302,10 +303,15 @@ gates:
     reads: [review/case-review.json]
     invalid_json: stop
     missing_field_is: stop
-    pass_when: "decision == 'pass'"
     needs_fix_when: "decision == 'needs_fix' and auto_fix_allowed == true"
-    needs_human_review_when: "decision == 'needs_human_review' or human_review_required == true"
+    needs_human_review_when: >
+      decision == 'needs_human_review'
+      or (
+        human_review_required == true
+        and not (params.force_continue == true and decision == 'pass')
+      )
     reject_when: "decision == 'reject'"
+    pass_when: "decision == 'pass'"
 
   case-design-gate:
     reads:
@@ -327,10 +333,19 @@ gates:
     reads: [review/api-plan-review.json]
     invalid_json: stop
     missing_field_is: stop
-    pass_when: "decision == 'pass' and codegen_readiness in ['ready','ready_with_warnings']"
     needs_fix_when: "decision == 'needs_fix' and auto_fix_allowed == true"
-    needs_human_review_when: "human_review_required == true or risk_level in ['high','critical']"
+    needs_human_review_when: >
+      decision == 'needs_human_review'
+      or (
+        (human_review_required == true or risk_level in ['high','critical'])
+        and not (
+          params.force_continue == true
+          and decision == 'pass'
+          and codegen_readiness in ['ready','ready_with_warnings']
+        )
+      )
     reject_when: "decision == 'reject' or codegen_readiness == 'not_ready'"
+    pass_when: "decision == 'pass' and codegen_readiness in ['ready','ready_with_warnings']"
 
   e2e-plan-review-gate:
     <<: *plan-review-gate
@@ -340,19 +355,29 @@ gates:
     reads: [review/fuzz-plan-review.json]
     invalid_json: stop
     missing_field_is: stop
-    pass_when: "decision in ['pass','approved']"
     needs_fix_when: "decision == 'needs_fix' and auto_fix_allowed == true"
-    needs_human_review_when: "decision in ['needs_human_review','changes_requested'] or human_review_required == true"
+    needs_human_review_when: >
+      decision in ['needs_human_review','changes_requested']
+      or (
+        human_review_required == true
+        and not (params.force_continue == true and decision in ['pass','approved'])
+      )
     reject_when: "decision == 'reject'"
+    pass_when: "decision in ['pass','approved']"
 
   performance-plan-review-gate:
     reads: [review/performance-plan-review.json]
     invalid_json: stop
     missing_field_is: stop
-    pass_when: "decision in ['pass','approved']"
     needs_fix_when: "decision == 'needs_fix' and auto_fix_allowed == true"
-    needs_human_review_when: "decision in ['needs_human_review','changes_requested'] or human_review_required == true"
+    needs_human_review_when: >
+      decision in ['needs_human_review','changes_requested']
+      or (
+        human_review_required == true
+        and not (params.force_continue == true and decision in ['pass','approved'])
+      )
     reject_when: "decision == 'reject'"
+    pass_when: "decision in ['pass','approved']"
 
   api-codegen-precondition-gate:
     reads: [workflow-state.yaml]
@@ -384,8 +409,7 @@ gates:
       and skip_or_xfail_added == false
       and unrelated_tests_modified == false
       and high_risk_proposal_applied == false
-    needs_human_review_when: "needs_review == true"
-    stop_when: "passed == false"
+    needs_human_review_when: "passed == false or needs_review == true"
 
   healing-entry-gate:
     reads:
@@ -396,8 +420,7 @@ gates:
       and any(failure_analysis.failures, fix_proposal_eligible == true)
       and state.phases.inspect.inspect_mode == 'primary'
       and state.gates.healing_available == true
-      and (not defined(state.phases.healing.attempts)
-           or len(state.phases.healing.attempts) < params.max_healing_attempts)
+      and state.phases.healing.attempts_used < params.max_healing_attempts
     stop_when: >
       state.phases.execution.status == 'FAIL'
       and any(failure_analysis.failures, fix_proposal_eligible == true)
@@ -414,9 +437,9 @@ gates:
     continue_when: >
       state.phases.execution.status == 'FAIL'
       and any(failure_analysis.failures, fix_proposal_eligible == true)
-      and len(state.phases.healing.attempts) < params.max_healing_attempts
+      and state.phases.healing.attempts_used < params.max_healing_attempts
     stop_when: >
-      len(state.phases.healing.attempts) >= params.max_healing_attempts
+      state.phases.healing.attempts_used >= params.max_healing_attempts
       or state.phases.healing.all_fixers_no_op == true
 
   archive-gate:

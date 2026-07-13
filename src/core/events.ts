@@ -6,8 +6,26 @@ import type { GateReport, PhaseStatusKind, StatusReport } from '../orchestration
 import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
 
-export type QaEventSource = 'status' | 'gate' | 'run' | 'report' | 'heal';
+export type QaEventSource = 'status' | 'gate' | 'run' | 'report' | 'heal' | 'driver' | 'decide';
 export type PhaseTransitionStatus = PhaseStatusKind | string;
+export type HumanDecisionAction =
+  | 'fix_and_proceed'
+  | 'accept_risk'
+  | 'stop'
+  | 'allow_test_changes'
+  | 'skip_branch';
+
+const HUMAN_DECISION_ACTIONS = new Set<HumanDecisionAction>([
+  'fix_and_proceed',
+  'accept_risk',
+  'stop',
+  'allow_test_changes',
+  'skip_branch',
+]);
+
+export function isHumanDecisionAction(value: string): value is HumanDecisionAction {
+  return HUMAN_DECISION_ACTIONS.has(value as HumanDecisionAction);
+}
 
 export interface QaEventBase {
   seq: number;
@@ -50,6 +68,9 @@ export interface HealTransitionEvent extends QaEventBase {
   type: 'heal_transition';
   from: string;
   to: string;
+  source_batch_id?: string;
+  proposal_sha256?: string;
+  attempt_key?: string;
 }
 
 export interface HealRecordApplyEvent extends QaEventBase {
@@ -63,18 +84,36 @@ export interface HealRecordApplyEvent extends QaEventBase {
   summary_sha256: string | null;
   markdown_file: string;
   markdown_sha256: string | null;
+  proposal_sha256: string;
+  source_batch_id: string;
+  attempt_key: string;
 }
 
-export interface HumanOverrideEvent extends QaEventBase {
-  source: 'gate' | 'run';
-  type: 'human_override';
-  phase: string;
-  action: string;
+export interface HealingEntryBaselinePinnedEvent extends QaEventBase {
+  source: 'heal';
+  type: 'healing_entry_baseline_pinned';
+  artifact_file: 'healing/entry-baseline.json';
+  artifact_sha256: string;
+  entry_batch_id: string;
+  episode_id: string;
+}
+
+export interface HumanDecisionEvent extends QaEventBase {
+  source: 'decide';
+  type: 'human_decision';
+  checkpoint: string;
+  action: HumanDecisionAction;
   reason: string;
-  review_sha256: string;
+  who: string;
   evidence_file?: string;
   evidence_sha256?: string;
-  changed_files_count?: number;
+  review_file?: string;
+  review_sha256?: string;
+  state_at_stop?: {
+    next: string[];
+    healing_status: string;
+    phases: Record<string, PhaseStatusKind>;
+  };
 }
 
 export interface ExecutionStartEvent extends QaEventBase {
@@ -109,27 +148,61 @@ export interface ExecutionEndEvent extends QaEventBase {
   per_target: Record<string, unknown>;
 }
 
+export type DriverEventType =
+  | 'driver_started'
+  | 'phase_dispatched'
+  | 'phase_attempt_finished'
+  | 'driver_paused'
+  | 'driver_resumed'
+  | 'driver_finished';
+
+export interface DriverLifecycleEvent extends QaEventBase {
+  source: 'driver';
+  type: DriverEventType;
+  run_id: string;
+  phase?: string;
+  detail?: string;
+  exit_code?: number;
+}
+
 export type QaEvent =
   | PhaseTransitionEvent
   | GateVerdictEvent
   | HealTransitionEvent
   | HealRecordApplyEvent
-  | HumanOverrideEvent
+  | HealingEntryBaselinePinnedEvent
+  | HumanDecisionEvent
   | ExecutionStartEvent
   | ProductTreeChangedEvent
   | FailureReclassifiedEvent
-  | ExecutionEndEvent;
+  | ExecutionEndEvent
+  | DriverLifecycleEvent;
 
 export type QaEventInput =
   | Omit<PhaseTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<GateVerdictEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealRecordApplyEvent, 'seq' | 'ts' | 'change_id'>
-  | Omit<HumanOverrideEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HealingEntryBaselinePinnedEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HumanDecisionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ProductTreeChangedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<FailureReclassifiedEvent, 'seq' | 'ts' | 'change_id'>
-  | Omit<ExecutionEndEvent, 'seq' | 'ts' | 'change_id'>;
+  | Omit<ExecutionEndEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<DriverLifecycleEvent, 'seq' | 'ts' | 'change_id'>;
+
+export function buildDriverEvent(
+  type: DriverEventType,
+  runId: string,
+  extra: { phase?: string; detail?: string; exit_code?: number } = {},
+): Omit<DriverLifecycleEvent, 'seq' | 'ts' | 'change_id'> {
+  return {
+    source: 'driver',
+    type,
+    run_id: runId,
+    ...extra,
+  };
+}
 
 export function getEventsFile(projectRoot: string, changeId: string): string {
   return path.join(projectRoot, 'qa', 'changes', changeId, 'events.jsonl');
@@ -162,28 +235,45 @@ export function nextSeq(projectRoot: string, changeId: string): number {
 }
 
 export function appendEvents(projectRoot: string, changeId: string, events: QaEventInput[]): void {
-  if (events.length === 0) return;
-
   try {
-    const file = getEventsFile(projectRoot, changeId);
-    const dir = path.dirname(file);
-    if (!fs.existsSync(dir)) {
-      console.error(`warning: events.jsonl skipped: change directory does not exist: ${dir}`);
-      return;
-    }
-    let seq = nextSeq(projectRoot, changeId);
-    const ts = new Date().toISOString();
-    const lines = events.map((event) => JSON.stringify({
-      seq: seq++,
-      ts,
-      change_id: changeId,
-      ...event,
-    }));
-    fs.appendFileSync(file, `${lines.join('\n')}\n`, { encoding: 'utf-8', flag: 'a' });
+    appendEventsImpl(projectRoot, changeId, events);
   } catch (err) {
-    console.error(`warning: failed to append events.jsonl: ${(err as Error).message}`);
+    if (err instanceof MissingEventsDirectoryError) {
+      console.error(`warning: events.jsonl skipped: ${err.message}`);
+    } else {
+      console.error(`warning: failed to append events.jsonl: ${(err as Error).message}`);
+    }
   }
 }
+
+export function appendEventsStrict(
+  projectRoot: string,
+  changeId: string,
+  events: QaEventInput[],
+): void {
+  appendEventsImpl(projectRoot, changeId, events);
+}
+
+function appendEventsImpl(projectRoot: string, changeId: string, events: QaEventInput[]): void {
+  if (events.length === 0) return;
+
+  const file = getEventsFile(projectRoot, changeId);
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) {
+    throw new MissingEventsDirectoryError(`change directory does not exist: ${dir}`);
+  }
+  let seq = nextSeq(projectRoot, changeId);
+  const ts = new Date().toISOString();
+  const lines = events.map((event) => JSON.stringify({
+    seq: seq++,
+    ts,
+    change_id: changeId,
+    ...event,
+  }));
+  fs.appendFileSync(file, `${lines.join('\n')}\n`, { encoding: 'utf-8', flag: 'a' });
+}
+
+class MissingEventsDirectoryError extends Error {}
 
 export function readPhaseSnapshot(projectRoot: string, changeId: string): Map<string, PhaseStatusKind> {
   const snapshot = new Map<string, PhaseStatusKind>();

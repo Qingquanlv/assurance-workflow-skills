@@ -77,6 +77,7 @@ export function registerStatusCommand(program: Command): void {
           console.log(JSON.stringify({
             next: resolveNextDispatch(report.next, schema),
             terminal: report.terminal ?? null,
+            pending_decision: report.pending_decision,
           }, null, 2));
         } else {
           console.log(report.next.length ? report.next.join('\n') : '(none)');

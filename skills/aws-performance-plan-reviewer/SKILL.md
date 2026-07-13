@@ -3,6 +3,12 @@ name: aws-performance-plan-reviewer
 description: "Review AWS performance planning artifacts before performance code generation. Use after aws-performance-plan has generated performance plan files. Read-only: writes performance-plan-review.json and performance-plan-review-summary.md, never modifies plan files."
 ---
 
+## Test Data Architecture Contract
+
+- Require shared builders in `tests/testdata/domain/` and bulk seed/cleanup adapters in `tests/perf/adapters/`.
+- Require mappings to `capabilities.domain_factories` and `capabilities.adapters.performance`.
+- Reject Locust code coupled to pytest fixtures, API/E2E adapters, per-user ORM initialization, or a cleanup plan without a generated-data manifest.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

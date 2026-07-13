@@ -7,6 +7,13 @@ description: Use when a QA Case Delta contains E2E automation cases and you need
 
 Before producing output, check whether `.aws/memory/aws-e2e-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared business-valid builders live in `tests/testdata/domain/`; E2E setup/cleanup transport lives in `tests/e2e/adapters/`.
+- Default E2E transport is an authenticated admin/test HTTP API. If no safe endpoint exists, plan an isolated subprocess worker with bounded timeout and symmetric cleanup.
+- A synchronous Playwright test must never import an async shared domain factory or bridge its event loop. Map capabilities through `capabilities.domain_factories` and `capabilities.adapters.e2e`.
+- Shared files are `create-if-missing` for the first active codegen layer and reuse-only thereafter.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -118,7 +125,7 @@ Do not rely on prior conversation context.
 
 - `/tests/e2e/test_*.py`（测试代码由 aws-e2e-codegen 生成）
 - `/tests/e2e/*.spec.ts`（项目不使用 TypeScript Playwright）
-- `/tests/fixtures/*.py`
+- `/tests/e2e/adapters/*.py`
 - `/tests/helpers/*`
 - `/tests/e2e/pages/*`
 - `qa/changes/<change-id>/scripts/*`
@@ -288,7 +295,7 @@ E2E 前置数据优先通过脚本或 API 构造，不得默认通过 UI 造数�
 
 1. `tests/e2e/scripts/<module>_data_setup.py`
 2. API setup script
-3. backend factory / seed script
+3. isolated subprocess E2E adapter invoking the shared domain capability
 4. Playwright request fixture
 5. shared test fixture
 6. UI setup（仅作为最后 fallback，必须写入 flaky risk）
@@ -406,7 +413,7 @@ User verbal approval cannot substitute plan-review.json.
 
 - `/tests/e2e/test_*.py`（由 aws-e2e-codegen 生成，不是 plan 阶段）
 - `/tests/e2e/*.spec.ts`（不使用 TypeScript Playwright）
-- `/tests/fixtures/*.py`
+- `/tests/e2e/adapters/*.py`
 - `/tests/helpers/*`
 - `/tests/e2e/pages/*`
 - `qa/changes/<change-id>/scripts/*`

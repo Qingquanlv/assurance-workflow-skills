@@ -388,7 +388,7 @@ aws doctor --json
 |---|---|
 | `aws skill refresh` | 刷新 OpenCode skill 路径与插件缓存 |
 | `aws skill refresh --build-link` | 重新编译 CLI 并 npm link |
-| `aws skill refresh --sync-agents` | 同步 `.opencode/agents/aws-*.md` 权限地板 |
+| `aws skill refresh --sync-agents` | 同步 `.opencode/agents/` + `.opencode/tools/`（含 `workflow_start`） |
 
 ---
 

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { appendEvents, approxDurationSince, PhaseTransitionStatus, readEvents } from './events';
+import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
 
 export interface PhaseCompletionOptions {
   /** Schema phase id used in events.jsonl. */
@@ -16,8 +17,41 @@ export interface PhaseCompletionOptions {
   transitionTo?: PhaseTransitionStatus;
 }
 
+/** Legacy CLI-backed apply phases (kept for typed call sites). */
 export type ApplyPhase = 'execution' | 'healing-rerun' | 'inspect' | 'healing-reinspect' | 'report';
 export type OrchestratorSkill = 'aws-workflow' | 'aws-intake' | 'aws-execute';
+
+export interface ApplyPhaseOptions {
+  /**
+   * Absolute (or project-root-relative) path to the SKILL.md the phase executor
+   * read. Only meaningful for agent-backed phases. When provided, the Skill Load
+   * Gate fields are written atomically with the phase status. Ignored for pure
+   * CLI phases (execution / healing-rerun), which are always `skill_loaded: n/a`.
+   */
+  skillMdPath?: string;
+  /**
+   * Optional freshness floor: every produced artifact must have mtimeMs >= this
+   * value (dispatch-time watermark). Prevents stale artifacts from marking a
+   * failed retry as successful.
+   */
+  minMtimeMs?: number;
+}
+
+/** Phases that have no dedicated executor SKILL.md — the CLI does the work. */
+const CLI_ONLY_APPLY_PHASES = new Set<string>(['execution', 'healing-rerun']);
+
+/** Params keys the configure command may write (schema-aligned allowlist). */
+const CONFIGURE_PARAM_KEYS = new Set([
+  'run_mode',
+  'test_types',
+  'run_tests',
+  'max_case_fix_attempts',
+  'max_plan_fix_attempts',
+  'max_healing_attempts',
+  'auto_archive',
+  'force_continue',
+  'e2e_framework',
+]);
 
 interface RunContext {
   orchestrator_skill: OrchestratorSkill;
@@ -30,16 +64,137 @@ export function getWorkflowStateFile(projectRoot: string, changeId: string): str
   return path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
 }
 
-export function applyPhaseState(projectRoot: string, changeId: string, phase: ApplyPhase): void {
+export function applyPhaseState(
+  projectRoot: string,
+  changeId: string,
+  phase: string,
+  opts: ApplyPhaseOptions = {}
+): void {
+  if (CLI_ONLY_APPLY_PHASES.has(phase) && opts.skillMdPath) {
+    throw new Error(
+      `skillMdPath is not applicable to CLI-only phase "${phase}"; ` +
+      `it is recorded as skill_loaded: n/a`,
+    );
+  }
   if (phase === 'execution' || phase === 'healing-rerun') {
     applyExecutionState(projectRoot, changeId, phase);
     return;
   }
+  const skillFields = skillLoadFields(projectRoot, opts.skillMdPath);
   if (phase === 'inspect' || phase === 'healing-reinspect') {
-    applyInspectState(projectRoot, changeId, phase);
+    applyInspectState(projectRoot, changeId, phase, skillFields);
     return;
   }
-  applyReportState(projectRoot, changeId);
+  if (phase === 'report') {
+    applyReportState(projectRoot, changeId, skillFields);
+    return;
+  }
+  if (phase === 'skill-registry-check') {
+    applySkillRegistryCheckState(projectRoot, changeId);
+    return;
+  }
+
+  // Schema-driven registry for agent / repair phases.
+  const schemaPath = findSchemaFile(projectRoot);
+  const schema = loadSchemaFromFile(schemaPath);
+  const def = schema.phasesById.get(phase);
+  if (!def) {
+    throw new Error(`Unsupported phase "${phase}" for state apply (not in workflow schema)`);
+  }
+
+  if (def.repair_of) {
+    applyReviewFixerState(projectRoot, changeId, phase, def.repair_of, def.produces, opts);
+    return;
+  }
+
+  const reviewJson = def.produces.find(p => /review\/.+\.json$/.test(p) || p.endsWith('-review.json'));
+  if (def.gate && reviewJson && def.skill) {
+    applyReviewPhaseState(projectRoot, changeId, phase, reviewJson, def.produces, skillFields, opts);
+    return;
+  }
+
+  if (def.skill) {
+    applyOrdinaryAgentPhaseState(projectRoot, changeId, phase, def.produces, skillFields, opts);
+    return;
+  }
+
+  throw new Error(`Unsupported phase "${phase}" for state apply (no registered reducer)`);
+}
+
+/**
+ * Merge runtime params into workflow-state.yaml, preserve existing phase state,
+ * then stamp run_context for the logical orchestrator.
+ */
+export function configureWorkflowParams(
+  projectRoot: string,
+  changeId: string,
+  paramsJson: Record<string, unknown>,
+  orchestratorSkill: OrchestratorSkill,
+  stampedAt = new Date().toISOString(),
+): void {
+  const file = getWorkflowStateFile(projectRoot, changeId);
+  const state = readWorkflowState(file);
+  const root = isRecord(state) ? state : {};
+  const existingParams = isRecord(root.params) ? { ...root.params } as Record<string, unknown> : {};
+
+  for (const [key, value] of Object.entries(paramsJson)) {
+    if (!CONFIGURE_PARAM_KEYS.has(key)) {
+      throw new Error(`configure: unknown param "${key}" (not in allowlist)`);
+    }
+    existingParams[key] = value;
+  }
+  root.params = existingParams;
+  // Preserve phases / other top-level keys as-is.
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
+  stampRunContext(projectRoot, changeId, orchestratorSkill, stampedAt);
+}
+
+/**
+ * Resolve the Skill Load Gate fields for an agent-backed phase. Returns null
+ * when no skill path was supplied (the phase's existing skill_loaded value is
+ * left untouched). Throws when the supplied path does not exist on disk, so a
+ * bogus path cannot cosmetically satisfy the gate.
+ */
+export function skillLoadFields(
+  projectRoot: string,
+  skillMdPath: string | undefined,
+  now: string = new Date().toISOString()
+): Record<string, unknown> | null {
+  if (!skillMdPath) return null;
+  const abs = path.isAbsolute(skillMdPath) ? skillMdPath : path.join(projectRoot, skillMdPath);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`skillMdPath not found on disk: ${abs}`);
+  }
+  return {
+    skill_loaded: true,
+    skill_md_path: abs,
+    skill_loaded_at: now,
+  };
+}
+
+/**
+ * Merge a single `gates.<key>` flag into workflow-state.yaml.
+ *
+ * `gates.healing_available` is normally derived by the orchestrator during the
+ * skill-registry phase (see FALLBACK-RUNBOOK Phase 1.1). The TS driver replaces
+ * that orchestrator, so it must stamp the same flag or the healing-entry-gate
+ * (`enter_when` requires `state.gates.healing_available == true`) can never fire.
+ */
+export function setWorkflowGate(
+  projectRoot: string,
+  changeId: string,
+  key: string,
+  value: unknown,
+): void {
+  const file = getWorkflowStateFile(projectRoot, changeId);
+  const state = readWorkflowState(file);
+  const root = isRecord(state) ? state : {};
+  const gates = isRecord(root.gates) ? (root.gates as Record<string, unknown>) : {};
+  gates[key] = value;
+  root.gates = gates;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
 }
 
 export function stampRunContext(
@@ -181,6 +336,165 @@ export function updateWorkflowStatePhase(
   fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
 }
 
+function assertProducesPresentAndFresh(
+  projectRoot: string,
+  changeId: string,
+  produces: string[],
+  minMtimeMs?: number,
+): string[] {
+  const present: string[] = [];
+  // Freshness watermark detects a no-op dispatch (agent produced nothing new).
+  // It requires that the phase produced *some* fresh artifact this dispatch, not
+  // that every produce is rewritten: phases legitimately leave pre-existing
+  // config/input produces (e.g. .qa.yaml, proposal.md seeded before the run)
+  // untouched while regenerating their real outputs (e.g. cases/). Enforcing
+  // per-file freshness makes such phases fail non-deterministically on whether
+  // the agent happened to rewrite an unchanged file.
+  let freshCount = 0;
+  for (const rel of produces) {
+    // Directories (trailing /) — require existence as directory.
+    if (rel.endsWith('/')) {
+      const abs = resolveChangePath(projectRoot, changeId, rel);
+      if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+        throw new Error(`state apply: required produce missing or not a directory: ${rel}`);
+      }
+      if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+        freshCount++;
+      }
+      present.push(rel);
+      continue;
+    }
+    const abs = resolveChangePath(projectRoot, changeId, rel);
+    if (!fs.existsSync(abs)) {
+      throw new Error(`state apply: required produce missing: ${rel}`);
+    }
+    if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+      freshCount++;
+    }
+    present.push(rel);
+  }
+  if (minMtimeMs !== undefined && produces.length > 0 && freshCount === 0) {
+    throw new Error(
+      `state apply: stale produces (no produce written since dispatch): ${produces.join(', ')}`,
+    );
+  }
+  return present;
+}
+
+function applySkillRegistryCheckState(projectRoot: string, changeId: string): void {
+  recordPhaseCompletion(projectRoot, changeId, {
+    phase: 'skill-registry-check',
+    phaseKey: 'skill_registry_check',
+    state: { status: 'pass' },
+    transitionTo: 'done',
+    outputs: ['workflow-state.yaml'],
+  });
+}
+
+function applyOrdinaryAgentPhaseState(
+  projectRoot: string,
+  changeId: string,
+  phase: string,
+  produces: string[],
+  skillFields: Record<string, unknown> | null,
+  opts: ApplyPhaseOptions,
+): void {
+  const outputs = assertProducesPresentAndFresh(projectRoot, changeId, produces, opts.minMtimeMs);
+  recordPhaseCompletion(projectRoot, changeId, {
+    phase,
+    state: {
+      status: 'done',
+      ...(skillFields ?? {}),
+      outputs,
+    },
+    transitionTo: 'done',
+    outputs,
+  });
+}
+
+function reviewDecisionStatus(decision: string | null): string {
+  if (decision === 'pass' || decision === 'approved') return 'pass';
+  if (decision === 'needs_fix') return 'needs_fix';
+  if (decision === 'needs_human_review' || decision === 'changes_requested') return 'needs_human_review';
+  if (decision === 'reject') return 'reject';
+  return decision ?? 'unknown';
+}
+
+function applyReviewPhaseState(
+  projectRoot: string,
+  changeId: string,
+  phase: string,
+  reviewRel: string,
+  produces: string[],
+  skillFields: Record<string, unknown> | null,
+  opts: ApplyPhaseOptions,
+): void {
+  const outputs = assertProducesPresentAndFresh(projectRoot, changeId, produces, opts.minMtimeMs);
+  const review = readJsonRecord(changeFile(projectRoot, changeId, reviewRel));
+  if (!review) throw new Error(`state apply: review JSON unreadable: ${reviewRel}`);
+  const decision = asString(review.decision);
+  const status = reviewDecisionStatus(decision);
+  recordPhaseCompletion(projectRoot, changeId, {
+    phase,
+    state: {
+      status,
+      ...(skillFields ?? {}),
+      decision,
+      gate_file: reviewRel,
+      outputs,
+    },
+    transitionTo: status === 'pass' ? 'done' : status,
+    outputs,
+  });
+}
+
+function applyReviewFixerState(
+  projectRoot: string,
+  changeId: string,
+  fixerPhase: string,
+  repairOf: string,
+  produces: string[],
+  opts: ApplyPhaseOptions,
+): void {
+  assertProducesPresentAndFresh(projectRoot, changeId, produces, opts.minMtimeMs);
+  const reviewKey = phaseIdToStateKey(repairOf);
+  const file = getWorkflowStateFile(projectRoot, changeId);
+  const state = readWorkflowState(file);
+  const root = isRecord(state) ? state : {};
+  const phases = isRecord(root.phases) ? root.phases as Record<string, unknown> : {};
+  const existing = isRecord(phases[reviewKey]) ? { ...(phases[reviewKey] as Record<string, unknown>) } : {};
+  const attempts = Array.isArray(existing.fix_attempts) ? [...existing.fix_attempts] : [];
+  attempts.push({
+    fixer_phase: fixerPhase,
+    at: new Date().toISOString(),
+  });
+  // Fixer must NOT flip reviewer status to pass — only append attempts.
+  const reviewerStatus = typeof existing.status === 'string' ? existing.status : 'needs_fix';
+  if (reviewerStatus === 'pass') {
+    throw new Error(
+      `state apply fixer: review phase "${repairOf}" is already pass; fixer must not re-apply`,
+    );
+  }
+  phases[reviewKey] = {
+    ...existing,
+    status: reviewerStatus === 'pass' ? reviewerStatus : 'needs_fix',
+    fix_attempts: attempts,
+  };
+  root.phases = phases;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
+
+  // Record fixer phase itself as done (attempt applied), without claiming review
+  // pass. Stamp skill load so the fixer phase can be terminal (Skill Load Gate):
+  // the caller dispatched this fixer skill and passes its SKILL.md path.
+  recordPhaseCompletion(projectRoot, changeId, {
+    phase: fixerPhase,
+    state: { status: 'done', repaired: repairOf, ...skillLoadFields(projectRoot, opts.skillMdPath) },
+    transitionTo: 'done',
+    outputs: produces,
+  });
+}
+
 function applyExecutionState(projectRoot: string, changeId: string, phase: 'execution' | 'healing-rerun'): void {
   const manifest = readYamlRecord(changeFile(projectRoot, changeId, 'execution/execution-manifest.yaml'));
   const gate = readJsonRecord(changeFile(projectRoot, changeId, 'execution/quality-gate-result.json'));
@@ -194,6 +508,11 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
     status,
     batch_id: batchId,
     manifest: 'execution/execution-manifest.yaml',
+    // Pure CLI phase: no dedicated executor SKILL.md. Record n/a so the retro
+    // skill-drift detector does not treat the seeded `false` as real drift.
+    skill_loaded: 'n/a',
+    skill_md_path: null,
+    skill_loaded_at: null,
   };
   const timing = latestExecutionTimingFromEvents(readEvents(projectRoot, changeId));
   if (timing !== null) {
@@ -218,18 +537,8 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
     ],
   });
 
-  // Scaffold phases.healing so downstream predicates (healing-entry-gate's
-  // `len(state.phases.healing.attempts)`, report's `ready_when` on
-  // healing.status) evaluate against concrete values instead of undefined.
-  // Without this the entry gate falls to its fail-closed default and the
-  // router skips the healing loop entirely, dispatching report while
-  // healing.status was never recorded (HEAL-STATE-INCONSISTENT).
-  ensureHealingStateInitialized(projectRoot, changeId);
-
   if (phase === 'healing-rerun') {
-    // Also record the healing_rerun phase key: `aws state heal --to resolved`
-    // reads phases.healing_rerun.status, which mirroring into `execution`
-    // alone would leave unset.
+    // Also record the dedicated healing_rerun phase evidence.
     updateWorkflowStatePhase(projectRoot, changeId, 'healing_rerun', {
       status,
       batch_id: batchId,
@@ -237,21 +546,12 @@ function applyExecutionState(projectRoot: string, changeId: string, phase: 'exec
   }
 }
 
-/** Initialize phases.healing to its pending baseline when absent (idempotent). */
-function ensureHealingStateInitialized(projectRoot: string, changeId: string): void {
-  const file = getWorkflowStateFile(projectRoot, changeId);
-  const state = readWorkflowState(file);
-  if (!isRecord(state)) return;
-  const phases = isRecord(state.phases) ? state.phases as Record<string, unknown> : {};
-  const existing = isRecord(phases.healing) ? phases.healing as Record<string, unknown> : {};
-  if (typeof existing.status === 'string' && Array.isArray(existing.attempts)) return;
-
-  phases.healing = { status: 'pending', attempts: [], ...existing };
-  state.phases = phases;
-  fs.writeFileSync(file, yaml.dump(state, { lineWidth: 120 }), 'utf-8');
-}
-
-function applyInspectState(projectRoot: string, changeId: string, phase: 'inspect' | 'healing-reinspect'): void {
+function applyInspectState(
+  projectRoot: string,
+  changeId: string,
+  phase: 'inspect' | 'healing-reinspect',
+  skillFields: Record<string, unknown> | null = null
+): void {
   const analysis = readJsonRecord(changeFile(projectRoot, changeId, 'inspect/failure-analysis.json'));
   if (!analysis) throw new Error('inspect/failure-analysis.json not found; run aws report inspect before state apply');
 
@@ -274,6 +574,7 @@ function applyInspectState(projectRoot: string, changeId: string, phase: 'inspec
     phase,
     state: {
       status,
+      ...(skillFields ?? {}),
       inspect_mode: asString(analysis.inspect_mode) ?? 'primary',
       classification_performed: Boolean(analysis.classification_performed),
       outputs: existingOutputs(projectRoot, changeId, [
@@ -302,13 +603,18 @@ function applyInspectState(projectRoot: string, changeId: string, phase: 'inspec
     });
     updateWorkflowStatePhase(projectRoot, changeId, 'inspect', {
       status,
+      ...(skillFields ?? {}),
       inspect_mode: asString(analysis.inspect_mode) ?? 'primary',
       classification_performed: Boolean(analysis.classification_performed),
     });
   }
 }
 
-function applyReportState(projectRoot: string, changeId: string): void {
+function applyReportState(
+  projectRoot: string,
+  changeId: string,
+  skillFields: Record<string, unknown> | null = null
+): void {
   const report = readJsonRecord(changeFile(projectRoot, changeId, 'report/quality-report.json'));
   if (!report) throw new Error('report/quality-report.json not found; run aws report generate before state apply');
 
@@ -316,6 +622,7 @@ function applyReportState(projectRoot: string, changeId: string): void {
     phase: 'report',
     state: {
       status: 'done',
+      ...(skillFields ?? {}),
       quality_score: typeof report.quality_score === 'number' ? report.quality_score : null,
     },
     transitionTo: 'done',

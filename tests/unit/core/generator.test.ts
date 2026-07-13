@@ -34,8 +34,14 @@ describe('generateProject', () => {
     expect(fs.existsSync(path.join(tmpDir, 'qa/changes/.gitkeep'))).toBe(true);
 
     expect(fs.existsSync(path.join(tmpDir, 'tests/api/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/api/adapters/.gitkeep'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'tests/e2e/.gitkeep'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, 'tests/fixtures/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/e2e/adapters/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/fuzz/adapters/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/fuzz/strategies/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/perf/adapters/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/testdata/domain/.gitkeep'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'tests/fixtures/.gitkeep'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'tests/helpers/.gitkeep'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'tests/reports/.gitkeep'))).toBe(true);
   });

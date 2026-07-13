@@ -155,7 +155,7 @@ P0 classification scorer：**实现** `evidence_integrity` + `category_match_rat
 |------|------|------|------|----------|
 | `full_run_completed_rate` | 未 timeout 结束 | observe | — | execution.json.status != timeout |
 | `end_to_end_pass_rate` | 最终 execution 通过 | observe | — | 最终 manifest status |
-| `healing_triggered_rate` | 进入 healing | observe | — | workflow-state.phases.healing |
+| `healing_triggered_rate` | 进入 healing | observe | — | deriveHealingState(events + healing artifacts)；idle = pending/skipped/not_needed |
 | `wall_time_seconds` | 实际耗时 | observe | — | completed_at - started_at |
 | `evidence_integrity_diag` | 证据链（诊断） | observe | — | 同 evidence_integrity，不阻断 PR |
 

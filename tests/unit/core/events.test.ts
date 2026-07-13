@@ -4,6 +4,8 @@ import * as path from 'path';
 import { parseSchema } from '../../../src/orchestration/schema';
 import {
   appendEvents,
+  appendEventsStrict,
+  buildDriverEvent,
   buildGateVerdictEvent,
   buildStatusTransitionEvents,
   getEventsFile,
@@ -52,6 +54,52 @@ describe('events.jsonl helpers', () => {
       expect(fs.existsSync(path.join(ghostRoot, 'qa', 'changes', 'NO-SUCH-CHANGE'))).toBe(false);
     } finally {
       fs.rmSync(ghostRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('strict append propagates a missing change-directory error', () => {
+    const ghostRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-events-strict-ghost-'));
+    try {
+      expect(() => appendEventsStrict(ghostRoot, 'NO-SUCH-CHANGE', [{
+        source: 'status',
+        type: 'phase_transition',
+        phase: 'design',
+        from: null,
+        to: 'ready',
+        outputs: [],
+      }])).toThrow(/change directory does not exist/i);
+    } finally {
+      fs.rmSync(ghostRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('strict append propagates an events.jsonl write error', () => {
+    fs.mkdirSync(getEventsFile(projectRoot, changeId));
+
+    expect(() => appendEventsStrict(projectRoot, changeId, [{
+      source: 'status',
+      type: 'phase_transition',
+      phase: 'design',
+      from: null,
+      to: 'ready',
+      outputs: [],
+    }])).toThrow();
+  });
+
+  it('keeps legacy append best-effort for an events.jsonl write error', () => {
+    fs.mkdirSync(getEventsFile(projectRoot, changeId));
+    const warningSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => appendEvents(projectRoot, changeId, [{
+        source: 'status',
+        type: 'phase_transition',
+        phase: 'design',
+        from: null,
+        to: 'ready',
+        outputs: [],
+      }])).not.toThrow();
+    } finally {
+      warningSpy.mockRestore();
     }
   });
 
@@ -210,5 +258,21 @@ gates:
         'review/case-review.json': expect.any(String),
       }),
     });
+  });
+
+  it('appends driver lifecycle events without claiming gate/status types', () => {
+    appendEvents(projectRoot, changeId, [
+      buildDriverEvent('driver_started', 'run-1'),
+      buildDriverEvent('phase_dispatched', 'run-1', { phase: 'fact-baseline' }),
+      buildDriverEvent('driver_finished', 'run-1', { exit_code: 0 }),
+    ]);
+    const events = readEvents(projectRoot, changeId);
+    expect(events.map(e => e.type)).toEqual([
+      'driver_started',
+      'phase_dispatched',
+      'driver_finished',
+    ]);
+    expect(events.every(e => e.source === 'driver')).toBe(true);
+    expect(events.some(e => e.type === 'gate_verdict' || e.type === 'phase_transition')).toBe(false);
   });
 });

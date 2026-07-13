@@ -26,7 +26,7 @@
 执行阶段（plan-review / codegen / healing / archive）
   ├─ gate 产物 hash + 迁移审计                  [本文 机制 A]
   ├─ healing.status 仅 aws state heal 可写       [本文 机制 B]
-  ├─ human_review → aws gate override → 重审    [本文 机制 C]
+  ├─ human_review → aws decide → 重审    [本文 机制 C]
   └─ run tests-tree hash 守卫                    [本文 机制 D]
 ```
 
@@ -102,15 +102,14 @@ e2e-plan-review → needs_human_review (2 blockers)
 ```text
 e2e-plan-review → needs_human_review
   → STOP
-  → aws gate override --phase e2e-plan-review --action fix_and_proceed --reason "…"
-       → workflow-state: phases.e2e_plan_review.human_override
-       → events: human_override
+  → aws decide --at e2e-plan-review --action fix_and_proceed --reason "…"
+       → events: human_decision（绑定当前 review SHA）
   → aws-e2e-plan-fixer (human_approved 模式，校验 review_sha256 一致)
        → 改 plans/*.md，写 plan-review-apply-summary.md
        → 仍不写 review JSON
   → aws-e2e-plan-reviewer 重审 → 新 plan-review.json
   → aws gate check → gate_verdict + reads_sha256
-  → verdict 迁移审计：needs_human_review→pass 前有 override + e2e-plan-fix done ✓
+  → verdict 迁移审计：needs_human_review→pass 前有 decision + e2e-plan-fix done ✓
   → codegen 继续
 ```
 
@@ -133,18 +132,20 @@ execution FAIL → inspect 有 fix_proposal_eligible
 
 ```text
 execution FAIL → inspect → healing-entry-gate enter
+  → pin healing/entry-baseline.json
   → aws-fix-proposal → fix-proposal.json
-  → aws state heal --to proposal_created   (初始化 attempts[0])
+  → status derives proposal_created
   → fixers → *-apply-summary.json
+  → aws heal record-apply
   → fixer-safety-gate pass
-  → aws state heal --to applied
+  → status derives applied; pin applied test tree
   → aws run (healing-rerun)  ✓ 前置检查通过
   → aws state apply --phase healing-rerun
   → healing-reinspect
   → aws state heal --to resolved
 ```
 
-若跳过 fix-proposal 直接 `aws run`：**§4.2** `HEAL-STATE-REQUIRED`。若 apply-summary 已存在但 status 仍 pending：**§4.2.3** `HEAL-STATE-INCONSISTENT`。
+若跳过 fix-proposal / CLI apply evidence 直接 `aws run`：**§4.2** `HEAL-STATE-REQUIRED`。
 
 ---
 
@@ -206,13 +207,13 @@ execution FAIL → inspect → healing-entry-gate enter
 | verdict 迁移 | 合法条件（两次 gate_verdict 事件之间必须存在） |
 |---|---|
 | `needs_fix` → `pass` | 对应 repair phase（如 `e2e-plan-fix`）的 `phase_transition → done` 事件 |
-| `needs_human_review` → `pass` | `human_override` 事件（机制 C）**且** repair phase done 事件（人批准 + 修复 + 重审全链） |
+| `needs_human_review` → `pass` | 有效 `human_decision`（机制 C）或 repair phase done 事件 |
 | `reject` → 任何 | 不允许（reject 是终态；重启需新 change 或显式 override，见 §7 开放问题） |
 | `pass` → `pass`（内容 hash 变化） | repair phase done 事件（内容变了必须有合法原因） |
 
 违反 → `aws status` 报 `GATE-TRANSITION-ILLEGAL: <gate> <from>→<to>`，terminal `stopped`。
 
-> 残余暴露面：events.jsonl 本身也是可写文件。伪造一个 pass 现在需要：手写 review JSON + 手补 gate_verdict 事件（含正确 hash）+ 手补中介 phase_transition / human_override 事件且 seq 连续。做不到"顺手"，且所有伪造都留在账本里可事后审计。接受此残余（见设计立场）。
+> 残余暴露面：events.jsonl 本身也是可写文件。伪造一个 pass 现在需要：手写 review JSON + 手补 gate_verdict 事件（含正确 hash）+ 手补中介 phase_transition / human_decision 事件且 seq 连续。做不到"顺手"，且所有伪造都留在账本里可事后审计。接受此残余（见设计立场）。
 
 ---
 
@@ -243,13 +244,14 @@ CLI 化只堵写入口，还要让"不写"寸步难行：
 1. **`aws run`（healing-rerun 路径）**：执行前检查 `healing.status == applied`。否则拒绝：`HEAL-STATE-REQUIRED: healing-rerun requires healing.status=applied (current: pending). Run the healing loop (fix-proposal → fixers → aws state heal).`
    - 这是对上次事故的直接反制：手动 edit 测试后直接重跑的路径，在 `aws run` 这一步被机械拦截。
 2. **execution 已 done 后的重复 `aws run`**：视为 rerun。非 healing 上下文的 rerun 需要显式 `--rerun-reason <text>`（落 event），否则拒绝——防止"绕开 healing 概念、假装是普通重跑"。
-3. **`aws status` 一致性审计**（与机制 A 同一轮）：
-   - `inspect` done 且 failure-analysis 含 eligible failures 且 `healing-entry-gate == enter`，但 `healing.status == pending` 且 fix-proposal 产物不存在 → 正常（还没开始）；但若 **healing loop 的任何下游产物/事件已出现**（apply-summary 存在、healing-rerun 事件存在）而 `healing.status` 落后 → `HEAL-STATE-INCONSISTENT`，STOP。
-   - archive gate 的既有检查（`healing.status in [not_needed, resolved, skipped]`、`applied` 不算完）原样保留，作为末端兜底。
+3. **`aws status` 证据推导**：从 active batch、fresh analysis、proposal SHA、
+   apply-summary 当前 SHA、`heal_record_apply` 与 human decision 推导唯一状态，
+   不再审计 YAML/artifact 漂移。
 
 ### 4.3 `attempts` 记账
 
-`healing.attempts[]` 由 `aws state heal` 在 `pending → proposal_created` 时 append，元素：
+attempts 由 `heal_record_apply.attempt_key` 的 distinct proposal identity 计数，不再写入
+`healing.attempts[]`。
 
 ```yaml
 - attempt: 1
@@ -264,48 +266,46 @@ CLI 化只堵写入口，还要让"不写"寸步难行：
 
 ## 5. 机制 C — 人工决策落盘（needs_human_review 的合法恢复路径）
 
-### 5.1 新命令 `aws gate override`
+### 5.1 统一命令 `aws decide`
 
 ```bash
-aws gate override --change <id> --phase <review-phase> \
+aws decide --change <id> --at <review-phase> \
   --action fix_and_proceed | skip_branch | accept_and_stop \
   --reason "<用户原话或摘要>"
 ```
 
-- **适用范围**：仅 `human_review_required == true` 或 `risk_level in [high, critical]` 导致的 STOP。**codegen 硬门（`not_ready` / blockers / 缺 data-knowledge）不可 override**——与 `force_continue` 边界完全一致，CLI 直接拒绝。
-- 写入 `workflow-state.yaml`：
+- **适用范围**：仅存在已注册消费者的 checkpoint/action。**codegen 硬门（`not_ready` / blockers / 缺 data-knowledge）不可裁决绕过**——CLI 直接拒绝。
+- 写入 `events.jsonl`：
 
 ```yaml
-phases:
-  e2e_plan_review:
-    human_override:
-      action: fix_and_proceed
-      reason: "用户选择 Fix E2E plan + proceed"
-      at: <ts>
-      review_sha256: <当时 review JSON 的 hash>   # 锁定"批准的是哪一版发现"
+type: human_decision
+checkpoint: e2e-plan-review
+action: fix_and_proceed
+reason: "用户选择 Fix E2E plan + proceed"
+review_sha256: <当时 review JSON 的 hash>
 ```
 
-- append `human_override` 事件（机制 A §3.3 的合法中介凭据）。
+- append `human_decision` 事件（机制 A §3.3 的合法中介凭据）。
 
 ### 5.2 三种 action 的后续路径
 
 | action | 语义 | 后续 |
 |---|---|---|
 | `fix_and_proceed` | 人已看过 findings，批准修复 | fixer 以 **human_approved 模式** 放行（见 5.3）→ 修复 → **强制 reviewer 重审** → 新 review JSON → `aws gate check` 重新裁决。verdict 迁移链完整合法 |
-| `skip_branch` | 放弃该分支（如 skip E2E 只跑 API） | orchestrator 更新 params/test_types（既有机制），phase 转 pruned；override 事件解释了为什么 |
-| `accept_and_stop` | 接受现状，终止工作流 | terminal stopped，报告归档不合格原因 |
+| `skip_branch` | 放弃该分支（如 bootstrap） | 对应 consumer 推导 branch skipped；decision 事件解释原因 |
+| `stop` | 接受现状，终止工作流 | terminal stopped，报告归档不合格原因 |
 
 ### 5.3 fixer 的 human_approved 模式（对 fixer SKILL.md 的唯一改动）
 
 现有 fixer 前置检查 `human_review_required == false`、`severity in [low, medium]` **保持为默认**。新增一个例外分支：
 
-> 若 `workflow-state.yaml` 中存在本 phase 的 `human_override.action == fix_and_proceed`，**且** `human_override.review_sha256` 与当前 review JSON hash 一致（防止批准 A 版发现后偷换 B 版），则允许修复 `findings[]` 中的 blocker / high severity 项——按 finding 的 `suggested_fix` 或 blocker 描述执行，逐项记入 apply-summary 的 `human_approved_fixes[]`。
+> 若最新 `human_decision` 的 checkpoint/action 匹配本 phase 与 `fix_and_proceed`，**且** `review_sha256` 与当前 review JSON hash 一致（防止批准 A 版发现后偷换 B 版），则允许修复 `findings[]` 中的 blocker / high severity 项——按 finding 的 `suggested_fix` 或 blocker 描述执行，逐项记入 apply-summary 的 `human_approved_fixes[]`。
 
 **不变的铁律**：fixer 无论何种模式**永远不写 review JSON、不改 gate 状态**。修完的唯一出路是 reviewer 重审。伪造 pass 的路径在机制 A 下同时被堵。
 
 ### 5.4 与 `force_continue` 的关系
 
-| | `force_continue`（既有） | `gate override`（新） |
+| | `force_continue`（既有） | `human decision` |
 |---|---|---|
 | 时机 | 启动前全局预设 | STOP 发生后单点决策 |
 | 粒度 | 整个 run 的所有 human_review 停止点 | 一个 phase 的一次停止 |
@@ -323,16 +323,16 @@ phases:
 2. `aws status`：新增审计器（篡改检测 §3.2、verdict 迁移审计 §3.3、healing 一致性 §4.2.3）；`PhaseStatusKind` 增加 `tampered`；terminal 规则扩展。
 3. 新命令 `aws state heal`（`src/commands/state.ts` + `src/core/workflow_state.ts` 迁移矩阵）。
 4. `aws run`：healing-rerun 前置 `healing.status == applied` 检查；重复 execution 需 `--rerun-reason`。
-5. 新命令 `aws gate override`（写 `human_override` + 事件；拒绝 codegen 硬门类 phase）。
+5. `aws decide`（写 `human_decision` 事件；拒绝无消费者或 codegen 硬门类裁决）。
 
-**事件类型（`events.jsonl`）**：新增 `heal_transition`、`human_override`；`gate_verdict` 增加 `reads_sha256`。
+**事件类型（`events.jsonl`）**：新增 `heal_transition`、`human_decision`；`gate_verdict` 增加 `reads_sha256`。
 
-**workflow-state 字段**：`phases.healing.status/attempts`（写入口收敛到 CLI）；`phases.<review>.human_override`。
+**workflow-state 字段**：`phases.healing.status/attempts`（写入口收敛到 CLI）；人工裁决仅存在事件账本。
 
 **workflow-schema.yaml**：无 DAG 结构变化。gate 定义不变（审计在引擎/status 层，不进 predicate DSL）。
 
 **SKILL.md 同步**
-- `aws-workflow`：healing 循环各步替换为 `aws state heal` 调用；Human Interaction Rules 增加"STOP 后用 `aws gate override` 记录用户决定，禁止手写 review JSON"；State Ownership 声明 `healing.status` 只能经 CLI。
+- `aws-workflow`：healing 循环各步替换为 `aws state heal` 调用；Human Interaction Rules 增加"STOP 后用 `aws decide` 记录用户决定，禁止手写 review JSON"；State Ownership 声明 `healing.status` 只能经 CLI。
 - 4 个 fixer skill：增加 §5.3 human_approved 分支（前置校验 override 存在 + hash 一致）。
 - `aws-intake` / `aws-execute`：引用同一套规则（薄壳无需展开）。
 
@@ -358,7 +358,7 @@ tests_tree_sha256 已变 AND 无显式人工 allow_test_changes override
   → TESTS-CHANGED-WITHOUT-HEALING；硬 STOP
 ```
 
-`--rerun-reason` **不**是修改测试后重跑的许可；它只适用于测试树未变化的环境抖动重试。若用户明确决定在 healing 之外修改测试，必须通过 `aws run --allow-test-changes --reason "<user decision>"` 记录 `human_override(action=allow_test_changes)` 事件。
+`--rerun-reason` **不**是修改测试后重跑的许可；它只适用于测试树未变化的环境抖动重试。若用户明确决定在 healing 之外修改测试，必须先通过 `aws decide --at execution.test-changes --action allow_test_changes --reason "<user decision>"` 记录绑定当前测试树的一次性授权；随后 `aws run` 自动发现并消费。
 
 该机制补上 §4.2 的入口洞：如果 orchestrator 从未进入 healing，原 `healing.status == applied` 守卫不会触发；tests-tree hash 在第二个 batch 入口处直接拦截。
 
@@ -366,11 +366,11 @@ tests_tree_sha256 已变 AND 无显式人工 allow_test_changes override
 
 ## 7. 引入顺序
 
-1. **事件与 hash 基建**：`gate_verdict.reads_sha256` + `heal_transition` / `human_override` 事件类型（纯增量，无行为变化）。
+1. **事件与 hash 基建**：`gate_verdict.reads_sha256` + `heal_transition` / `human_decision` 事件类型（纯增量，无行为变化）。
 2. **`aws state heal` + `aws run` 前置检查**（问题 2 的主体；单独可上线，收益立现）。
 3. **run 完整性 hash 守卫**：manifest 记录 tests-tree hash；第二个 batch 入口拒绝 healing 外测试漂移。
 4. **`aws status` 审计器**：篡改检测 → healing 一致性 → verdict 迁移审计（三个审计可分步，各自独立生效）。
-5. **`aws gate override` + fixer human_approved 分支**（问题 3 恢复路径；依赖 1 的事件类型）。
+5. **`aws decide` + fixer human-approved 分支**（问题 3 恢复路径；依赖 1 的事件类型）。
 6. **SKILL.md 全量同步**（依赖 2、5 的命令存在）。
 
 每步都有独立的失败测试先行（迁移矩阵非法迁移、hash 不一致降级 tampered、无 override 时 fixer 拒绝 high severity 不变、有 override 且 hash 匹配时放行等）。
@@ -385,7 +385,7 @@ tests_tree_sha256 已变 AND 无显式人工 allow_test_changes override
 | 问题 2：attempts 未初始化 | ✅ | `aws state heal` 记账（§4.3） |
 | 问题 2：跳过 fixer 手动改测试后直接重跑 | ✅ | `aws run` 比对 tests-tree hash；测试漂移时拒绝 `healing.status != applied`；非 healing 测试修改需显式 human override |
 | 问题 3：review JSON 被手写为 pass | ✅（检测） | hash 入账 + 篡改审计（§3.2）+ verdict 迁移审计（§3.3），下一次 `aws status` 即 STOP |
-| 问题 3：人批准后无合法路径 | ✅ | `aws gate override` + fixer human_approved 模式 + 强制重审闭环（§5） |
+| 问题 3：人批准后无合法路径 | ✅ | `aws decide` + fixer human-approved 模式 + 强制重审闭环（§5） |
 | orchestrator 整个会话不调任何 CLI | ❌ | 文件层机制无法约束；靠 SKILL 纪律 + archive 前最终审计兜底 |
 | 恶意伪造事件账本（补事件 + 补 hash） | ❌（留痕） | 无信任根，不可防；但伪造面大、全程留痕、可事后审计（设计立场） |
 | 问题 1：反问被跳过 | —— | two-stage 设计已覆盖，本文不涉及 |

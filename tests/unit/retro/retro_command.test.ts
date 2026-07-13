@@ -188,7 +188,7 @@ describe('registerRetroCommand', () => {
             no_op_rate: 0,
             evidence_ids: [],
           },
-          human_overrides: [],
+          human_decisions: [],
           reclassifications: [],
           skill_execution: [],
           eval_trend: [],
@@ -393,7 +393,7 @@ describe('registerRetroCommand', () => {
             proposal_created: 0, applied: 0, resolved: 0, exhausted: 0,
             created_proposals: 0, applied_proposals: 0, no_op_rate: 0, evidence_ids: [],
           },
-          human_overrides: [], reclassifications: [], skill_execution: [], eval_trend: [],
+          human_decisions: [], reclassifications: [], skill_execution: [], eval_trend: [],
         },
       }, null, 2));
       fs.writeFileSync(path.join(retroDir, 'proposals.json'), JSON.stringify({

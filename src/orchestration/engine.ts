@@ -26,6 +26,11 @@ import {
   EvalResult,
 } from './dsl';
 import { Schema, PhaseDef, GateDef, deriveAlias } from './schema';
+import { HumanDecisionEvent, isHumanDecisionAction, readEvents } from '../core/events';
+import { resolveDecisionSupport } from '../core/decision_support';
+import { sha256File } from '../core/hash';
+import { isAuditedGateRead } from '../core/audit_scope';
+import { deriveHealingState } from '../core/healing_state';
 
 // ─── Report types (match the CLI JSON contract) ─────────────────────────────
 
@@ -79,6 +84,12 @@ export interface StatusReport {
   phases: PhaseStatus[];
   next: string[];
   healing: { attempts_used: number; max: number; status: string };
+  pending_decision: {
+    checkpoint: string;
+    phase: string;
+    gate: string;
+    reason: string;
+  } | null;
   terminal: Terminal | null;
 }
 
@@ -155,6 +166,18 @@ export class Engine {
 
     const state = this.loadDoc('workflow-state.yaml').value;
     this.stateDoc = isObject(state) ? state : {};
+    const derivedHealing = deriveHealingState(this.projectRoot, this.changeId);
+    const phases = isObject((this.stateDoc as Record<string, DslValue>).phases)
+      ? (this.stateDoc as Record<string, DslValue>).phases as Record<string, DslValue>
+      : {};
+    const persistedHealing = isObject(phases.healing) ? phases.healing : {};
+    phases.healing = {
+      ...persistedHealing,
+      status: derivedHealing.status,
+      attempts_used: derivedHealing.attempts_used,
+      all_fixers_no_op: derivedHealing.all_fixers_no_op,
+    };
+    (this.stateDoc as Record<string, DslValue>).phases = phases;
     const runContext = isObject((this.stateDoc as Record<string, DslValue>).run_context)
       ? (this.stateDoc as Record<string, DslValue>).run_context as Record<string, DslValue>
       : {};
@@ -286,12 +309,83 @@ export class Engine {
     }
     this.gateInProgress.add(gateId);
     try {
-      const res = this.adjudicate(gate);
+      const res = this.applyGateDecision(gateId, this.adjudicate(gate));
       this.gateMemo.set(gateId, res);
       return res;
     } finally {
       this.gateInProgress.delete(gateId);
     }
+  }
+
+  private applyGateDecision(gateId: string, base: GateResolution): GateResolution {
+    if (base.verdict !== 'needs_human_review' || isCodegenHardGate(gateId)) return base;
+    const decision = this.latestValidGateDecision(gateId);
+    if (!decision) return base;
+
+    const verdict = decision.action === 'accept_risk'
+      ? 'pass'
+      : decision.action === 'fix_and_proceed'
+        ? 'needs_fix'
+        : base.verdict;
+    if (verdict === base.verdict) return base;
+    return {
+      ...base,
+      verdict,
+      matchedRule: `${base.matchedRule ?? 'default'}; human_decision:${decision.action}`,
+      evidence: {
+        ...base.evidence,
+        decision_checkpoint: decision.checkpoint,
+        decision_action: decision.action,
+        decision_who: decision.who,
+        decision_reason: decision.reason,
+        decision_review_file: decision.review_file!,
+        decision_review_sha256: decision.review_sha256!,
+      },
+    };
+  }
+
+  private latestValidGateDecision(gateId: string): HumanDecisionEvent | null {
+    const gate = this.schema.gates[gateId];
+    if (!gate) return null;
+    const auditedReads = new Set(gate.reads.filter(read => isAuditedGateRead(read.path)).map(read => read.path));
+    if (auditedReads.size === 0) return null;
+
+    const events = readEvents(this.projectRoot, this.changeId);
+    let latestMatching: HumanDecisionEvent | null = null;
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index];
+      if (event.source !== 'decide' || event.type !== 'human_decision') continue;
+      const phase = this.schema.phasesById.get(event.checkpoint);
+      const healingSafety = gateId === 'fixer-safety-gate' && event.checkpoint === 'healing.safety';
+      if (event.checkpoint === gateId || phase?.gate === gateId || healingSafety) {
+        latestMatching = event;
+        break;
+      }
+    }
+    if (
+      !latestMatching
+      || (latestMatching.action !== 'accept_risk' && latestMatching.action !== 'fix_and_proceed')
+      || typeof latestMatching.reason !== 'string'
+      || latestMatching.reason.trim() === ''
+      || typeof latestMatching.who !== 'string'
+      || latestMatching.who.trim() === ''
+      || !latestMatching.review_file
+      || !latestMatching.review_sha256
+      || !auditedReads.has(latestMatching.review_file)
+    ) {
+      return null;
+    }
+    try {
+      const support = resolveDecisionSupport(this.schema, latestMatching.checkpoint, latestMatching.action);
+      const normalGateDecision = support.consumer === 'gate-decision' && support.gateId === gateId;
+      const healingSafetyDecision =
+        support.consumer === 'healing-safety' && gateId === 'fixer-safety-gate';
+      if (!normalGateDecision && !healingSafetyDecision) return null;
+    } catch {
+      return null;
+    }
+    const current = sha256File(this.resolvePath(latestMatching.review_file));
+    return current === latestMatching.review_sha256 ? latestMatching : null;
   }
 
   private adjudicate(gate: GateDef): GateResolution {
@@ -387,11 +481,29 @@ export class Engine {
     // Preserve declaration order in the output.
     const phases = this.schema.phases.map(p => statusMap.get(p.id)!);
 
-    const next = phases.filter(p => p.status === 'ready').map(p => p.id);
-
+    const recordedTerminal = this.recordedStoppedTerminal();
+    const next = recordedTerminal
+      ? []
+      : phases.filter(p => p.status === 'ready').map(p => p.id);
     const stopped = phases.find(p => p.status === 'stopped');
+    const pendingPhase = phases.find(
+      phase => phase.produces_present
+        && phase.status === 'awaiting_gate'
+        && phase.gate_verdict === 'needs_human_review'
+        && phase.gate,
+    );
+    const pendingDecision = pendingPhase?.gate
+      ? {
+          checkpoint: pendingPhase.gate,
+          phase: pendingPhase.id,
+          gate: pendingPhase.gate,
+          reason: `gate ${pendingPhase.gate} requires human review`,
+        }
+      : null;
     let terminal: Terminal | null = null;
-    if (stopped) {
+    if (recordedTerminal) {
+      terminal = recordedTerminal;
+    } else if (stopped) {
       terminal = {
         kind: 'stopped',
         phase: stopped.id,
@@ -419,8 +531,42 @@ export class Engine {
       phases,
       next,
       healing: this.healingSummary(),
+      pending_decision: pendingDecision,
       terminal,
     };
+  }
+
+  private recordedStoppedTerminal(): Terminal | null {
+    const decisions = readEvents(this.projectRoot, this.changeId);
+    for (let index = decisions.length - 1; index >= 0; index--) {
+      const event = decisions[index];
+      if (
+        event.source !== 'decide'
+        || event.type !== 'human_decision'
+        || event.action !== 'stop'
+        || !isHumanDecisionAction(event.action)
+        || typeof event.checkpoint !== 'string'
+        || typeof event.reason !== 'string'
+        || event.reason.trim() === ''
+        || typeof event.who !== 'string'
+        || event.who.trim() === ''
+      ) {
+        continue;
+      }
+      try {
+        if (resolveDecisionSupport(this.schema, event.checkpoint, event.action).consumer !== 'terminal-status') {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      return {
+        kind: 'stopped',
+        reason: event.reason,
+        phase: event.checkpoint,
+      };
+    }
+    return null;
   }
 
   private computePruned(): Map<string, boolean> {
@@ -472,7 +618,12 @@ export class Engine {
       };
     }
 
-    const isDone = (d: string) => statusMap.get(d)?.status === 'done';
+    const isDone = (d: string) => {
+      if (statusMap.get(d)?.status === 'done') return true;
+      if (phase.repair_of !== d) return false;
+      const repaired = this.schema.phasesById.get(d);
+      return repaired?.gate ? this.resolveGate(repaired.gate).verdict === 'needs_fix' : false;
+    };
     const doneDeps = activeDeps.filter(isDone);
     const missingDeps = activeDeps.filter(d => !isDone(d));
 
@@ -483,6 +634,16 @@ export class Engine {
 
     if (blocked) {
       return { id: phase.id, status: 'blocked', gate, missingDeps };
+    }
+
+    const repairedPhase = phase.repair_of
+      ? this.schema.phasesById.get(phase.repair_of)
+      : undefined;
+    const repairRequested = repairedPhase?.gate
+      ? this.resolveGate(repairedPhase.gate).verdict === 'needs_fix'
+      : false;
+    if (repairRequested) {
+      return { id: phase.id, status: 'ready', gate, produces_present: producesPresent };
     }
 
     if (!producesPresent) {
@@ -571,8 +732,7 @@ export class Engine {
     const healing = isObject((phases as Record<string, DslValue>).healing)
       ? ((phases as Record<string, DslValue>).healing as Record<string, DslValue>)
       : {};
-    const attempts = healing.attempts;
-    const attemptsUsed = Array.isArray(attempts) ? attempts.length : 0;
+    const attemptsUsed = typeof healing.attempts_used === 'number' ? healing.attempts_used : 0;
     const max = typeof this.params.max_healing_attempts === 'number'
       ? (this.params.max_healing_attempts as number)
       : 0;
@@ -625,6 +785,10 @@ function scalarFields(obj: Record<string, DslValue>): Record<string, DslValue> {
   return out;
 }
 
+function isCodegenHardGate(gateId: string): boolean {
+  return gateId.endsWith('-codegen-precondition-gate');
+}
+
 // ─── functional API ───────────────────────────────────────────────────────────
 
 export function computeStatus(opts: EngineOptions): StatusReport {
@@ -637,24 +801,77 @@ export function checkGate(opts: EngineOptions & { phaseId: string }): GateReport
 
 // ─── Dispatch resolution ─────────────────────────────────────────────────────
 
+export type PhaseExecutor =
+  | 'internal:test-infra-bootstrap'
+  | 'internal:skill-registry-check'
+  | 'cli:aws-run'
+  | 'agent:opencode';
+
 export interface PhaseDispatchEntry {
   phase: string;
-  /** 'agent' = dispatch to a task subagent; 'cli' = orchestrator runs aws run directly */
-  kind: 'cli' | 'agent';
+  /** How the driver should run this phase. */
+  kind: 'internal' | 'cli' | 'agent';
+  executor: PhaseExecutor;
   skill: string | null;
   agent: string | null;
+  gate: string | null;
 }
+
+const CLI_AWS_RUN_PHASES = new Set(['execution', 'healing-rerun']);
 
 /**
  * Map the ready-phase ids from a StatusReport into concrete dispatch entries
- * that the orchestrator can pass directly to `task` subagent calls.
- * Pure function of schema — no LLM, no filesystem.
+ * that the orchestrator/driver can execute. Pure function of schema — no LLM,
+ * no filesystem. Fail-closed for unknown skill:null phases.
  */
 export function resolveNextDispatch(next: string[], schema: Schema): PhaseDispatchEntry[] {
   return next.map(phase => {
     const def = schema.phasesById.get(phase);
     if (!def) throw new Error(`resolveNextDispatch: unknown phase '${phase}'`);
-    const kind: 'cli' | 'agent' = def.skill === null ? 'cli' : 'agent';
-    return { phase, kind, skill: def.skill, agent: def.agent ?? null };
+    const gate = def.gate ?? null;
+
+    if (phase === 'skill-registry-check') {
+      return {
+        phase,
+        kind: 'internal',
+        executor: 'internal:skill-registry-check',
+        skill: null,
+        agent: null,
+        gate,
+      };
+    }
+    if (phase === 'test-infra-bootstrap') {
+      return {
+        phase,
+        kind: 'internal',
+        executor: 'internal:test-infra-bootstrap',
+        skill: null,
+        agent: null,
+        gate,
+      };
+    }
+    if (def.skill === null) {
+      if (!CLI_AWS_RUN_PHASES.has(phase)) {
+        throw new Error(
+          `resolveNextDispatch: unknown skill:null phase '${phase}' (fail-closed)`,
+        );
+      }
+      return {
+        phase,
+        kind: 'cli',
+        executor: 'cli:aws-run',
+        skill: null,
+        agent: null,
+        gate,
+      };
+    }
+    return {
+      phase,
+      kind: 'agent',
+      executor: 'agent:opencode',
+      skill: def.skill,
+      agent: def.agent ?? null,
+      gate,
+    };
   });
 }

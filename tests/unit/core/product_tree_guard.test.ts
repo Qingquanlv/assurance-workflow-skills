@@ -3,7 +3,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { hashProductTree } from '../../../src/core/hash';
-import { assertProductTreeUnchangedInHealing } from '../../../src/core/healing_state';
+import {
+  assertProductTreeUnchangedInHealing,
+  pinHealingEntryBaseline,
+} from '../../../src/core/healing_state';
 
 const changeId = 'REQ-PRODUCT-GUARD-001';
 
@@ -71,7 +74,7 @@ describe('product tree guard', () => {
   it('throws when product code changes during healing', () => {
     const baseline = hashProductTree(projectRoot, ['app']);
     writeLatestManifest(projectRoot, baseline.aggregate);
-    writeState(projectRoot, 'applied');
+    pinHealingEntryBaseline(projectRoot, changeId);
     fs.writeFileSync(path.join(projectRoot, 'app', 'service.py'), 'VALUE = 2\n', 'utf-8');
 
     expect(() => assertProductTreeUnchangedInHealing(projectRoot, changeId, ['app'])).toThrow(

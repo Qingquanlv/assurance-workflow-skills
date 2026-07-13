@@ -69,7 +69,8 @@ A file is eligible for modification only if **all three** conditions are satisfi
 tests/api/test_<module>_api.py
 tests/api/helpers/<module>_api.py
 tests/api/conftest.py
-tests/fixtures/**/*.py
+tests/api/adapters/**/*.py
+tests/testdata/domain/**/*.py  # only when explicitly selected and trusted; preserve shared contract
 ```
 
 **Condition 2 — Proposal request:** the file appears in `fix-proposal.json.proposals[].files_to_modify`.

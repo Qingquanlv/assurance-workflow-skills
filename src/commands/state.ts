@@ -1,12 +1,15 @@
 import { Command } from 'commander';
-import { applyPhaseState, ApplyPhase, OrchestratorSkill, stampRunContext } from '../core/workflow_state';
+import {
+  applyPhaseState,
+  configureWorkflowParams,
+  OrchestratorSkill,
+} from '../core/workflow_state';
 import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
-const APPLY_PHASES = new Set(['execution', 'healing-rerun', 'inspect', 'healing-reinspect', 'report']);
-const ORCHESTRATOR_SKILLS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
+const CONFIGURE_ORCHESTRATORS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
 const HEAL_STATUSES = new Set([
-  'proposal_created', 'applied', 'resolved', 'exhausted', 'not_needed', 'failed', 'skipped',
+  'resolved', 'exhausted', 'not_needed', 'failed', 'skipped',
 ]);
 
 export function registerStateCommand(program: Command): void {
@@ -18,7 +21,7 @@ export function registerStateCommand(program: Command): void {
     .command('apply')
     .description('Apply a completed phase state delta after dispatch hash verification')
     .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
-    .requiredOption('--phase <phase>', 'Phase to apply: execution, healing-rerun, inspect, healing-reinspect, or report')
+    .requiredOption('--phase <phase>', 'Schema phase id to apply (registry fail-closed)')
     .action((options) => {
       const changeId: string = options.change;
       const phase = String(options.phase);
@@ -30,13 +33,8 @@ export function registerStateCommand(program: Command): void {
       logInfo(`Phase: ${phase}`);
       logBlank();
 
-      if (!APPLY_PHASES.has(phase)) {
-        logError(`Unsupported phase "${phase}". Expected one of: ${Array.from(APPLY_PHASES).join(', ')}`);
-        process.exit(1);
-      }
-
       try {
-        applyPhaseState(projectRoot, changeId, phase as ApplyPhase);
+        applyPhaseState(projectRoot, changeId, phase);
         logOk(`workflow-state.yaml updated for phase "${phase}"`);
         logBlank();
       } catch (err) {
@@ -47,32 +45,42 @@ export function registerStateCommand(program: Command): void {
     });
 
   stateCmd
-    .command('stamp-run-context')
-    .description('Stamp derived run_context for the active orchestrator')
-    .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
-    .requiredOption('--orchestrator <skill>', 'Orchestrator skill: aws-workflow, aws-intake, or aws-execute')
+    .command('configure')
+    .description('Merge runtime params into workflow-state.yaml and stamp run_context')
+    .requiredOption('--change <change-id>', 'Change ID')
+    .option('--params-json <json>', 'JSON object of params to merge', '{}')
+    .requiredOption('--orchestrator <skill>', 'Logical orchestrator: aws-intake, aws-execute, or aws-workflow')
     .action((options) => {
       const changeId: string = options.change;
       const orchestrator = String(options.orchestrator);
       const projectRoot = process.cwd();
 
-      logHeader(`aws state stamp-run-context — change: ${changeId}`);
-      logBlank();
-      logInfo(`Project root: ${projectRoot}`);
-      logInfo(`Orchestrator: ${orchestrator}`);
+      logHeader(`aws state configure — change: ${changeId}`);
       logBlank();
 
-      if (!ORCHESTRATOR_SKILLS.has(orchestrator)) {
-        logError(`Unsupported orchestrator "${orchestrator}". Expected one of: ${Array.from(ORCHESTRATOR_SKILLS).join(', ')}`);
+      if (!CONFIGURE_ORCHESTRATORS.has(orchestrator)) {
+        logError(`Unsupported orchestrator "${orchestrator}". Expected aws-intake, aws-execute, or aws-workflow`);
         process.exit(1);
       }
 
+      let params: Record<string, unknown>;
       try {
-        stampRunContext(projectRoot, changeId, orchestrator as OrchestratorSkill);
-        logOk(`workflow-state.yaml run_context stamped for "${orchestrator}"`);
+        params = JSON.parse(String(options.paramsJson));
+        if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+          throw new Error('params-json must be a JSON object');
+        }
+      } catch (err) {
+        logError(`Invalid --params-json: ${(err as Error).message}`);
+        process.exit(1);
+        return;
+      }
+
+      try {
+        configureWorkflowParams(projectRoot, changeId, params, orchestrator as OrchestratorSkill);
+        logOk(`params merged and run_context stamped for "${orchestrator}"`);
         logBlank();
       } catch (err) {
-        logError(`state stamp-run-context failed: ${(err as Error).message}`);
+        logError(`state configure failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
         process.exit(1);
       }
@@ -80,9 +88,9 @@ export function registerStateCommand(program: Command): void {
 
   stateCmd
     .command('heal')
-    .description('Transition healing.status with enforced preconditions')
+    .description('Record an orchestrator healing judgment')
     .requiredOption('--change <change-id>', 'Change ID (e.g. REQ-002-user-logout)')
-    .requiredOption('--to <status>', 'Target healing status')
+    .requiredOption('--to <status>', 'Healing judgment')
     .action((options) => {
       const changeId: string = options.change;
       const to = String(options.to);
@@ -90,6 +98,7 @@ export function registerStateCommand(program: Command): void {
 
       logHeader(`aws state heal — change: ${changeId}`);
       logBlank();
+
       logInfo(`Target status: ${to}`);
       logBlank();
 
@@ -100,7 +109,7 @@ export function registerStateCommand(program: Command): void {
 
       try {
         const result = transitionHealingStatus(projectRoot, changeId, to as HealingStatus);
-        logOk(`healing.status: ${result.from} → ${result.to}`);
+        logOk(`healing judgment recorded: ${result.from} → ${result.to}`);
         logBlank();
       } catch (err) {
         const message = (err as Error).message;

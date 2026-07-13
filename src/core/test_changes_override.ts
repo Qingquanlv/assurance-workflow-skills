@@ -188,9 +188,9 @@ function normalizePolicy(value: unknown): TestChangesOverridePolicy {
 
 function countConsumedTestChangeOverrides(projectRoot: string, changeId: string): number {
   return readEvents(projectRoot, changeId).filter(event => {
-    return event.source === 'run' &&
-      event.type === 'human_override' &&
-      event.phase === 'execution' &&
+    return event.source === 'decide' &&
+      event.type === 'human_decision' &&
+      event.checkpoint === 'execution.test-changes' &&
       event.action === 'allow_test_changes';
   }).length;
 }

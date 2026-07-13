@@ -163,7 +163,7 @@ input:
   sut: fastapi-vue-admin
 ```
 
-展开后等价于：
+展开后等价于（默认 **driver / headless**）：
 
 ```bash
 node scripts/eval-workflow-run.mjs \
@@ -173,9 +173,11 @@ node scripts/eval-workflow-run.mjs \
   --run-mode case-only \
   --archive-dir <attempt>/raw-output \
   --attempt-dir <attempt>
+# → aws workflow run --change … --scope full --adapter headless --agent-cmd 'opencode run …'
 ```
 
-OpenCode prompt（真实 LLM，**不含** proposal 正文）：
+CI smoke 仍设 `EVAL_USE_FAKE_OPENCODE=1`（one-shot golden，不跑 live driver）。
+遗留对照：`--entry orchestrator` 使用 OpenCode + skill prompt：
 
 ```text
 use skill aws-workflow

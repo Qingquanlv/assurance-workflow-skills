@@ -280,7 +280,7 @@ describe('DSL real schema predicates', () => {
 
   it('healing-entry-gate.enter_when', () => {
     const expr =
-      "state.phases.execution.status == 'FAIL' and any(failure_analysis.failures, fix_proposal_eligible == true) and state.phases.inspect.inspect_mode == 'primary' and state.gates.healing_available == true and len(state.phases.healing.attempts) < params.max_healing_attempts";
+      "state.phases.execution.status == 'FAIL' and any(failure_analysis.failures, fix_proposal_eligible == true) and state.phases.inspect.inspect_mode == 'primary' and state.gates.healing_available == true and state.phases.healing.attempts_used < params.max_healing_attempts";
     const scope = {
       params: { max_healing_attempts: 2 },
       state: {
@@ -288,7 +288,7 @@ describe('DSL real schema predicates', () => {
         phases: {
           execution: { status: 'FAIL' },
           inspect: { inspect_mode: 'primary' },
-          healing: { attempts: [] },
+          healing: { attempts_used: 0 },
         },
       },
       failure_analysis: { failures: [{ fix_proposal_eligible: true }] },
@@ -298,10 +298,10 @@ describe('DSL real schema predicates', () => {
 
   it('healing-loop-gate.stop_when', () => {
     const expr =
-      'len(state.phases.healing.attempts) >= params.max_healing_attempts or state.phases.healing.all_fixers_no_op == true';
+      'state.phases.healing.attempts_used >= params.max_healing_attempts or state.phases.healing.all_fixers_no_op == true';
     const scope = (attempts: number, noop: boolean) => ({
       params: { max_healing_attempts: 2 },
-      state: { phases: { healing: { attempts: new Array(attempts).fill(0), all_fixers_no_op: noop } } },
+      state: { phases: { healing: { attempts_used: attempts, all_fixers_no_op: noop } } },
     });
     expect(ev(expr, scope(2, false))).toBe(true);
     expect(ev(expr, scope(1, true))).toBe(true);

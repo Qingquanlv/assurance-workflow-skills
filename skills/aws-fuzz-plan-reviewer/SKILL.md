@@ -3,6 +3,12 @@ name: aws-fuzz-plan-reviewer
 description: "Review AWS fuzz planning artifacts before fuzz code generation. Use after aws-fuzz-plan has generated fuzz plan files. Read-only: writes fuzz-plan-review.json and fuzz-plan-review-summary.md, never modifies plan files."
 ---
 
+## Test Data Architecture Contract
+
+- Require shared builders in `tests/testdata/domain/`, fuzz adapters in `tests/fuzz/adapters/`, and value strategies in `tests/fuzz/strategies/`.
+- Require mappings to `capabilities.domain_factories` and `capabilities.adapters.fuzz`.
+- Reject strategies that create persistent state, adapters imported from API/E2E, or conflicting ownership of a shared factory.
+
 ## Context Contract
 
 Do not rely on prior conversation context.

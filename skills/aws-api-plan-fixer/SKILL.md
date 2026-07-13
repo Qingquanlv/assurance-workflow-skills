@@ -21,7 +21,7 @@ Do not rely on prior conversation context.
    - `auto_fix_allowed == true` — if not, stop.
    - `auto_fix_plan` exists and is non-empty — if missing or empty, stop as reviewer contract error.
 
-**human_approved exception**: If `phases.api_plan_review.human_override.action == fix_and_proceed` **and** `human_override.review_sha256` matches current `review/api-plan-review.json` SHA256, allow fixing blocker/high severity findings; record in `api-plan-review-apply-summary.md` under `human_approved_fixes[]`. Never write review JSON.
+**human-approved exception**: If the latest `human_decision` for checkpoint `api-plan-review` has action `fix_and_proceed` **and** its `review_sha256` matches current `review/api-plan-review.json`, allow fixing blocker/high severity findings; record in `api-plan-review-apply-summary.md` under `human_approved_fixes[]`. Never write review JSON.
 
 5. For **every** `auto_fix_plan` item, resolve and validate before applying any fix (see **Fix Source Rule**). If any item fails validation, **STOP** as reviewer contract error — do not skip and continue.
 6. Use files as the sole source of truth.
@@ -195,7 +195,8 @@ Do not invent:
 - Business state transition
 - Product behavior
 - Endpoint coverage-gap documentation (`known-product-issues.md`)
-- **`tests/factories/` implementations** — fixer may only document in plan that codegen should add `make_*` in the appropriate `test_<module>_<library>.py` module; must not write factory code
+- **`tests/testdata/domain/` implementations** — fixer may only document a `create-if-missing` or `reuse` shared capability; it must not write factory code
+- **`tests/api/adapters/` implementations** — fixer may only repair the plan mapping/ownership text; it must not write adapter code
 
 Do not create or modify:
 

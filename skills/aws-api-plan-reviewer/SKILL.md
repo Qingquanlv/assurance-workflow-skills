@@ -3,6 +3,13 @@ name: aws-api-plan-reviewer
 description: "Review AWS API planning artifacts before API code generation. Use after aws-api-plan has generated API plan files. Read-only: writes api-plan-review.json and api-plan-review-summary.md, never modifies plan files."
 ---
 
+## Test Data Architecture Contract
+
+- Shared domain builders belong only in `tests/testdata/domain/`; API execution glue belongs only in `tests/api/adapters/`.
+- Require plan mappings to `capabilities.domain_factories` and `capabilities.adapters.api` in `.aws/data-knowledge.yaml`.
+- Reject shared factories containing pytest/HTTP/event-loop bridging, API adapters placed in another layer, or a plan that rewrites an existing shared factory instead of reusing it.
+- A missing shared capability may be `create-if-missing` for the first active codegen layer; conflicting creators are `severity: high` and make codegen `not_ready`.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -193,18 +200,18 @@ Flag unknown factories, unknown states, and missing cleanup.
 **Domain Boundary Checks:**
 
 - **Factory-first default:** for every entity listed in **Required Data**, plan must specify Ring + method in **Factory / Boundary Strategy** → else `severity: medium` (`auto_fix_allowed: true`).
-- If `tests/factories/` contains a `test_<module>_<library>.py` factory module defining `make_<entity>()` for an entity under test, plan/fixtures **must** use it for setup/teardown → else `severity: high`.
-- If `api-codegen-plan.md` Target Files includes `tests/fixtures/<module>_fixtures.py` for a fixture that creates or cleans up domain data but does **not** include the corresponding `tests/factories/test_<module>_<library>.py` target → `severity: high`, `codegen_readiness = not_ready`.
-- `tests/fixtures/` must be wrapper-only: `@pytest.fixture`, yield/lifecycle orchestration, and calls to `make_*`. Any direct business data creation in `tests/fixtures/` plan text → `severity: high`.
+- If `tests/testdata/domain/<entity>.py` defines `make_<entity>()`, the plan must reuse it unchanged through `tests/api/adapters/` → else `severity: high`.
+- If Target Files contains an API adapter but lacks the corresponding shared capability mapping and ownership (`create-if-missing` or `reuse`) → `severity: high`, `codegen_readiness = not_ready`.
+- `tests/api/adapters/` must contain only pytest lifecycle and transport orchestration. Direct business defaults/invariants in an adapter → `severity: high`.
 - **HTTP setup ban:** fixture or setup step uses `POST /.../create` (or helper wrapping create) for cases **not** primarily testing create → `severity: high` (`auto_fix_allowed: false`). Exception: create-focused case IDs explicitly mapped in **Data Setup Mapping** with reason.
 - Anti-pattern: `tmp_<entity>` fixture = POST create + GET list resolve id → flag when `make_<entity>` exists or should exist per degradation ladder step 1.
 - Cleanup must maintain the same invariants as setup; raw-delete cleanup for M2M, closure, or soft-delete entities → `severity: high` (`auto_fix_allowed: false` unless plan only needs wording clarification).
-- Entities with M2M tables (Role↔menus/apis / User↔roles): plan must use `make_*` from `tests/factories/` modules; must not plan raw single-table insert or HTTP fixture seeding → else `severity: high`.
+- Entities with M2M tables (Role↔menus/apis / User↔roles): plan must use shared `make_*` capabilities through the API adapter; raw single-table insertion is `severity: high`.
 - Entities with closure derived tables (Dept↔DeptClosure): plan must use `make_dept()` → else `severity: high`.
 - Entities with password hashing (User): plan must use `make_user()` → else `severity: high`.
 - Menu / single-table domain entities: plan must use `make_menu()` when factory exists; HTTP fixture seeding forbidden except create cases → else `severity: high` (or `medium` if factory missing but step 1 documented in Blockers).
 - Test config (BASE_URL / admin credentials / prefixes): plan must reference `tests.config.settings`; must not hardcode → else `severity: medium`.
-- If `tests/factories/` is in `discovered_candidates` or `.aws/data-knowledge.yaml`, capabilities must map to the correct `test_<module>_<library>.py` module and exported `make_*` functions (including `make_menu` when present).
+- If legacy `tests/factories/` is discovered, treat it as migration evidence only. The reviewed plan must map confirmed capabilities to `tests/testdata/domain/` and API execution to `tests/api/adapters/`.
 - If `api-test-data-plan.md` lacks **Factory / Boundary Strategy** section → `severity: medium` (`auto_fix_allowed: true`).
 
 ### 4. Codegen Readiness

@@ -2,7 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { spawnSync } from 'child_process';
-import { appendEvents } from './events';
+import { randomUUID } from 'crypto';
+import {
+  appendEventsStrict,
+  HealingEntryBaselinePinnedEvent,
+  HealRecordApplyEvent,
+  HealTransitionEvent,
+  readEvents,
+} from './events';
 import { hashProductTree, hashTestTree, sha256File, TestTreeHash } from './hash';
 import { getWorkflowStateFile } from './workflow_state';
 import type { ExecutionManifest } from './types';
@@ -17,13 +24,13 @@ export type HealingStatus =
   | 'failed'
   | 'skipped';
 
-const LEGAL_TRANSITIONS: Record<string, HealingStatus[]> = {
-  pending: ['proposal_created', 'not_needed', 'skipped'],
-  proposal_created: ['applied', 'failed'],
-  // applied → proposal_created is the loop-back edge for attempt N+1
-  // (rerun FAILed, re-inspect found eligible failures, attempts < max).
-  applied: ['proposal_created', 'resolved', 'exhausted', 'failed'],
-};
+const HEALING_JUDGMENTS = new Set<HealingStatus>([
+  'resolved',
+  'not_needed',
+  'skipped',
+  'exhausted',
+  'failed',
+]);
 
 export const DEFAULT_MAX_HEALING_ATTEMPTS = 3;
 
@@ -34,11 +41,6 @@ const APPLY_SUMMARIES = [
 
 const APPLY_SUMMARY_TARGETS = ['api', 'e2e'] as const;
 type ApplySummaryTarget = typeof APPLY_SUMMARY_TARGETS[number];
-
-const FIXER_ERROR_GLOBS = [
-  'healing/api-fixer-error.json',
-  'healing/e2e-fixer-error.json',
-];
 
 export interface HealTransitionResult {
   from: HealingStatus;
@@ -75,11 +77,244 @@ export interface ChangedTestFile {
   change_type: 'modified' | 'added' | 'deleted';
 }
 
+export interface HealingEntryBaseline {
+  schema_version: '1.0';
+  source: 'cli';
+  change_id: string;
+  batch_id: string | null;
+  episode_id: string;
+  pinned_at: string;
+  tests_tree_sha256: string;
+  test_files_sha256: Record<string, string>;
+}
+
+export interface HealingAppliedTestTree {
+  schema_version: '1.0';
+  source: 'cli';
+  change_id: string;
+  pinned_at: string;
+  tests_tree_sha256: string;
+  attempt_key: string | null;
+}
+
+export interface DerivedHealingState {
+  status: HealingStatus;
+  attempts_used: number;
+  all_fixers_no_op: boolean;
+  active_batch_id: string | null;
+  source_batch_id: string | null;
+  proposal_sha256: string | null;
+  attempt_key: string | null;
+}
+
+export function deriveHealingState(projectRoot: string, changeId: string): DerivedHealingState {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const manifest = readLatestExecutionManifest(projectRoot, changeId);
+  const activeBatchId = typeof manifest?.batch_id === 'string' ? manifest.batch_id : null;
+  const analysisPath = path.join(changeDir, 'inspect/failure-analysis.json');
+  const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
+  const analysisSha = sha256File(analysisPath);
+  const sourceBatchId = typeof analysis?.source_batch_id === 'string' ? analysis.source_batch_id : null;
+  const inspectFresh = activeBatchId !== null && sourceBatchId === activeBatchId;
+  const proposalPath = path.join(changeDir, 'healing/fix-proposal.json');
+  const proposal = readJson(changeDir, 'healing/fix-proposal.json');
+  const proposalSha = sha256File(proposalPath);
+  const proposalSourceBatchId = typeof proposal?.source_batch_id === 'string'
+    ? proposal.source_batch_id
+    : null;
+  const proposalAnalysisSha = typeof proposal?.source_analysis_sha256 === 'string'
+    ? proposal.source_analysis_sha256
+    : null;
+  const targets = eligibleProposalTargets(proposal);
+  const proposalValid = Boolean(
+    inspectFresh
+    && proposalSourceBatchId === activeBatchId
+    && analysisSha !== null
+    && proposalAnalysisSha === analysisSha
+    && proposal
+    && isRecord(proposal.summary)
+    && Array.isArray(proposal.proposals)
+    && proposalSha
+    && targets.length > 0,
+  );
+  const attemptKey = proposalValid ? `${proposalSha}:${sourceBatchId}` : null;
+  const events = readEvents(projectRoot, changeId);
+  const attemptKeys = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'heal_record_apply') continue;
+    const candidate = event as typeof event & {
+      attempt_key?: unknown;
+      proposal_sha256?: unknown;
+      source_batch_id?: unknown;
+    };
+    if (typeof candidate.attempt_key === 'string' && candidate.attempt_key) {
+      attemptKeys.add(candidate.attempt_key);
+    } else if (
+      typeof candidate.proposal_sha256 === 'string'
+      && typeof candidate.source_batch_id === 'string'
+    ) {
+      attemptKeys.add(`${candidate.proposal_sha256}:${candidate.source_batch_id}`);
+    }
+  }
+
+  const activeApplyEvents = attemptKey
+    ? events.filter(event => {
+      if (event.type !== 'heal_record_apply') return false;
+      const candidate = event as typeof event & {
+        attempt_key?: unknown;
+        proposal_sha256?: unknown;
+        source_batch_id?: unknown;
+      };
+      return candidate.attempt_key === attemptKey || (
+        candidate.proposal_sha256 === proposalSha
+        && candidate.source_batch_id === sourceBatchId
+      );
+    })
+    : [];
+  let allSummariesValid = proposalValid;
+  let allFixersNoOp = proposalValid;
+  if (proposalValid && attemptKey) {
+    for (const target of targets) {
+      const summaryPath = path.join(changeDir, applySummaryRel(target));
+      const summary = readJson(changeDir, applySummaryRel(target));
+      const latestTargetEvent = [...events].reverse().find((event): event is HealRecordApplyEvent =>
+        event.type === 'heal_record_apply' && event.target === target,
+      );
+      try {
+        if (!summary || !latestTargetEvent) throw new Error('missing summary evidence');
+        validateApplySummary(projectRoot, changeId, target, summary, proposal);
+        const event = latestTargetEvent as typeof latestTargetEvent & {
+          attempt_key?: unknown;
+          proposal_sha256?: unknown;
+          source_batch_id?: unknown;
+        };
+        const currentIdentity = event.attempt_key === attemptKey || (
+          event.proposal_sha256 === proposalSha
+          && event.source_batch_id === sourceBatchId
+        );
+        if (!currentIdentity || event.summary_sha256 !== sha256File(summaryPath)) {
+          throw new Error('stale summary evidence');
+        }
+        if (summary.no_op !== true) allFixersNoOp = false;
+      } catch {
+        allSummariesValid = false;
+        allFixersNoOp = false;
+        break;
+      }
+    }
+  }
+  allFixersNoOp = Boolean(allSummariesValid && allFixersNoOp);
+
+  const latestActiveSeq = activeApplyEvents.reduce((latest, event) => Math.max(latest, event.seq), 0);
+  const latestJudgment = [...events].reverse().find((event): event is HealTransitionEvent => {
+    if (
+      event.type !== 'heal_transition'
+      || !['resolved', 'not_needed', 'skipped', 'exhausted', 'failed'].includes(event.to)
+    ) return false;
+    const judgment = event as HealTransitionEvent & {
+      attempt_key?: string;
+      proposal_sha256?: string;
+      source_batch_id?: string;
+    };
+    if (!activeBatchId || judgment.source_batch_id !== activeBatchId) return false;
+    if (proposalValid && attemptKey) {
+      if (event.to === 'not_needed' || event.to === 'skipped') return false;
+      if (
+        judgment.attempt_key !== attemptKey
+        || judgment.proposal_sha256 !== proposalSha
+        || event.seq <= latestActiveSeq
+      ) return false;
+    }
+    return true;
+  });
+  if (latestJudgment) {
+    return {
+      status: latestJudgment.to as HealingStatus,
+      attempts_used: attemptKeys.size,
+      all_fixers_no_op: allFixersNoOp,
+      active_batch_id: activeBatchId,
+      source_batch_id: sourceBatchId,
+      proposal_sha256: proposalValid ? proposalSha : null,
+      attempt_key: attemptKey,
+    };
+  }
+
+  if (proposalValid && allSummariesValid) {
+    const safetyPath = path.join(changeDir, 'healing/fixer-safety-check.json');
+    const safety = readJson(changeDir, 'healing/fixer-safety-check.json');
+    const safetySha = sha256File(safetyPath);
+    const acceptedRisk = [...events].reverse().find(event =>
+      event.type === 'human_decision' && event.checkpoint === 'healing.safety',
+    );
+    const episode = readCurrentHealingEpisode(projectRoot, changeId);
+    const baselineArtifactSha = sha256File(
+      path.join(changeDir, 'healing/entry-baseline.json'),
+    );
+    const currentTestsTreeSha = hashTestTree(projectRoot).aggregate;
+    const safetyMatchesActiveAttempt = Boolean(
+      safety
+      && safety.attempt_key === attemptKey
+      && safety.proposal_sha256 === proposalSha
+      && safety.source_batch_id === sourceBatchId
+      && episode
+      && baselineArtifactSha === episode.artifact_sha256
+      && safety.baseline_batch_id === episode.entry_batch_id
+      && safety.healing_episode_id === episode.episode_id
+      && safety.entry_baseline_sha256 === episode.artifact_sha256
+      && safety.checked_tests_tree_sha256 === currentTestsTreeSha,
+    );
+    const riskAcceptedForCurrentSafety = Boolean(
+      safetyMatchesActiveAttempt
+      && acceptedRisk
+      && acceptedRisk.type === 'human_decision'
+      && acceptedRisk.action === 'accept_risk'
+      && acceptedRisk.review_file === 'healing/fixer-safety-check.json'
+      && acceptedRisk.review_sha256 === safetySha,
+    );
+    if (
+      safetyMatchesActiveAttempt
+      && ((safety?.passed === true && safety.needs_review !== true) || riskAcceptedForCurrentSafety)
+    ) {
+      return {
+        status: 'applied',
+        attempts_used: attemptKeys.size,
+        all_fixers_no_op: allFixersNoOp,
+        active_batch_id: activeBatchId,
+        source_batch_id: sourceBatchId,
+        proposal_sha256: proposalSha,
+        attempt_key: attemptKey,
+      };
+    }
+  }
+
+  const status: HealingStatus = proposalValid
+    ? 'proposal_created'
+    : inspectFresh && !hasEligibleFailures(analysis)
+      ? 'not_needed'
+      : 'pending';
+  return {
+    status,
+    attempts_used: attemptKeys.size,
+    all_fixers_no_op: allFixersNoOp,
+    active_batch_id: activeBatchId,
+    source_batch_id: sourceBatchId,
+    proposal_sha256: proposalValid ? proposalSha : null,
+    attempt_key: attemptKey,
+  };
+}
+
 export function readHealingStatus(projectRoot: string, changeId: string): HealingStatus {
-  const state = readWorkflowState(projectRoot, changeId);
-  const healing = getHealingPhase(state);
-  const status = healing.status;
-  return typeof status === 'string' ? (status as HealingStatus) : 'pending';
+  return deriveHealingState(projectRoot, changeId).status;
+}
+
+/**
+ * Number of healing attempts derived from `heal_record_apply` events (batch-bound
+ * attempt keys). The driver's healing subroutine seeds its loop counter from this
+ * so a resumed run (re-entering healing after a mid-loop crash) counts prior
+ * attempts against max_healing_attempts instead of starting from zero.
+ */
+export function readHealingAttemptsUsed(projectRoot: string, changeId: string): number {
+  return deriveHealingState(projectRoot, changeId).attempts_used;
 }
 
 export function recordApplySummary(
@@ -94,6 +329,23 @@ export function recordApplySummary(
   const manifest = readLatestExecutionManifest(projectRoot, changeId);
   if (!manifest?.test_files_sha256) {
     throw new Error('record-apply requires execution-manifest.yaml with test_files_sha256');
+  }
+  const activeBatchId = typeof manifest.batch_id === 'string' ? manifest.batch_id : null;
+  const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
+  const analysisSha = sha256File(path.join(changeDir, 'inspect/failure-analysis.json'));
+  const analysisBatchId = typeof analysis?.source_batch_id === 'string'
+    ? analysis.source_batch_id
+    : null;
+  if (
+    !activeBatchId
+    || analysisBatchId !== activeBatchId
+    || proposal.source_batch_id !== activeBatchId
+    || !analysisSha
+    || proposal.source_analysis_sha256 !== analysisSha
+  ) {
+    throw new Error(
+      'record-apply proposal source_batch_id and source_analysis_sha256 must match the current analysis and active execution batch',
+    );
   }
 
   const selected = new Set(proposalIds.map(id => id.trim()).filter(Boolean));
@@ -110,11 +362,12 @@ export function recordApplySummary(
   const changed = diffTestFiles(manifest.test_files_sha256, hashTestTree(projectRoot).files);
   const changedPaths = changed.map(file => file.path);
   const modifiedFiles = changedPaths.filter(file => selectedFiles.has(file));
-  const unauthorized = changedPaths.filter(file => {
-    if (target === 'api' && !file.startsWith('tests/api/') && !file.startsWith('tests/fixtures/')) return false;
-    if (target === 'e2e' && !file.startsWith('tests/e2e/') && !file.startsWith('tests/fixtures/')) return false;
-    return !selectedFiles.has(file);
-  });
+  const ownedRoots = target === 'api'
+    ? ['tests/api/', 'tests/testdata/domain/']
+    : ['tests/e2e/', 'tests/testdata/domain/'];
+  const unauthorized = changedPaths.filter(file => (
+    ownedRoots.some(root => file.startsWith(root)) && !selectedFiles.has(file)
+  ));
   if (unauthorized.length > 0) {
     throw new Error(`record-apply found changed ${target} test files not authorized by selected proposals: ${unauthorized.join(', ')}`);
   }
@@ -154,7 +407,12 @@ export function recordApplySummary(
   fs.writeFileSync(markdownPath, buildApplySummaryMarkdown(changeId, target, now, summary), 'utf-8');
 
   validateApplySummary(projectRoot, changeId, target, summary, proposal);
-  appendEvents(projectRoot, changeId, [{
+  const proposalSha256 = sha256File(path.join(changeDir, 'healing/fix-proposal.json'));
+  const sourceBatchId = typeof manifest.batch_id === 'string' ? manifest.batch_id : null;
+  if (!proposalSha256 || !sourceBatchId) {
+    throw new Error('record-apply requires a hashable fix-proposal and execution batch_id');
+  }
+  appendEventsStrict(projectRoot, changeId, [{
     source: 'heal',
     type: 'heal_record_apply',
     target,
@@ -165,6 +423,9 @@ export function recordApplySummary(
     summary_sha256: sha256File(summaryPath),
     markdown_file: `healing/${target}-apply-summary.md`,
     markdown_sha256: sha256File(markdownPath),
+    proposal_sha256: proposalSha256,
+    source_batch_id: sourceBatchId,
+    attempt_key: `${proposalSha256}:${sourceBatchId}`,
   }]);
   return {
     target,
@@ -181,63 +442,24 @@ export function transitionHealingStatus(
   changeId: string,
   to: HealingStatus,
 ): HealTransitionResult {
+  if (!HEALING_JUDGMENTS.has(to)) {
+    throw new Error(`Unsupported healing judgment "${to}"`);
+  }
   const state = readWorkflowState(projectRoot, changeId);
-  const healing = getHealingPhase(state);
-  const from = (typeof healing.status === 'string' ? healing.status : 'pending') as HealingStatus;
-
-  if (!LEGAL_TRANSITIONS[from]?.includes(to)) {
-    throw new Error(`HEAL-TRANSITION-ILLEGAL: ${from} → ${to}`);
-  }
-
-  if (from === 'proposal_created' && to === 'applied') {
-    writeCliFixerSafetyCheck(projectRoot, changeId);
-  }
+  const derived = deriveHealingState(projectRoot, changeId);
+  const from = derived.status;
   validatePreconditions(projectRoot, changeId, state, from, to);
-
-  const nextHealing: Record<string, unknown> = { ...healing, status: to };
-  if (to === 'proposal_created') {
-    const attempts = Array.isArray(healing.attempts) ? [...healing.attempts] : [];
-    if (from === 'applied' && attempts.length > 0) {
-      // Loop-back: close out the previous attempt as unresolved before
-      // allocating the next one.
-      const last = { ...(attempts[attempts.length - 1] as Record<string, unknown>) };
-      if (last.resolved == null) last.resolved = 'unresolved';
-      attempts[attempts.length - 1] = last;
-    }
-    attempts.push({
-      attempt: attempts.length + 1,
-      started_at: new Date().toISOString(),
-      proposal_ref: 'healing/fix-proposal.json',
-      resolved: null,
-    });
-    nextHealing.attempts = attempts;
-    // A new proposal invalidates the previous apply authorization.
-    delete nextHealing.applied_tests_tree_sha256;
+  if (!derived.active_batch_id) {
+    throw new Error('healing judgment requires an active execution batch');
   }
-
-  if (from === 'proposal_created' && to === 'applied') {
-    // Pin the exact test tree the fixers produced. `aws run` only accepts
-    // this tree while healing.status == applied — one authorization covers
-    // one fixed tree, so post-apply manual edits are rejected.
-    nextHealing.applied_tests_tree_sha256 = hashTestTree(projectRoot).aggregate;
-  }
-
-  if (to === 'resolved' || to === 'exhausted') {
-    const attempts = Array.isArray(nextHealing.attempts) ? [...nextHealing.attempts] : [];
-    if (attempts.length > 0) {
-      const last = { ...(attempts[attempts.length - 1] as Record<string, unknown>) };
-      last.resolved = to;
-      attempts[attempts.length - 1] = last;
-      nextHealing.attempts = attempts;
-    }
-  }
-
-  writeHealingPhase(projectRoot, changeId, nextHealing);
-  appendEvents(projectRoot, changeId, [{
+  appendEventsStrict(projectRoot, changeId, [{
     source: 'status',
     type: 'heal_transition',
     from,
     to,
+    source_batch_id: derived.active_batch_id,
+    ...(derived.proposal_sha256 ? { proposal_sha256: derived.proposal_sha256 } : {}),
+    ...(derived.attempt_key ? { attempt_key: derived.attempt_key } : {}),
   }]);
 
   return { from, to };
@@ -251,41 +473,6 @@ function validatePreconditions(
   to: HealingStatus,
 ): void {
   const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
-
-  if (to === 'proposal_created') {
-    const proposal = readJson(changeDir, 'healing/fix-proposal.json');
-    if (!proposal) throw new Error('healing/fix-proposal.json missing or invalid');
-    if (typeof proposal.summary !== 'object' || proposal.summary === null) {
-      throw new Error('healing/fix-proposal.json missing summary');
-    }
-    // Freshness: the proposal must be based on an inspect of the latest
-    // formal batch, not a stale analysis from an earlier one.
-    const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
-    const manifest = readLatestExecutionManifest(projectRoot, changeId);
-    const latestBatch = typeof manifest?.batch_id === 'string' ? manifest.batch_id : null;
-    const sourceBatch = typeof analysis?.source_batch_id === 'string' ? analysis.source_batch_id : null;
-    if (latestBatch && sourceBatch && latestBatch !== sourceBatch) {
-      throw new Error(
-        `PROPOSAL-STALE: inspect/failure-analysis.json source_batch_id=${sourceBatch} does not match ` +
-        `the latest execution batch ${latestBatch}. Re-run aws report inspect before creating a fix proposal.`,
-      );
-    }
-  }
-
-  if (from === 'applied' && to === 'proposal_created') {
-    // Loop-back for attempt N+1 requires: the previous fix was actually
-    // verified by a rerun, and the attempt budget is not exhausted.
-    assertPhaseDone(state, 'healing_rerun', 'healing-rerun', 'proposal_created (loop-back)');
-    const healing = getHealingPhase(state);
-    const attempts = Array.isArray(healing.attempts) ? healing.attempts : [];
-    const maxAttempts = getMaxHealingAttempts(state);
-    if (attempts.length >= maxAttempts) {
-      throw new Error(
-        `HEAL-ATTEMPTS-EXHAUSTED: ${attempts.length}/${maxAttempts} healing attempts used. ` +
-        'Run aws state heal --to exhausted and surface the decision to the user.',
-      );
-    }
-  }
 
   if (from === 'pending' && to === 'not_needed') {
     const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
@@ -306,75 +493,29 @@ function validatePreconditions(
     }
   }
 
-  if (from === 'proposal_created' && to === 'applied') {
-    const proposal = readJson(changeDir, 'healing/fix-proposal.json');
-    const summaries = APPLY_SUMMARIES.map(p => readJson(changeDir, p)).filter(Boolean);
-    if (summaries.length === 0) {
-      throw new Error('applied requires at least one apply-summary');
-    }
-    for (const target of APPLY_SUMMARY_TARGETS) {
-      const summaryRel = applySummaryRel(target);
-      const summary = readJson(changeDir, summaryRel);
-      if (summary) {
-        const markdownRel = `healing/${target}-apply-summary.md`;
-        if (!fs.existsSync(path.join(changeDir, markdownRel))) {
-          throw new Error(`applied requires ${markdownRel}`);
-        }
-        validateApplySummary(projectRoot, changeId, target, summary, proposal);
-      }
-    }
-    // Every target with an eligible proposal must have its own apply-summary
-    // (no_op: true is acceptable) — one summary must not silently cover both.
-    for (const target of eligibleProposalTargets(proposal)) {
-      const summaryRel = applySummaryRel(target);
-      if (!readJson(changeDir, summaryRel)) {
-        throw new Error(
-          `applied requires ${summaryRel}: fix-proposal has an eligible ${target} proposal ` +
-          `but the ${target} fixer wrote no apply-summary`,
-        );
-      }
-    }
-    const safety = readJson(changeDir, 'healing/fixer-safety-check.json');
-    if (!safety || safety.passed !== true) {
-      throw new Error('applied requires healing/fixer-safety-check.json with passed == true');
-    }
-    if (safety.needs_review === true) {
-      throw new Error('applied requires healing/fixer-safety-check.json needs_review != true');
-    }
-    validateApplySummaryAgainstTestDiff(projectRoot, changeId, proposal);
-  }
-
-  if ((from === 'proposal_created' || from === 'applied') && to === 'failed') {
-    const hasError = FIXER_ERROR_GLOBS.some(p => fs.existsSync(path.join(changeDir, p)));
-    if (!hasError) throw new Error('failed requires a healing/*-fixer-error.json file');
-  }
-
-  if (from === 'applied' && to === 'resolved') {
+  if (to === 'resolved') {
     assertPhaseDone(state, 'healing_rerun', 'healing-rerun', 'resolved');
     assertPhaseDone(state, 'healing_reinspect', 'healing-reinspect', 'resolved');
     const analysis = readJson(changeDir, 'inspect/failure-analysis.json');
     if (hasEligibleFailures(analysis)) {
       throw new Error('resolved requires no fix_proposal_eligible failures in failure-analysis');
     }
-    const execution = isRecord(state.phases) && isRecord((state.phases as Record<string, unknown>).execution)
-      ? (state.phases as Record<string, unknown>).execution as Record<string, unknown>
-      : {};
-    const batchId = typeof execution.batch_id === 'string' ? execution.batch_id : null;
+    const manifest = readLatestExecutionManifest(projectRoot, changeId);
+    const batchId = typeof manifest?.batch_id === 'string' ? manifest.batch_id : null;
     const sourceBatch = typeof analysis?.source_batch_id === 'string' ? analysis.source_batch_id : null;
     if (batchId && sourceBatch && batchId !== sourceBatch) {
       throw new Error(`resolved requires source_batch_id == latest execution batch (${batchId})`);
     }
   }
 
-  if (from === 'applied' && to === 'exhausted') {
-    const healing = getHealingPhase(state);
-    const attempts = Array.isArray(healing.attempts) ? healing.attempts : [];
+  if (to === 'exhausted') {
+    const attempts = readHealingAttemptsUsed(projectRoot, changeId);
     const maxAttempts = getMaxHealingAttempts(state);
     const allNoOp = APPLY_SUMMARIES.every(p => {
       const summary = readJson(changeDir, p);
       return summary?.no_op === true;
     });
-    if (attempts.length < maxAttempts && !allNoOp) {
+    if (attempts < maxAttempts && !allNoOp) {
       throw new Error('exhausted requires max healing attempts reached or all fixers no_op');
     }
   }
@@ -384,12 +525,17 @@ export function isHealingRunContext(projectRoot: string, changeId: string): bool
   const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
   const status = readHealingStatus(projectRoot, changeId);
   if (['proposal_created', 'applied', 'exhausted', 'failed'].includes(status)) return true;
+  if (
+    status === 'pending'
+    && fs.existsSync(path.join(changeDir, 'healing/entry-baseline.json'))
+  ) return true;
   return APPLY_SUMMARIES.some(p => fs.existsSync(path.join(changeDir, p)));
 }
 
 export function assertHealingRunAllowed(projectRoot: string, changeId: string): void {
   if (!isHealingRunContext(projectRoot, changeId)) return;
-  const status = readHealingStatus(projectRoot, changeId);
+  const derived = deriveHealingState(projectRoot, changeId);
+  const status = derived.status;
   if (status !== 'applied') {
     throw new Error(
       `HEAL-STATE-REQUIRED: healing-rerun requires healing.status=applied (current: ${status}). Run the healing loop (fix-proposal → fixers → aws state heal).`,
@@ -461,6 +607,116 @@ export function assertProductTreeUnchangedInHealing(
   };
 }
 
+export function pinHealingEntryBaseline(projectRoot: string, changeId: string): HealingEntryBaseline {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const baselinePath = path.join(changeDir, 'healing', 'entry-baseline.json');
+  const existing = readJson(changeDir, 'healing/entry-baseline.json');
+  const manifest = readLatestExecutionManifest(projectRoot, changeId);
+  const activeBatchId = typeof manifest?.batch_id === 'string' ? manifest.batch_id : null;
+  if (!activeBatchId) {
+    throw new Error('HEALING-ENTRY-BASELINE-BATCH-MISSING: active execution batch_id is required');
+  }
+  const episode = readCurrentHealingEpisode(projectRoot, changeId);
+  if (episode) {
+    if (!existing) {
+      throw new Error('HEALING-ENTRY-BASELINE-MISSING: pinned baseline artifact is missing');
+    }
+    if (
+      existing.episode_id !== episode.episode_id
+      || existing.batch_id !== episode.entry_batch_id
+      || sha256File(baselinePath) !== episode.artifact_sha256
+    ) {
+      throw new Error('HEALING-ENTRY-BASELINE-EVIDENCE-MISMATCH: baseline does not match its pin event');
+    }
+    return existing as unknown as HealingEntryBaseline;
+  }
+
+  const tests = hashTestTree(projectRoot);
+  const baseline: HealingEntryBaseline = {
+    schema_version: '1.0',
+    source: 'cli',
+    change_id: changeId,
+    batch_id: activeBatchId,
+    episode_id: randomUUID(),
+    pinned_at: new Date().toISOString(),
+    tests_tree_sha256: tests.aggregate,
+    test_files_sha256: tests.files,
+  };
+  fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
+  fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2), 'utf-8');
+  const artifactSha256 = sha256File(baselinePath);
+  if (!artifactSha256) {
+    throw new Error('HEALING-ENTRY-BASELINE-WRITE-FAILED: baseline artifact is not hashable');
+  }
+  appendEventsStrict(projectRoot, changeId, [{
+    source: 'heal',
+    type: 'healing_entry_baseline_pinned',
+    artifact_file: 'healing/entry-baseline.json',
+    artifact_sha256: artifactSha256,
+    entry_batch_id: activeBatchId,
+    episode_id: baseline.episode_id,
+  }]);
+  return baseline;
+}
+
+function readCurrentHealingEpisode(
+  projectRoot: string,
+  changeId: string,
+): HealingEntryBaselinePinnedEvent | null {
+  const events = readEvents(projectRoot, changeId);
+  const pin = [...events].reverse().find(
+    (event): event is HealingEntryBaselinePinnedEvent =>
+      event.type === 'healing_entry_baseline_pinned',
+  );
+  if (!pin) return null;
+  const ended = events.some(event =>
+    event.seq > pin.seq
+    && (
+      (
+        event.type === 'heal_transition'
+        && ['resolved', 'not_needed', 'skipped', 'exhausted', 'failed'].includes(event.to)
+      )
+      || (event.type === 'human_decision' && event.action === 'stop')
+    ),
+  );
+  return ended ? null : pin;
+}
+
+export function pinHealingAppliedTestTree(projectRoot: string, changeId: string): HealingAppliedTestTree {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const file = path.join(changeDir, 'healing', 'applied-test-tree.json');
+  const tree = hashTestTree(projectRoot);
+  const derived = deriveHealingState(projectRoot, changeId);
+  const attemptKey = derived.attempt_key;
+  if (derived.status !== 'applied' || !attemptKey) {
+    throw new Error(
+      'HEAL-APPLIED-TREE-CURRENT-SAFETY-REQUIRED: current safety evidence must cover the test tree',
+    );
+  }
+  const existing = readJson(changeDir, 'healing/applied-test-tree.json');
+  if (existing?.attempt_key === attemptKey) {
+    if (existing.tests_tree_sha256 !== tree.aggregate) {
+      throw new Error(
+        `HEAL-TREE-MISMATCH: test tree differs from the CLI-pinned applied test tree ` +
+        `(pinned ${String(existing.tests_tree_sha256).slice(0, 12)}…, ` +
+        `current ${tree.aggregate.slice(0, 12)}…).`,
+      );
+    }
+    return existing as unknown as HealingAppliedTestTree;
+  }
+  const payload: HealingAppliedTestTree = {
+    schema_version: '1.0',
+    source: 'cli',
+    change_id: changeId,
+    pinned_at: new Date().toISOString(),
+    tests_tree_sha256: tree.aggregate,
+    attempt_key: attemptKey,
+  };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf-8');
+  return payload;
+}
+
 export function assertTestTreeUnchangedOrHealing(
   projectRoot: string,
   changeId: string,
@@ -470,6 +726,34 @@ export function assertTestTreeUnchangedOrHealing(
   const previous = readLatestExecutionManifest(projectRoot, changeId);
   if (!previous?.tests_tree_sha256) {
     return { testsChanged: false, current, changedFiles: [] };
+  }
+
+  const derived = deriveHealingState(projectRoot, changeId);
+  if (derived.status === 'applied') {
+    const appliedTree = readJson(
+      path.join(projectRoot, 'qa', 'changes', changeId),
+      'healing/applied-test-tree.json',
+    );
+    if (!appliedTree) {
+      throw new Error(
+        'HEAL-APPLIED-TREE-PIN-MISSING: healing/applied-test-tree.json is required before a healing rerun',
+      );
+    }
+    if (appliedTree.attempt_key !== derived.attempt_key) {
+      throw new Error(
+        'HEAL-APPLIED-TREE-PIN-MISMATCH: applied test tree pin does not match the active healing attempt',
+      );
+    }
+    if (appliedTree.tests_tree_sha256 !== current.aggregate) {
+      const pinned = typeof appliedTree.tests_tree_sha256 === 'string'
+        ? appliedTree.tests_tree_sha256
+        : 'missing';
+      throw new Error(
+        `HEAL-TREE-MISMATCH: test tree differs from the CLI-pinned applied test tree ` +
+        `(pinned ${pinned.slice(0, 12)}…, current ${current.aggregate.slice(0, 12)}…). ` +
+        'Tests were modified after the fixers ran. Start a new healing proposal and fixer cycle.',
+      );
+    }
   }
 
   const testsChanged = previous.tests_tree_sha256 !== current.aggregate;
@@ -483,7 +767,7 @@ export function assertTestTreeUnchangedOrHealing(
   }
 
   const changedFiles = diffTestFiles(previous.test_files_sha256 ?? {}, current.files);
-  const status = readHealingStatus(projectRoot, changeId);
+  const status = derived.status;
   if (allowTestChanges) {
     // Explicit human override (policy-gated, evidence-logged) wins.
     return {
@@ -494,18 +778,6 @@ export function assertTestTreeUnchangedOrHealing(
     };
   }
   if (status === 'applied') {
-    // `applied` only authorizes the exact tree pinned at `heal --to applied`.
-    // Manual edits after apply must go through a new proposal cycle.
-    const healing = getHealingPhase(readWorkflowState(projectRoot, changeId));
-    const pinned = healing.applied_tests_tree_sha256;
-    if (typeof pinned === 'string' && pinned !== current.aggregate) {
-      throw new Error(
-        `HEAL-TREE-MISMATCH: test tree differs from the tree authorized at 'aws state heal --to applied' ` +
-        `(pinned ${pinned.slice(0, 12)}…, current ${current.aggregate.slice(0, 12)}…). ` +
-        'Tests were modified after the fixers ran. Start a new healing cycle: ' +
-        'aws report inspect → aws-fix-proposal → aws state heal --to proposal_created → fixers → --to applied.',
-      );
-    }
     return {
       testsChanged: true,
       current,
@@ -518,10 +790,7 @@ export function assertTestTreeUnchangedOrHealing(
   throw new Error(
     `TESTS-CHANGED-WITHOUT-HEALING: test files changed since batch ${previous.batch_id} ` +
     `(${changedFiles.length} files, e.g. ${examples}) but healing.status=${status}. ` +
-    'Test modifications after a formal run MUST go through the healing loop: ' +
-    'aws-fix-proposal → fixer skill → aws state heal --to applied → aws run. ' +
-    'If a human explicitly decided to modify tests outside healing, record that decision with ' +
-    'aws run --change <id> --allow-test-changes --reason "<user decision>".',
+    'Test modifications after a formal run MUST go through the healing proposal and fixer loop.',
   );
 }
 
@@ -535,10 +804,33 @@ export function writeCliFixerSafetyCheck(projectRoot: string, changeId: string):
   const product = hashProductTree(projectRoot, productRoots);
   const productCodeModified = !!previous?.product_tree_sha256 && previous.product_tree_sha256 !== product.aggregate;
 
+  const entryBaseline = readJson(changeDir, 'healing/entry-baseline.json');
+  if (!entryBaseline || !isRecord(entryBaseline.test_files_sha256)) {
+    throw new Error(
+      'HEALING-ENTRY-BASELINE-MISSING: pin healing/entry-baseline.json before running fixers',
+    );
+  }
+  const derived = deriveHealingState(projectRoot, changeId);
+  if (!derived.attempt_key || !derived.proposal_sha256 || !derived.source_batch_id) {
+    throw new Error('FIXER-SAFETY-UNBOUND: active proposal identity is missing or stale');
+  }
+  const episode = readCurrentHealingEpisode(projectRoot, changeId);
+  const baselinePath = path.join(changeDir, 'healing/entry-baseline.json');
+  if (
+    !episode
+    || entryBaseline.episode_id !== episode.episode_id
+    || entryBaseline.batch_id !== episode.entry_batch_id
+    || sha256File(baselinePath) !== episode.artifact_sha256
+  ) {
+    throw new Error(
+      'HEALING-ENTRY-BASELINE-EVIDENCE-MISMATCH: safety requires the current episode pin event',
+    );
+  }
   const currentTests = hashTestTree(projectRoot);
-  const changedTests = previous?.test_files_sha256
-    ? diffTestFiles(previous.test_files_sha256, currentTests.files)
-    : [];
+  const changedTests = diffTestFiles(
+    entryBaseline.test_files_sha256 as Record<string, string>,
+    currentTests.files,
+  );
   const proposal = readJson(changeDir, 'healing/fix-proposal.json');
   const applySummaries = APPLY_SUMMARIES.map(p => readJson(changeDir, p)).filter(Boolean);
   const proposalFiles = collectProposalFiles(proposal);
@@ -573,7 +865,13 @@ export function writeCliFixerSafetyCheck(projectRoot: string, changeId: string):
     source: 'cli',
     change_id: changeId,
     created_at: new Date().toISOString(),
-    baseline_batch_id: previous?.batch_id ?? null,
+    attempt_key: derived.attempt_key,
+    proposal_sha256: derived.proposal_sha256,
+    source_batch_id: derived.source_batch_id,
+    baseline_batch_id: entryBaseline.batch_id ?? null,
+    healing_episode_id: episode.episode_id,
+    entry_baseline_sha256: episode.artifact_sha256,
+    checked_tests_tree_sha256: currentTests.aggregate,
     product_code_roots: productRoots,
     product_code_modified: productCodeModified,
     skip_or_xfail_added: skipOrXfailAdded,
@@ -722,41 +1020,6 @@ function validateApplySummary(
   }
 }
 
-function validateApplySummaryAgainstTestDiff(
-  projectRoot: string,
-  changeId: string,
-  proposal: Record<string, unknown> | null,
-): void {
-  const previous = readLatestExecutionManifest(projectRoot, changeId);
-  if (!previous?.test_files_sha256) return;
-
-  const changed = diffTestFiles(previous.test_files_sha256, hashTestTree(projectRoot).files).map(f => f.path);
-  if (changed.length === 0) return;
-
-  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
-  const claimed = new Set<string>();
-  for (const target of APPLY_SUMMARY_TARGETS) {
-    const summary = readJson(changeDir, applySummaryRel(target));
-    if (!summary) continue;
-    for (const file of stringArray(summary.files_modified ?? [], `${target}-apply-summary.json files_modified`)) {
-      claimed.add(file);
-    }
-  }
-
-  const authorized = new Set([
-    ...collectEligibleProposalFiles(proposal, 'api'),
-    ...collectEligibleProposalFiles(proposal, 'e2e'),
-  ]);
-  const unclaimed = changed.filter(file => !claimed.has(file));
-  if (unclaimed.length > 0) {
-    throw new Error(`APPLY-SUMMARY-MISMATCH: changed test files not listed in apply-summary: ${unclaimed.join(', ')}`);
-  }
-  const unauthorized = changed.filter(file => !authorized.has(file));
-  if (unauthorized.length > 0) {
-    throw new Error(`APPLY-SUMMARY-UNAUTHORIZED-FILE: changed test files not authorized by fix-proposal: ${unauthorized.join(', ')}`);
-  }
-}
-
 function requireField(
   summary: Record<string, unknown>,
   field: string,
@@ -794,6 +1057,23 @@ function validateSummaryFileAuthorized(label: string, file: string, authorizedFi
   if (authorizedFiles.size > 0 && !authorizedFiles.has(file)) {
     throw new Error(`${label} lists file not authorized by fix-proposal: ${file}`);
   }
+}
+
+/**
+ * Read the eligible fixer proposal ids for a target from healing/fix-proposal.json.
+ * The driver passes these to `aws heal record-apply --proposal <ids>` (the CLI
+ * rejects placeholders like "all" and validates ids against this eligible set).
+ * Returns [] when the proposal file is missing or has no eligible proposals for
+ * the target.
+ */
+export function readEligibleProposalIds(
+  projectRoot: string,
+  changeId: string,
+  target: ApplySummaryTarget,
+): string[] {
+  const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
+  const proposal = readJson(changeDir, 'healing/fix-proposal.json');
+  return eligibleProposalIds(proposal, target);
 }
 
 function eligibleProposalIds(proposal: Record<string, unknown> | null, target: ApplySummaryTarget): string[] {
@@ -955,16 +1235,6 @@ function getEligibleCount(proposal: Record<string, unknown> | null): number | nu
 function getHealingPhase(state: Record<string, unknown>): Record<string, unknown> {
   const phases = isRecord(state.phases) ? state.phases as Record<string, unknown> : {};
   return isRecord(phases.healing) ? { ...(phases.healing as Record<string, unknown>) } : {};
-}
-
-function writeHealingPhase(projectRoot: string, changeId: string, healing: Record<string, unknown>): void {
-  const file = getWorkflowStateFile(projectRoot, changeId);
-  const state = readWorkflowState(projectRoot, changeId);
-  const phases = isRecord(state.phases) ? { ...(state.phases as Record<string, unknown>) } : {};
-  phases.healing = healing;
-  state.phases = phases;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, yaml.dump(state, { lineWidth: 120 }), 'utf-8');
 }
 
 function readWorkflowState(projectRoot: string, changeId: string): Record<string, unknown> {

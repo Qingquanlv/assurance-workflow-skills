@@ -27,7 +27,7 @@ import {
 import { computeQualityScore, ScoreDimension, ScoreDimensionKey } from './quality_score';
 import { loadExecutionArtifacts } from './execution_artifacts';
 import { buildMinimumCoverageResult } from './minimum_coverage';
-import { HumanOverrideEvent, QaEvent, readEvents } from '../core/events';
+import { HumanDecisionEvent, QaEvent, readEvents } from '../core/events';
 
 export interface GenerateReportOptions {
   changeId: string;
@@ -132,13 +132,12 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
       'Do not rely on this report\'s coverage matrix: required-coverage mapping is broken (0 covered). ' +
       'Fix case-id traceability and rerun before release. ' + recommendation;
   }
-  const humanOverrides = readEvents(projectRoot, changeId)
-    .filter(isAllowTestChangesOverride)
+  const humanDecisions = readEvents(projectRoot, changeId)
+    .filter(isAllowTestChangesDecision)
     .map(e => ({
       action: e.action,
       reason: e.reason,
       at: e.ts,
-      ...(typeof e.changed_files_count === 'number' ? { changed_files_count: e.changed_files_count } : {}),
       ...(typeof e.evidence_file === 'string' ? { evidence_file: e.evidence_file } : {}),
       ...(typeof e.evidence_sha256 === 'string' ? { evidence_sha256: e.evidence_sha256 } : {}),
     }));
@@ -153,7 +152,7 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
     scope,
     functional: gate.dimensions.functional,
     coverage: gate.dimensions.coverage,
-    ...(humanOverrides.length > 0 ? { human_overrides: humanOverrides } : {}),
+    ...(humanDecisions.length > 0 ? { human_decisions: humanDecisions } : {}),
     minimum_required_coverage: minimumCoverage,
     non_functional: gate.dimensions.non_functional,
     defects,
@@ -175,8 +174,10 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
   return { report, jsonPath, mdPath, execSummaryPath };
 }
 
-function isAllowTestChangesOverride(event: QaEvent): event is HumanOverrideEvent {
-  return event.type === 'human_override' && event.action === 'allow_test_changes';
+function isAllowTestChangesDecision(event: QaEvent): event is HumanDecisionEvent {
+  return event.type === 'human_decision'
+    && event.checkpoint === 'execution.test-changes'
+    && event.action === 'allow_test_changes';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -351,7 +352,7 @@ function buildReportMd(r: QualityReport): string {
         ]
       : []),
     '',
-    ...humanOverridesSection(r),
+    ...humanDecisionsSection(r),
     ...minimumCoverageSection(r),
     ...nonFunctionalSection(r),
     '## Defects',
@@ -373,16 +374,16 @@ function buildReportMd(r: QualityReport): string {
   return lines.join('\n');
 }
 
-function humanOverridesSection(r: QualityReport): string[] {
-  const overrides = r.human_overrides ?? [];
-  if (overrides.length === 0) return [];
+function humanDecisionsSection(r: QualityReport): string[] {
+  const decisions = r.human_decisions ?? [];
+  if (decisions.length === 0) return [];
   const out = [
-    '## Human Overrides',
+    '## Human Decisions',
     '',
     '| Action | Time | Files | Evidence | Reason |',
     '|--------|------|------:|----------|--------|',
   ];
-  for (const item of overrides) {
+  for (const item of decisions) {
     out.push(
       `| ${item.action} | ${item.at} | ${item.changed_files_count ?? '-'} | ${item.evidence_file ?? '-'} | ${item.reason} |`,
     );

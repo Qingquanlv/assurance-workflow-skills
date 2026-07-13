@@ -7,6 +7,12 @@ description: "AWS M3 Performance Stage 2: generate Locust load tests from a revi
 
 Before producing output, check whether `.aws/memory/aws-performance-codegen.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared business-valid builders live in `tests/testdata/domain/`; performance-owned bulk seed/cleanup code lives in `tests/perf/adapters/`.
+- The adapter must support bounded batch size, a generated-data manifest, idempotent cleanup, and a separate setup phase. Locust users must not initialize ORM state or import pytest/API/E2E adapters.
+- Read `capabilities.domain_factories` and `capabilities.adapters.performance`. Create a shared file only when absent and marked `create-if-missing`; later layers reuse without modification.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -30,6 +36,8 @@ Do not rely on prior conversation context.
 
 1. Write generated Locust files per `performance-codegen-plan.md` Target Files:
    - `tests/perf/locustfile_<module>.py` (required path — runner discovers `tests/perf/`)
+   - `tests/perf/adapters/<module>_seed.py` (when the plan requires bulk setup/cleanup)
+   - `tests/testdata/domain/<entity>.py` (only when absent and marked `create-if-missing`)
    - `qa/changes/<change-id>/codegen/performance-codegen-summary.md`
 2. Report the `workflow-state.yaml` state delta (inline mode: apply it directly; dispatched subagent: never write `workflow-state.yaml` — report the values in your final message and the orchestrator applies them):
    - `phases.performance_codegen.status = done`
@@ -94,6 +102,8 @@ class MenuListUser(HttpUser):
 - Endpoints, task weights, and the `name=` labels come from the plan and MUST match the scenario `capability` so the runner can map measured stats back to thresholds.
 - The locustfile declares **load behavior only**; absolute thresholds (`p95_ms`, `error_rate_max`) live in the case/plan and are enforced by the CLI runner against Locust output — do **not** re-encode thresholds inside the locustfile.
 - Output exactly to `tests/perf/locustfile_<module>.py`.
+- Run bulk setup as a separate pre-load phase through `tests/perf/adapters/`; never initialize an ORM/session from a Locust user or task.
+- The adapter must write a generated-data manifest and provide idempotent cleanup. It must not import API/E2E/Fuzz adapters.
 - `performance-codegen-plan.md` is a codegen guidance artifact, not the runner's execution target list. Phase 8 `aws-run` discovers executable Locust files via `tests/perf/locustfile*.py` and reads thresholds/load from selected `type: Performance` cases.
 
 ## Runner discovery contract (aws-run)

@@ -7,6 +7,13 @@ description: Use when a QA Case Delta contains API automation cases and you need
 
 Before producing output, check whether `.aws/memory/aws-api-plan.md` exists in the project root. If it exists, read it before producing output and apply only entries that are not marked `deprecated:`. Treat the file as read-only runtime guidance; do not create, edit, or delete `.aws/memory/**`.
 
+## Test Data Architecture Contract
+
+- Shared business-valid builders live in `tests/testdata/domain/`. They contain domain defaults, invariant-preserving create/cleanup operations, and return plain snapshots. They contain no pytest, Playwright, Hypothesis, Locust, HTTP-client, subprocess, or event-loop bridge code.
+- API execution glue lives in `tests/api/adapters/`. It is the only API-owned location for pytest fixtures, in-process async calls, or live-server setup transport.
+- Plans must map each data need to one shared domain factory and one API adapter. A shared file is `create-if-missing` and may be created only by the first active codegen layer; later layers reuse it without rewriting it.
+- `.aws/data-knowledge.yaml` must use `capabilities.domain_factories` and `capabilities.adapters.api`; legacy `capabilities.factories` is discovery-only and must be proposed for migration.
+
 ## Context Contract
 
 Do not rely on prior conversation context.
@@ -116,8 +123,8 @@ Must NOT generate:
 
 - `.aws/data-knowledge.yaml` (write proposal only, not project-level knowledge base)
 - `/tests/api/*.py`
-- `/tests/factories/test_<module>_<library>.py`
-- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
+- `/tests/testdata/domain/<entity>.py` (shared; create-if-missing or reuse)
+- `/tests/api/adapters/*.py` (API-owned pytest/transport wrappers)
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 
@@ -214,30 +221,30 @@ Seeding method is determined by **aggregate boundary**; do not mix layers:
 
 | Ring | Seeding method | Typical scenario |
 |------|----------------|------------------|
-| **Within domain (same aggregate)** | Call local factory functions from `tests/factories/` modules; functions are named `make_*` and call service/controller code internally | `make_role()` / `make_user()` / `make_dept()` / `make_menu()` |
+| **Within domain (same aggregate)** | Call shared factory functions from `tests/testdata/domain/`; functions are named `make_*` and call service/repository/controller code internally | `make_role()` / `make_user()` / `make_dept()` / `make_menu()` |
 | **Cross domain (cross-aggregate reference)** | Seed a valid entity in the other domain first, then pass its id as reference | Bind Role to User: `make_role()` first, then pass id to `make_user(role_ids=[...])` |
 | **External domain (external systems)** | mock / contract stub (no external deps in this project; reserved) | third-party auth, message queues, etc. |
 
 **Per-entity seeding table (plan MUST document every entity under test):**
 
-**Factory module naming convention:** factory capabilities live under `tests/factories/`. Each module is named `test_<module>_<library>.py` (for example, a menu factory module can be `tests/factories/test_menu_admin.py`), and exported factory function names are always `make_*` (for example, `make_menu()`).
+**Factory module naming convention:** shared capabilities live under `tests/testdata/domain/<entity>.py`; API execution wrappers live under `tests/api/adapters/<module>.py`.
 
 **Factory usage contract (must appear in plan when fixtures/factories are involved):**
 
 1. Setup uses factory; test body uses HTTP.
 2. Factory modules call service/controller code; do not copy controller code into tests.
 3. Factories must not leak ORM objects to test functions; return plain data snapshots or convert ORM objects to snapshots inside fixtures.
-4. `run_orm()` is only for live-server mode **and** each call must use the project-detected data-access lifecycle before return (`tests/factories/runtime.py`: acquire/init → run → close/dispose/release in `finally`). In-process async tests must call `await make_*()` directly. Do not keep a session-long test-side ORM/session/connection that shares DB, WAL, or pool resources with the SUT (can block pytest exit). If the lifecycle cannot be identified from project source or `.aws/data-knowledge.yaml`, codegen readiness is `not_ready`.
+4. Shared factories never own sync/async bridging. In-process async API adapters may await them; live-server adapters use a confirmed HTTP transport or bounded isolated worker. If no safe boundary can be identified, codegen readiness is `not_ready`.
 5. Create API cases must exercise HTTP create; do not replace create behavior assertions with the same create factory path.
 6. Cleanup must maintain the same invariants; do not raw-delete M2M, closure, or soft-delete entities.
-7. Factory modules live under `tests/factories/test_<module>_<library>.py`; exported function names are always `make_*`.
+7. Shared factory modules live under `tests/testdata/domain/<entity>.py`; API adapter modules live under `tests/api/adapters/`.
 
 | Entity | Ring | Preferred method | Notes |
 |--------|------|------------------|-------|
 | Role | Within domain | `make_role()` | M2M menus/apis |
 | User | Within domain | `make_user()` | M2M roles + password hash |
 | Dept | Within domain | `make_dept()` | DeptClosure |
-| Menu | Within domain | `make_menu()` when present in a `tests/factories/test_menu_<library>.py` module; else propose in `data-knowledge.proposal.yaml` | Single table + `parent_id`; create API may not return id — factory encapsulates resolve |
+| Menu | Within domain | `make_menu()` when present in `tests/testdata/domain/menu.py`; else propose in `data-knowledge.proposal.yaml` | Single table + `parent_id`; factory encapsulates resolve |
 | AuditLog | Within domain (leaf) | `make_audit_log()` or direct insert | No derived tables |
 
 **HTTP API seeding boundary (hard rule for plan + codegen):**
@@ -246,12 +253,12 @@ Seeding method is determined by **aggregate boundary**; do not mix layers:
 - **Allowed** only when:
   - The case explicitly tests create/update/delete HTTP behavior (e.g. TC_*_create happy path, validation on create body), **or**
   - No `make_*` / service path exists **and** plan documents degradation step + reviewer accepts (see ladder below).
-- **Forbidden** pattern to flag in plan review: `tmp_<entity>` fixture that POSTs create + GET list to resolve id — replace with a `make_<entity>()` function from the relevant `tests/factories/test_<module>_<library>.py` module when factory exists or is proposed.
+- **Forbidden** pattern to flag in plan review: an API fixture that POSTs create + GET list to resolve id without an approved adapter mapping; use the shared `make_<entity>()` capability through `tests/api/adapters/`.
 
 **Mandatory rules (codegen must follow):**
 
-- **Default (within domain):** all setup/teardown for entities under test **must** go through `tests/factories/` factory modules (`test_<module>_<library>.py`, exported function `make_*`) when the factory exists or is authorized in `.aws/data-knowledge.yaml`.
-- Entities with M2M tables (Role↔menus/apis, User↔roles): **must** use `tests/factories/` `make_*` functions; **must not** raw-insert single table; **must not** HTTP-create in fixtures.
+- **Default (within domain):** setup/teardown uses `tests/testdata/domain/` capabilities through `tests/api/adapters/` when authorized in `.aws/data-knowledge.yaml`.
+- Entities with M2M tables (Role↔menus/apis, User↔roles): **must** use shared `make_*` functions through the API adapter; must not raw-insert a single table.
 - Entities with closure derived tables (Dept↔DeptClosure): **must** use `make_dept()`; **must not** raw-insert `Dept`; **must not** HTTP-create in fixtures.
 - Entities with password hashing (User): **must** use `make_user()`; **must not** raw-insert plaintext password; **must not** HTTP-create in fixtures.
 - Menu (and other single-table domain entities): **must** use `make_menu()` when factory exists; **must not** HTTP-create in fixtures except create-focused cases.
@@ -260,7 +267,7 @@ Seeding method is determined by **aggregate boundary**; do not mix layers:
 
 **Degradation ladder when no factory / service / API exists (priority order):**
 
-1. Add `make_<entity>()` to the appropriate `tests/factories/test_<module>_<library>.py` module (preferred — plan as **Blocker** for codegen until implemented).
+1. Propose `make_<entity>()` in `tests/testdata/domain/<entity>.py` and its API adapter mapping (preferred; codegen is blocked until authorized).
 2. Indirect seeding via byproducts or composed operations on real code paths (service/controller).
 3. Reuse app internal helpers to maintain invariants.
 4. Copy invariants on test side + add contract guard tests (prevent drift).
@@ -277,12 +284,13 @@ This file describes how to generate test code; it must NOT contain test code.
 Must include:
 
 - **Target Files** — table: File \| Purpose
-  - If any fixture/setup creates or cleans up domain data, Target Files **must** include the corresponding `tests/factories/test_<module>_<library>.py` domain factory before any `tests/fixtures/*.py` wrapper.
-  - `tests/fixtures/*.py` may appear only as pytest injection wrappers around `make_*`; it must not be the only target for domain data creation.
-  - If live-server fixtures/tests need `run_orm()`, Target Files **must** include `tests/factories/runtime.py` (create or reuse). Plan Purpose for that row **must** name the detected ORM/session stack and state per-call acquire/init → run → close/dispose/release (no session-long test-side connection sharing DB, WAL, or pool resources with the SUT). If the stack or close/dispose API cannot be identified, record a Blocker instead of inventing imports.
+  - If setup creates or cleans domain data, Target Files must include `tests/testdata/domain/<entity>.py` as `create-if-missing` or `reuse`, plus `tests/api/adapters/<module>.py`.
+  - API pytest wrappers may appear only under `tests/api/adapters/`; they must not duplicate domain creation rules.
+  - Live-server setup must name a confirmed HTTP or isolated-worker boundary. Do not plan a generic shared ORM runtime or an in-thread event-loop bridge.
 - **Test Function Mapping** — table: Case ID \| Test Function \| Target File
   - **Naming (hard rule):** every Test Function MUST be `test_<case_id lowercase>__<description>` — the lowercase case_id prefix followed by a **double underscore**. Example: `TC_USER_API_001` → `test_tc_user_api_001__list_users_happy_path`. The `aws run` result parser backfills case_id from this prefix; names without it become Unmapped Tests, break MRC/inspect/healing traceability, and cap the quality gate at PASS_WITH_WARNINGS. A plan whose mapping violates this rule is **not codegen-ready**.
-- **Factory Mapping** — table: Entity \| Factory Module (`tests/factories/test_<module>_<library>.py`) \| Function (`make_*`) \| Ring \| Required By
+- **Factory Mapping** — table: Entity \| Shared Module (`tests/testdata/domain/<entity>.py`) \| Function (`make_*`) \| Ownership (`create-if-missing`/`reuse`) \| Required By
+- **Adapter Mapping** — table: Entity \| API Adapter (`tests/api/adapters/<module>.py`) \| Transport (`in_process_async`/`http`/`isolated_worker`) \| Cleanup
 - **Fixture Mapping** — table: Fixture \| Source Factory \| Wrapper Only (yes/no) \| Required By
 - **Helper Mapping** — shared helper description
 - **Import Strategy** — import modules per file
@@ -357,7 +365,8 @@ If the file does not exist:
 2. **Must NOT** generate `.aws/data-knowledge.yaml`.
 3. **Must NOT** invent specific capability names in the template (fixture names, auth methods, cleanup methods).
 4. If `tests/` exists, scan and fill `discovered_candidates` (`confidence: low`). Priority scan targets:
-   - `tests/factories/` — domain-aware factory modules (`test_<module>_<library>.py`; exported functions such as `make_role` / `make_user` / `make_dept` / `make_menu` / `make_audit_log`)
+   - `tests/testdata/domain/` — shared domain-aware factory modules
+   - `tests/api/adapters/` — API-only pytest and transport orchestration
    - `tests/config.py` — unified settings (`base_url` / `admin_username` / `admin_password` / `*_prefix`)
    - `tests/conftest.py` — shared fixtures (`api_client` / `auth_headers` / `assert_schema`)
    - `tests/schema_validation.py` — `assert_matches_schema` / `_LOCAL_SCHEMAS`
@@ -460,8 +469,8 @@ User verbal approval cannot substitute api-plan-review.json.
 Must NOT continue generating:
 
 - `/tests/api/*.py`
-- `/tests/factories/test_<module>_<library>.py`
-- `/tests/fixtures/*.py` (pytest wrappers only; no business data creation)
+- `/tests/testdata/domain/<entity>.py`
+- `/tests/api/adapters/*.py`
 - `/tests/helpers/*.py`
 - `qa/changes/<change-id>/execution/*`
 

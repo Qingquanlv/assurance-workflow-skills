@@ -43,17 +43,33 @@ entities: {}
 #     name_max_length: 20            # ORM/DB constraint that tests must respect
 #     seed_states: [admin, normal]
 
-# Reusable fixtures / factories the tests may depend on.
-# Codegen reuses these instead of inventing new data setup.
+# Reusable test-data capabilities. Domain factories describe business-valid
+# data independently of a test runner. Adapters own the execution mechanism for
+# one test layer and must not be reused across layer boundaries.
 capabilities:
-  fixtures: {}
-  factories: {}
+  domain_factories: {}
+  adapters:
+    api: {}
+    e2e: {}
+    fuzz: {}
+    performance: {}
   cleanup: {}
 # Example:
 # capabilities:
-#   factories:
+#   domain_factories:
 #     make_role:
-#       module: tests/factories/test_role_factory.py
-#       returns: role_id
+#       module: tests/testdata/domain/role.py
+#       returns: plain_snapshot
+#       async: true
+#       cleanup: cleanup_role
+#   adapters:
+#     api:
+#       role:
+#         module: tests/api/adapters/role.py
+#         transport: in_process_async
+#     e2e:
+#       role:
+#         module: tests/e2e/adapters/role.py
+#         transport: http
 `;
 }
