@@ -41,9 +41,28 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     }
     // Intake artifacts so explore/case-design/case-review are done under run_mode=full
     fs.writeFileSync(path.join(base, 'explore', 'advisory.json'), JSON.stringify({
+      schema_version: '1.0',
+      change_id: changeId,
+      context_ref: 'explore/context.json',
+      generated_at: new Date().toISOString(),
+      executive_summary: 'stub',
+      watchlist: [],
+      evidence_inventory: { available: [], missing: [], not_inspected: [] },
+      case_design_guidance: { priority_hints: [], suggested_scenarios: [], regression_focus: [] },
+      minimum_required_coverage: {},
       open_questions_for_case_design: [],
     }));
     fs.writeFileSync(path.join(base, '.qa.yaml'), yaml.dump({
+      schema_version: '1.0',
+      schema: 'case-driven',
+      created_at: new Date().toISOString(),
+      change: {
+        change_id: changeId,
+        requirement_id: changeId,
+        feature_name: 'loop-smoke',
+        status: 'draft',
+      },
+      targets: { cases: [] },
       approval: {
         approved_by: 'user',
         approved_approach: 'api',
@@ -53,7 +72,9 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     fs.writeFileSync(path.join(base, 'proposal.md'), '# proposal\n');
     fs.writeFileSync(path.join(base, 'cases', 'delta.yaml'), 'cases: []\n');
     fs.writeFileSync(path.join(base, 'review', 'case-review.json'), JSON.stringify({
+      schema_version: '1.0',
       decision: 'pass',
+      findings: [],
       human_review_required: false,
     }));
     fs.writeFileSync(path.join(base, 'workflow-state.yaml'), yaml.dump({
@@ -159,6 +180,8 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
           fs.mkdirSync(facts, { recursive: true });
           fs.writeFileSync(path.join(facts, 'fact-baseline.json'), JSON.stringify({
             source: 'unavailable',
+            facts: {},
+            warnings: [],
           }));
         }
         // For other agent phases, create minimal produces so apply can succeed or fail clearly
@@ -253,7 +276,11 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
         if (prompt.text.includes('fact-baseline')) {
           const facts = path.join(projectRoot, 'qa', 'changes', changeId, 'facts');
           fs.mkdirSync(facts, { recursive: true });
-          fs.writeFileSync(path.join(facts, 'fact-baseline.json'), JSON.stringify({ source: 'unavailable' }));
+          fs.writeFileSync(path.join(facts, 'fact-baseline.json'), JSON.stringify({
+            source: 'unavailable',
+            facts: {},
+            warnings: [],
+          }));
         }
         return { text: 'done' };
       },
@@ -310,7 +337,9 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     // iteration.
     const base = path.join(projectRoot, 'qa', 'changes', changeId);
     fs.writeFileSync(path.join(base, 'review', 'case-review.json'), JSON.stringify({
+      schema_version: '1.0',
       decision: 'needs_human_review',
+      findings: [],
       human_review_required: true,
       auto_fix_allowed: false,
     }));
@@ -412,7 +441,9 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
   it('dispatches repair from a recorded fix_and_proceed decision without state surgery', async () => {
     const base = path.join(projectRoot, 'qa', 'changes', changeId);
     fs.writeFileSync(path.join(base, 'review', 'case-review.json'), JSON.stringify({
+      schema_version: '1.0',
       decision: 'needs_human_review',
+      findings: [],
       human_review_required: true,
       auto_fix_allowed: false,
     }));
@@ -434,7 +465,9 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       onPrompt: async (_session, prompt) => {
         if (prompt.text.includes('case-fix')) {
           fs.writeFileSync(path.join(base, 'review', 'case-review.json'), JSON.stringify({
+            schema_version: '1.0',
             decision: 'pass',
+            findings: [],
             human_review_required: false,
           }));
         }

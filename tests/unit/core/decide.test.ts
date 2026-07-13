@@ -435,7 +435,11 @@ gates:
     const executionDir = path.join(projectRoot, 'qa', 'changes', changeId, 'execution');
     fs.mkdirSync(reviewDir, { recursive: true });
     fs.mkdirSync(executionDir, { recursive: true });
-    fs.writeFileSync(path.join(reviewDir, 'review.json'), JSON.stringify({ decision: 'pass' }));
+    fs.writeFileSync(path.join(reviewDir, 'review.json'), JSON.stringify({
+      schema_version: '1.0',
+      decision: 'pass',
+      findings: [],
+    }));
     fs.writeFileSync(path.join(executionDir, 'result.json'), '{}');
     expect(status().terminal?.kind).toBe('completed');
 
