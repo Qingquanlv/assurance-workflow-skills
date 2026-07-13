@@ -12,9 +12,11 @@ import { createStubAdapter } from '../../../src/driver/headless_adapter';
 import type { ProcessRunner, ProcessResult } from '../../../src/driver/process_runner';
 import {
   computeStatus,
+  GateReport,
   resolveNextDispatch,
 } from '../../../src/orchestration/engine';
 import { loadSchemaFromFile } from '../../../src/orchestration/schema';
+import { createWorkflowProgression } from '../../../src/orchestration/progression';
 import { configureWorkflowParams } from '../../../src/core/workflow_state';
 import { recordHumanDecision } from '../../../src/core/decide';
 
@@ -127,6 +129,20 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     };
   }
 
+  function syntheticGate(phase: string, verdict: string): GateReport {
+    return {
+      schema_version: '1',
+      change_id: changeId,
+      phase,
+      gate: 'synthetic-review-gate',
+      verdict,
+      reads: [],
+      evidence: {},
+      matched_rule: `${verdict}_when`,
+      recommended_phase: null,
+    };
+  }
+
   it('dispatches fact-baseline via stub adapter and writes driver.json', async () => {
     // api-only still prunes explore/case-design; seed case-review as satisfied by
     // also writing fact-baseline on prompt. First ensure next includes an agent phase:
@@ -150,12 +166,23 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       },
     });
 
+    const progressionCliCalls: string[][] = [];
+    const baseRunner = makeRunner();
+    const runner: ProcessRunner = {
+      runAws(args, cwd) {
+        if (args[0] === 'status' || args[0] === 'gate') {
+          progressionCliCalls.push(args);
+        }
+        return baseRunner.runAws(args, cwd);
+      },
+    };
+
     const result = await runWorkflowLoop({
       projectRoot,
       changeId,
       scope: 'execute',
       adapter,
-      runner: makeRunner(),
+      runner,
       skipLock: true,
       maxIterations: 3,
       params: {
@@ -169,6 +196,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     expect(fs.existsSync(path.join(projectRoot, 'qa', 'changes', changeId, 'driver.json'))).toBe(true);
     expect(adapter.prompts.length).toBeGreaterThanOrEqual(1);
     expect(result.exitCode).not.toBeUndefined();
+    expect(progressionCliCalls).toEqual([]);
     // May stop at missing plan artifacts (40) after fact-baseline — that still proves the loop.
     expect([0, 20, 30, EXIT_ERROR]).toContain(result.exitCode);
   });
@@ -181,85 +209,41 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
 
     let gateMode: 'human' | 'pass' = 'human';
     const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
-    const runner: ProcessRunner = {
-      runAws(args: string[]): ProcessResult {
-        if (args[0] === 'state' && args[1] === 'configure') {
-          configureWorkflowParams(
-            projectRoot,
-            changeId,
-            JSON.parse(args[args.indexOf('--params-json') + 1]),
-            'aws-execute',
-          );
-          return { exitCode: 0, stdout: '', stderr: '' };
-        }
-        if (args[0] === 'status') {
-          const report = computeStatus({ schema, projectRoot, changeId });
-          return {
-            exitCode: report.terminal?.kind === 'completed' ? 10 : 0,
-            stdout: JSON.stringify({
-              next: resolveNextDispatch(report.next, schema),
-              terminal: report.terminal,
-              pending_decision: report.pending_decision,
-            }),
-            stderr: '',
-          };
-        }
-        if (args[0] === 'gate') {
-          if (gateMode === 'human') {
-            return {
-              exitCode: 31,
-              stdout: JSON.stringify({
-                schema_version: '1',
-                change_id: changeId,
-                phase: 'fact-baseline',
-                gate: 'synthetic-review-gate',
-                verdict: 'needs_human_review',
-                reads: [],
-                evidence: {},
-                matched_rule: 'needs_human_review_when',
-                recommended_phase: null,
-              }),
-              stderr: '',
-            };
-          }
-          return {
-            exitCode: 0,
-            stdout: JSON.stringify({
-              schema_version: '1',
-              change_id: changeId,
-              phase: 'fact-baseline',
-              gate: 'synthetic-review-gate',
-              verdict: 'pass',
-              reads: [],
-              evidence: {},
-              matched_rule: 'pass_when',
-              recommended_phase: null,
-            }),
-            stderr: '',
-          };
-        }
-        return { exitCode: 0, stdout: '', stderr: '' };
+    const runner = makeRunner();
+    const baseProgression = createWorkflowProgression({ schema, projectRoot, changeId });
+    const progression = {
+      resolveRepair: baseProgression.resolveRepair,
+      decideGate: baseProgression.decideGate,
+      inspectGate: baseProgression.inspectGate,
+      resolveLoopBudget: baseProgression.resolveLoopBudget,
+      adjudicatePhaseGate: baseProgression.adjudicatePhaseGate,
+      inspect: () => {
+        const snapshot = baseProgression.inspect();
+        return {
+          ...snapshot,
+          nextActions: snapshot.nextActions.map(entry => (
+            entry.phase === 'fact-baseline'
+              ? { ...entry, gate: 'synthetic-review-gate' }
+              : entry
+          )),
+        };
       },
-    };
-
-    // Force fact-baseline to have a gate for this smoke by patching dispatch via
-    // a wrapper: after apply, loop only checks gate when entry.gate != null.
-    // Inject gate by monkey-patching resolve via status next entries.
-    const originalRunAws = runner.runAws.bind(runner);
-    runner.runAws = (args: string[], cwd: string): ProcessResult => {
-      if (args[0] === 'status') {
-        const r = originalRunAws(args, cwd);
-        const parsed = JSON.parse(r.stdout);
-        if (Array.isArray(parsed.next)) {
-          parsed.next = parsed.next.map((e: { phase: string }) => (
-            e.phase === 'fact-baseline'
-              ? { ...e, gate: 'synthetic-review-gate' }
-              : e
-          ));
-        }
-        return { ...r, stdout: JSON.stringify(parsed) };
-      }
-      return originalRunAws(args, cwd);
+      applyOutcome: (outcome: Parameters<typeof baseProgression.applyOutcome>[0]) => {
+        const result = baseProgression.applyOutcome(outcome);
+        return outcome.phase === 'fact-baseline'
+          ? {
+              ...result,
+              gate: syntheticGate(
+                outcome.phase,
+                gateMode === 'human' ? 'needs_human_review' : 'pass',
+              ),
+              decision: baseProgression.decideGate(syntheticGate(
+                outcome.phase,
+                gateMode === 'human' ? 'needs_human_review' : 'pass',
+              )),
+            }
+          : result;
+      },
     };
 
     const notifications: string[] = [];
@@ -281,6 +265,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       scope: 'execute',
       adapter,
       runner,
+      progression,
       skipLock: true,
       maxIterations: 3,
       params: { run_mode: 'full', test_types: ['api'], run_tests: false, max_healing_attempts: 0 },
@@ -301,6 +286,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       scope: 'execute',
       adapter,
       runner,
+      progression,
       skipLock: true,
       maxIterations: 3,
       params: { run_mode: 'full', test_types: ['api'], run_tests: false, max_healing_attempts: 0 },
@@ -368,31 +354,37 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
   });
 
   it('honors a stopped terminal before a simultaneous pending decision', async () => {
-    const baseRunner = makeRunner();
-    const runner: ProcessRunner = {
-      runAws(args, cwd) {
-        if (args[0] === 'status') {
-          return {
-            exitCode: 20,
-            stdout: JSON.stringify({
-              next: [],
-              terminal: {
-                kind: 'stopped',
-                phase: 'case-review',
-                reason: "gate 'case-review-gate' verdict 'reject'",
-              },
-              pending_decision: {
-                checkpoint: 'api-plan-review-gate',
-                phase: 'api-plan-review',
-                gate: 'api-plan-review-gate',
-                reason: 'gate api-plan-review-gate requires human review',
-              },
-            }),
-            stderr: '',
-          };
-        }
-        return baseRunner.runAws(args, cwd);
+    const runner = makeRunner();
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const baseProgression = createWorkflowProgression({ schema, projectRoot, changeId });
+    const progression = {
+      resolveRepair: baseProgression.resolveRepair,
+      decideGate: baseProgression.decideGate,
+      inspectGate: baseProgression.inspectGate,
+      resolveLoopBudget: baseProgression.resolveLoopBudget,
+      adjudicatePhaseGate: baseProgression.adjudicatePhaseGate,
+      inspect: () => {
+        const snapshot = baseProgression.inspect();
+        return {
+          ...snapshot,
+          nextActions: [],
+          report: {
+            ...snapshot.report,
+            terminal: {
+              kind: 'stopped' as const,
+              phase: 'case-review',
+              reason: "gate 'case-review-gate' verdict 'reject'",
+            },
+            pending_decision: {
+              checkpoint: 'api-plan-review-gate',
+              phase: 'api-plan-review',
+              gate: 'api-plan-review-gate',
+              reason: 'gate api-plan-review-gate requires human review',
+            },
+          },
+        };
       },
+      applyOutcome: baseProgression.applyOutcome,
     };
     const notifications: string[] = [];
     const adapter = createStubAdapter({ onNotify: notification => notifications.push(notification.text) });
@@ -403,6 +395,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       scope: 'full',
       adapter,
       runner,
+      progression,
       skipLock: true,
       maxIterations: 1,
       params: { run_mode: 'full', test_types: ['api'], run_tests: false, max_healing_attempts: 0 },

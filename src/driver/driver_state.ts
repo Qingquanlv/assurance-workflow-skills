@@ -3,6 +3,12 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 
 export type DriverStatus = 'running' | 'paused' | 'completed' | 'failed';
+export type DispatchAttemptId = string & { readonly __dispatchAttemptId: unique symbol };
+
+/** Create a durable identity for one real dispatch, independent of loop counters. */
+export function createDispatchAttemptId(phase: string): DispatchAttemptId {
+  return `${phase}:${randomUUID()}` as DispatchAttemptId;
+}
 
 export interface DriverJson {
   run_id: string;
@@ -14,6 +20,7 @@ export interface DriverJson {
   parent_session_id: string | null;
   directory: string;
   current_phase: string | null;
+  current_attempt_id: DispatchAttemptId | null;
   paused_on: string | null;
   notify_pending: { messageId: string; text: string } | null;
   model?: { providerID: string; modelID: string; variant?: string };
@@ -171,6 +178,7 @@ export function createInitialDriverJson(opts: {
     parent_session_id: opts.parentSessionId ?? null,
     directory: opts.directory,
     current_phase: null,
+    current_attempt_id: null,
     paused_on: null,
     notify_pending: null,
   };

@@ -6,17 +6,13 @@ import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
-  Schema,
 } from '../orchestration/schema';
 import {
-  computeStatus,
-  resolveNextDispatch,
   PhaseStatusKind,
   RunContextReport,
   OpenQuestionSummary,
 } from '../orchestration/engine';
-import { appendEvents, buildStatusTransitionEvents } from '../core/events';
-import { runStatusAudits, applyAuditsToReport } from '../core/audit';
+import { inspectProgression, ProgressSnapshot } from '../orchestration/progression';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {
@@ -48,23 +44,17 @@ export function registerStatusCommand(program: Command): void {
         return;
       }
 
-      let report;
-      let schema: Schema;
-      let auditIssues: ReturnType<typeof runStatusAudits>['issues'] = [];
+      let snapshot: ProgressSnapshot;
       try {
         const schemaFile = findSchemaFile(projectRoot, options.schemaFile);
-        schema = loadSchemaFromFile(schemaFile);
+        const schema = loadSchemaFromFile(schemaFile);
         const validation = validateSchema(schema);
         if (!validation.ok) {
           logError('Schema validation failed:');
           for (const e of validation.errors) console.error('  - ' + e);
           process.exit(1);
         }
-        report = computeStatus({ schema, projectRoot, changeId });
-        const audit = runStatusAudits(projectRoot, changeId, report, schema);
-        auditIssues = audit.issues;
-        report = applyAuditsToReport(report, audit);
-        appendEvents(projectRoot, changeId, buildStatusTransitionEvents(projectRoot, changeId, report, schema));
+        snapshot = inspectProgression({ schema, projectRoot, changeId });
       } catch (err) {
         logError(`status failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
@@ -72,10 +62,12 @@ export function registerStatusCommand(program: Command): void {
         return;
       }
 
+      const { report, auditIssues } = snapshot;
+
       if (options.next) {
         if (options.json) {
           console.log(JSON.stringify({
-            next: resolveNextDispatch(report.next, schema),
+            next: snapshot.nextActions,
             terminal: report.terminal ?? null,
             pending_decision: report.pending_decision,
           }, null, 2));

@@ -7,6 +7,11 @@ import { createStubAdapter } from '../../../src/driver/headless_adapter';
 import type { ProcessRunner, ProcessResult } from '../../../src/driver/process_runner';
 import type { PhaseDispatchEntry } from '../../../src/orchestration/engine';
 import { loadSchemaFromFile } from '../../../src/orchestration/schema';
+import {
+  createWorkflowProgression,
+  ProgressSnapshot,
+} from '../../../src/orchestration/progression';
+import { decideGate } from '../../../src/orchestration/gate_routing';
 import { hashTestTree, sha256File } from '../../../src/core/hash';
 import { appendEventsStrict, readEvents } from '../../../src/core/events';
 import { pinHealingEntryBaseline } from '../../../src/core/healing_state';
@@ -86,9 +91,9 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 2,
       resolveDispatch,
       eligibleTargets: ['api'],
+      progression: createWorkflowProgression({ schema, projectRoot, changeId }),
     });
 
     expect(result.kind).toBe('not_needed');
@@ -117,6 +122,26 @@ describe('healing_subroutine', () => {
       evidence: {},
       matched_rule: null,
       recommended_phase: null,
+    };
+  }
+
+  function progressionFixture(options: {
+    maxAttempts: number;
+    applyPhase?: (phase: string, applyOptions: { minMtimeMs?: number; skillMdPath?: string }) => void;
+    inspectGate: (gateId: string) => ReturnType<typeof gateReport>;
+  }) {
+    return {
+      resolveLoopBudget: () => options.maxAttempts,
+      decideGate,
+      inspectGate: options.inspectGate,
+      applyOutcome: (outcome: {
+        phase: string;
+        minMtimeMs?: number;
+        skillMdPath?: string;
+      }) => {
+        options.applyPhase?.(outcome.phase, outcome);
+        return { snapshot: {} as ProgressSnapshot, gate: null, decision: null, replayed: false };
+      },
     };
   }
 
@@ -274,19 +299,19 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 1,
       resolveDispatch: (phase) => {
         resolvedPhases.push(phase);
         return agentEntry(phase, `skill-${phase}`);
       },
       eligibleTargets: ['api'],
-      applyPhase: (_root, _change, phase) => {
-        appliedPhases.push(phase);
-      },
-      checkGate: (gateId) => {
-        if (gateId === 'healing-loop-gate') return gateReport(gateId, 'exit');
-        throw new Error(`unexpected gate ${gateId}`);
-      },
+      progression: progressionFixture({
+        maxAttempts: 1,
+        applyPhase: phase => appliedPhases.push(phase),
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-loop-gate') return gateReport(gateId, 'exit');
+          throw new Error(`unexpected gate ${gateId}`);
+        },
+      }),
     });
 
     const commandLog = commands.map(args => args.join(' '));
@@ -323,16 +348,16 @@ describe('healing_subroutine', () => {
         },
       },
       adapter: createStubAdapter(),
-      maxAttempts: 1,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: (_root, _change, phase) => {
-        actions.push(`apply:${phase}`);
-      },
-      checkGate: (gateId) => {
-        if (gateId === 'healing-loop-gate') return gateReport(gateId, 'stop');
-        throw new Error(`unexpected gate ${gateId}`);
-      },
+      progression: progressionFixture({
+        maxAttempts: 1,
+        applyPhase: phase => actions.push(`apply:${phase}`),
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-loop-gate') return gateReport(gateId, 'stop');
+          throw new Error(`unexpected gate ${gateId}`);
+        },
+      }),
     });
 
     const rerunIndex = actions.indexOf(`command:run --change ${changeId}`);
@@ -362,18 +387,18 @@ describe('healing_subroutine', () => {
       },
     };
     let loopCalls = 0;
-    const result = await runHealingSubroutine({
-      projectRoot,
-      changeId,
-      runner,
-      adapter: createStubAdapter(),
-      maxAttempts: 3,
-      resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
-      eligibleTargets: ['api'],
-      applyPhase: (_root, _change, phase, options) => {
-        appliedPhases.push({ phase, minMtimeMs: options?.minMtimeMs });
+    const progression = {
+      inspect: () => ({} as ProgressSnapshot),
+      resolveRepair: () => {
+        throw new Error('repair routing is not used by healing');
       },
-      checkGate: (gateId) => {
+      resolveLoopBudget: () => 3,
+      decideGate,
+      applyOutcome: (outcome: { phase: string; minMtimeMs?: number }) => {
+        appliedPhases.push({ phase: outcome.phase, minMtimeMs: outcome.minMtimeMs });
+        return { snapshot: {} as ProgressSnapshot, gate: null, decision: null, replayed: false };
+      },
+      inspectGate: (gateId: string) => {
         if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
         if (gateId === 'fixer-safety-gate') {
           acceptCurrentSafety();
@@ -385,6 +410,15 @@ describe('healing_subroutine', () => {
         }
         return gateReport(gateId, 'stop');
       },
+    };
+    const result = await runHealingSubroutine({
+      projectRoot,
+      changeId,
+      runner,
+      adapter: createStubAdapter(),
+      resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
+      eligibleTargets: ['api'],
+      progression,
     });
     expect(result.kind).toBe('resolved');
     expect(loopCalls).toBe(1);
@@ -424,19 +458,20 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 3,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => {
-        if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
-        if (gateId === 'fixer-safety-gate') {
-          acceptCurrentSafety();
-          return gateReport(gateId, 'pass');
-        }
-        if (gateId === 'healing-loop-gate') return gateReport(gateId, 'exit');
-        return gateReport(gateId, 'stop');
-      },
+      progression: progressionFixture({
+        maxAttempts: 3,
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
+          if (gateId === 'fixer-safety-gate') {
+            acceptCurrentSafety();
+            return gateReport(gateId, 'pass');
+          }
+          if (gateId === 'healing-loop-gate') return gateReport(gateId, 'exit');
+          return gateReport(gateId, 'stop');
+        },
+      }),
     });
     // Non-fatal: healing completes normally and the loop gate decides the outcome.
     expect(result.kind).toBe('resolved');
@@ -456,18 +491,19 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 2,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => {
-        if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
-        if (gateId === 'fixer-safety-gate') {
-          acceptCurrentSafety();
-          return gateReport(gateId, 'pass');
-        }
-        return gateReport(gateId, 'stop');
-      },
+      progression: progressionFixture({
+        maxAttempts: 2,
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
+          if (gateId === 'fixer-safety-gate') {
+            acceptCurrentSafety();
+            return gateReport(gateId, 'pass');
+          }
+          return gateReport(gateId, 'stop');
+        },
+      }),
     });
     expect(result).toMatchObject({ kind: 'error', exitCode: 40 });
   });
@@ -484,15 +520,16 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 3,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => {
-        if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
-        if (gateId === 'fixer-safety-gate') return gateReport(gateId, 'stop');
-        return gateReport(gateId, 'stop');
-      },
+      progression: progressionFixture({
+        maxAttempts: 3,
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
+          if (gateId === 'fixer-safety-gate') return gateReport(gateId, 'stop');
+          return gateReport(gateId, 'stop');
+        },
+      }),
     });
     expect(result.kind).toBe('needs_human_review');
     expect((result as { reason?: string }).reason).toContain('fixer-safety-gate');
@@ -510,15 +547,16 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 3,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => {
-        if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
-        if (gateId === 'fixer-safety-gate') return gateReport(gateId, 'needs_human_review');
-        return gateReport(gateId, 'stop');
-      },
+      progression: progressionFixture({
+        maxAttempts: 3,
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
+          if (gateId === 'fixer-safety-gate') return gateReport(gateId, 'needs_human_review');
+          return gateReport(gateId, 'stop');
+        },
+      }),
     });
     expect(result.kind).toBe('needs_human_review');
   });
@@ -558,18 +596,19 @@ describe('healing_subroutine', () => {
       changeId,
       runner,
       adapter: createStubAdapter(),
-      maxAttempts: 2,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: ['api'],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => {
-        if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
-        if (gateId === 'fixer-safety-gate') {
-          acceptCurrentSafety();
-          return gateReport(gateId, 'pass');
-        }
-        return gateReport(gateId, 'continue');
-      },
+      progression: progressionFixture({
+        maxAttempts: 2,
+        inspectGate: (gateId) => {
+          if (gateId === 'healing-entry-gate') return gateReport(gateId, 'enter');
+          if (gateId === 'fixer-safety-gate') {
+            acceptCurrentSafety();
+            return gateReport(gateId, 'pass');
+          }
+          return gateReport(gateId, 'continue');
+        },
+      }),
     });
     expect(result.kind).toBe('exhausted');
     expect(healTos).toContain('exhausted');
@@ -581,11 +620,15 @@ describe('healing_subroutine', () => {
       changeId,
       runner: { runAws: () => ({ exitCode: 0, stdout: '', stderr: '' }) },
       adapter: createStubAdapter(),
-      maxAttempts: 2,
       resolveDispatch: (phase) => agentEntry(phase, `skill-${phase}`),
       eligibleTargets: [],
-      applyPhase: () => undefined,
-      checkGate: (gateId) => gateReport(gateId, gateId === 'healing-entry-gate' ? 'enter' : 'pass'),
+      progression: progressionFixture({
+        maxAttempts: 2,
+        inspectGate: (gateId) => gateReport(
+          gateId,
+          gateId === 'healing-entry-gate' ? 'enter' : 'pass',
+        ),
+      }),
       assertProposalFresh: () => {
         throw new Error('proposal batch_id != latest execution batch');
       },

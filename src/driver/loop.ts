@@ -3,13 +3,12 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import type { PhaseAgentAdapter } from './adapter';
 import type { ProcessRunner } from './process_runner';
-import { parseJsonStdout } from './process_runner';
 import { buildPhasePrompt } from './phase_prompt';
-import { routeGateVerdict } from './gate_router';
-import { runReviewFixLoop, maxFixAttemptsForPhase } from './review_fix_loop';
+import { runReviewFixLoop } from './review_fix_loop';
 import { runHealingSubroutine } from './healing_subroutine';
 import {
   acquireDriverLock,
+  createDispatchAttemptId,
   createInitialDriverJson,
   evaluateStartGuard,
   readDriverJson,
@@ -18,19 +17,21 @@ import {
   DriverJson,
 } from './driver_state';
 import { appendEvents, buildDriverEvent } from '../core/events';
-import { applyPhaseState, setWorkflowGate } from '../core/workflow_state';
+import { setWorkflowGate } from '../core/workflow_state';
 import { readHealingStatus } from '../core/healing_state';
 import {
   findSchemaFile,
   loadSchemaFromFile,
 } from '../orchestration/schema';
 import {
-  computeStatus,
   resolveNextDispatch,
   PhaseDispatchEntry,
-  GateReport,
-  StatusReport,
 } from '../orchestration/engine';
+import {
+  createWorkflowProgression,
+  ProgressResult,
+  WorkflowProgressionRuntime,
+} from '../orchestration/progression';
 import {
   evaluateTestInfraBootstrap,
   markTestInfraBootstrapDone,
@@ -65,6 +66,8 @@ export interface WorkflowLoopOptions {
    */
   adoptLockToken?: string;
   maxIterations?: number;
+  /** Optional high-level Progression seam used by contract tests. */
+  progression?: WorkflowProgressionRuntime;
 }
 
 export interface WorkflowLoopResult {
@@ -212,6 +215,11 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     }
 
     const schema = loadSchemaFromFile(findSchemaFile(opts.projectRoot));
+    const progression = opts.progression ?? createWorkflowProgression({
+      schema,
+      projectRoot: opts.projectRoot,
+      changeId: opts.changeId,
+    });
 
     // Derive gates.healing_available the way the orchestrator would (see
     // FALLBACK-RUNBOOK Phase 1.1): healing is available only when all healing
@@ -221,11 +229,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     // still sees the configured max_healing_attempts. The driver dispatches
     // these skills itself, so it stamps the flag the healing-entry-gate reads
     // (`enter_when` requires `state.gates.healing_available == true`).
-    const resolvedParams = (computeStatus({
-      schema,
-      projectRoot: opts.projectRoot,
-      changeId: opts.changeId,
-    }).params ?? {}) as Record<string, unknown>;
+    const resolvedParams = (progression.inspect().report.params ?? {}) as Record<string, unknown>;
     setWorkflowGate(
       opts.projectRoot,
       opts.changeId,
@@ -247,7 +251,11 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       // poll (the marker phase has not run yet) and the workflow halts before it
       // can dispatch anything (explore never starts).
       try {
-        applyPhaseState(opts.projectRoot, opts.changeId, 'skill-registry-check');
+        const startupAttemptId = createDispatchAttemptId('skill-registry-check');
+        progression.applyOutcome({
+          phase: 'skill-registry-check',
+          attemptId: startupAttemptId,
+        });
       } catch (err) {
         return finish(
           EXIT_ERROR,
@@ -278,40 +286,16 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     }
 
     for (let i = 0; i < maxIter; i++) {
-      const statusResult = opts.runner.runAws(
-        ['status', '--change', opts.changeId, '--next', '--json'],
-        opts.projectRoot,
-      );
-      let statusJson: {
-        next: PhaseDispatchEntry[];
-        terminal: StatusReport['terminal'];
-        pending_decision: StatusReport['pending_decision'];
+      const statusSnapshot = progression.inspect();
+      const statusJson = {
+        next: statusSnapshot.nextActions,
+        terminal: statusSnapshot.report.terminal,
+        pending_decision: statusSnapshot.report.pending_decision,
       };
-      try {
-        statusJson = parseJsonStdout(statusResult);
-      } catch (err) {
-        // Fallback: in-process status when CLI JSON parse fails in tests
-        const report = computeStatus({
-          schema,
-          projectRoot: opts.projectRoot,
-          changeId: opts.changeId,
-        });
-        statusJson = {
-          next: resolveNextDispatch(report.next, schema),
-          terminal: report.terminal,
-          pending_decision: report.pending_decision,
-        };
-      }
 
       // Resume an evidence-derived active healing attempt before terminal routing.
       const healingStatusNow = readHealingStatus(opts.projectRoot, opts.changeId);
       if (healingStatusNow === 'proposal_created' || healingStatusNow === 'applied') {
-        const params = (computeStatus({
-          schema, projectRoot: opts.projectRoot, changeId: opts.changeId,
-        }).params ?? {}) as Record<string, unknown>;
-        const maxHeal = typeof params.max_healing_attempts === 'number'
-          ? params.max_healing_attempts
-          : 3;
         // The subroutine is stage-aware: an applied attempt must complete its
         // rerun/reinspect before budget exhaustion can be judged.
         const healResult = await runHealingSubroutine({
@@ -319,10 +303,10 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
           changeId: opts.changeId,
           runner: opts.runner,
           adapter: opts.adapter,
-          maxAttempts: maxHeal,
           resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
           eligibleTargets: ['api', 'e2e'],
           skillMdPathFor,
+          progression,
         });
         if (healResult.kind === 'needs_human_review') {
           return await pauseForHuman(opts, driver, 'healing', healResult.reason, finish);
@@ -376,11 +360,16 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       }
 
       for (const entry of statusJson.next) {
+        const attemptId = createDispatchAttemptId(entry.phase);
         driver.current_phase = entry.phase;
+        driver.current_attempt_id = attemptId;
         driver.updated_at = new Date().toISOString();
         writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
         appendEvents(opts.projectRoot, opts.changeId, [
-          buildDriverEvent('phase_dispatched', driver.run_id, { phase: entry.phase }),
+          buildDriverEvent('phase_dispatched', driver.run_id, {
+            phase: entry.phase,
+            attempt_id: attemptId,
+          }),
         ]);
 
         const stateFile = workflowStatePath(opts.projectRoot, opts.changeId);
@@ -401,8 +390,11 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
           );
         }
 
+        let progressResult: ProgressResult;
         try {
-          applyPhaseState(opts.projectRoot, opts.changeId, entry.phase, {
+          progressResult = progression.applyOutcome({
+            phase: entry.phase,
+            attemptId,
             minMtimeMs: entry.kind === 'agent' || entry.kind === 'cli' ? dispatchAt : undefined,
             skillMdPath: entry.kind === 'agent'
               ? resolveSkillMdPath(packageRoot, entry.skill)
@@ -417,37 +409,32 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
         }
 
         appendEvents(opts.projectRoot, opts.changeId, [
-          buildDriverEvent('phase_attempt_finished', driver.run_id, { phase: entry.phase }),
+          buildDriverEvent('phase_attempt_finished', driver.run_id, {
+            phase: entry.phase,
+            attempt_id: attemptId,
+          }),
         ]);
+        driver.current_attempt_id = null;
+        driver.updated_at = new Date().toISOString();
+        writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
 
-        if (entry.gate) {
-          const gateResult = opts.runner.runAws(
-            ['gate', 'check', '--phase', entry.phase, '--change', opts.changeId, '--json'],
-            opts.projectRoot,
-          );
-          let gate: GateReport;
-          try {
-            gate = parseJsonStdout(gateResult);
-          } catch (err) {
-            return finish(EXIT_ERROR, `gate JSON parse failed: ${(err as Error).message}`, 'failed');
+        if (progressResult.gate) {
+          const gate = progressResult.gate;
+          const routed = progressResult.decision;
+          if (!routed) {
+            return finish(EXIT_ERROR, `missing Gate decision for ${entry.phase}`, 'failed');
           }
-
-          const routed = routeGateVerdict(gate);
           if (routed.action === 'continue') continue;
 
           if (routed.action === 'needs_fix') {
-            const params = (computeStatus({
-              schema, projectRoot: opts.projectRoot, changeId: opts.changeId,
-            }).params ?? {}) as Record<string, unknown>;
             const fixResult = await runReviewFixLoop(entry.phase, gate, {
               projectRoot: opts.projectRoot,
               changeId: opts.changeId,
-              runner: opts.runner,
               adapter: opts.adapter,
-              maxAttempts: maxFixAttemptsForPhase(entry.phase, params),
               resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
               skillMdPathFor,
               runId: driver.run_id,
+              progression,
             });
             if (fixResult.kind === 'pass') continue;
             if (fixResult.kind === 'needs_human_review') {
@@ -472,21 +459,15 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
 
         // After inspect, run healing subroutine when entry gate says so
         if (entry.phase === 'inspect') {
-          const params = computeStatus({
-            schema, projectRoot: opts.projectRoot, changeId: opts.changeId,
-          }).params as Record<string, unknown>;
-          const maxHeal = typeof params.max_healing_attempts === 'number'
-            ? params.max_healing_attempts
-            : 3;
           const healResult = await runHealingSubroutine({
             projectRoot: opts.projectRoot,
             changeId: opts.changeId,
             runner: opts.runner,
             adapter: opts.adapter,
-            maxAttempts: maxHeal,
             resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
             eligibleTargets: ['api', 'e2e'],
             skillMdPathFor,
+            progression,
           });
           if (healResult.kind === 'needs_human_review') {
             return await pauseForHuman(opts, driver, 'healing', healResult.reason, finish);

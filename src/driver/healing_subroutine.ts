@@ -1,15 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  Engine,
   GateReport,
   PhaseDispatchEntry,
 } from '../orchestration/engine';
-import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
 import type { PhaseAgentAdapter } from './adapter';
 import type { ProcessRunner } from './process_runner';
 import { buildPhasePrompt } from './phase_prompt';
-import { routeGateVerdict } from './gate_router';
 import {
   deriveHealingState,
   pinHealingAppliedTestTree,
@@ -18,7 +15,8 @@ import {
   readHealingAttemptsUsed,
   writeCliFixerSafetyCheck,
 } from '../core/healing_state';
-import { applyPhaseState } from '../core/workflow_state';
+import type { WorkflowProgressionRuntime } from '../orchestration/progression';
+import { createDispatchAttemptId } from './driver_state';
 
 /**
  * Whether `aws run` produced execution artifacts. A non-zero `aws run` exit with
@@ -39,13 +37,13 @@ export interface HealingDeps {
   changeId: string;
   runner: ProcessRunner;
   adapter: PhaseAgentAdapter;
-  maxAttempts: number;
   resolveDispatch: (phase: string) => PhaseDispatchEntry;
   eligibleTargets: Array<'api' | 'e2e'>;
   skillMdPathFor?: (skill: string) => string | undefined;
-  applyPhase?: typeof applyPhaseState;
-  /** Injected for tests; defaults to Engine.resolveGate. */
-  checkGate?: (gateId: string) => GateReport;
+  progression: Pick<
+    WorkflowProgressionRuntime,
+    'applyOutcome' | 'inspectGate' | 'resolveLoopBudget' | 'decideGate'
+  >;
   /** Optional stale-batch guard before applying a new proposal. */
   assertProposalFresh?: () => void;
 }
@@ -55,33 +53,12 @@ export type HealingResult =
   | { kind: 'needs_human_review'; reason: string }
   | { kind: 'error'; reason: string; exitCode: 40 };
 
-function checkNamedGate(
-  projectRoot: string,
-  changeId: string,
-  gateId: string,
-): GateReport {
-  const schema = loadSchemaFromFile(findSchemaFile(projectRoot));
-  const engine = new Engine({ schema, projectRoot, changeId });
-  const resolution = engine.resolveGate(gateId);
-  return {
-    schema_version: schema.schema_version,
-    change_id: changeId,
-    phase: null,
-    gate: gateId,
-    verdict: resolution.verdict,
-    reads: resolution.reads,
-    evidence: resolution.evidence,
-    matched_rule: resolution.matchedRule,
-    recommended_phase: null,
-  };
-}
-
 /**
  * Full HealingSubroutine — must not be compressed (spec §5.4).
  */
 export async function runHealingSubroutine(deps: HealingDeps): Promise<HealingResult> {
-  const checkGate = deps.checkGate
-    ?? ((gateId: string) => checkNamedGate(deps.projectRoot, deps.changeId, gateId));
+  const checkGate = deps.progression.inspectGate;
+  const maxAttempts = deps.progression.resolveLoopBudget('healing');
 
   try {
     const initialHealing = deriveHealingState(deps.projectRoot, deps.changeId);
@@ -92,16 +69,16 @@ export async function runHealingSubroutine(deps: HealingDeps): Promise<HealingRe
         Math.max(1, initialHealing.attempts_used),
       );
       if (resumed.kind === 'result') return resumed.result;
-      if (resumed.kind === 'exhausted' || initialHealing.attempts_used >= deps.maxAttempts) {
+      if (resumed.kind === 'exhausted' || initialHealing.attempts_used >= maxAttempts) {
         runOk(deps, ['state', 'heal', '--change', deps.changeId, '--to', 'exhausted']);
-        return { kind: 'exhausted', detail: `max_healing_attempts=${deps.maxAttempts}` };
+        return { kind: 'exhausted', detail: `max_healing_attempts=${maxAttempts}` };
       }
       // The applied attempt failed but budget remains. Re-enter below to create
       // the next proposal from the newly written re-inspection evidence.
     }
 
     const entryGate = checkGate('healing-entry-gate');
-    const entryRoute = routeGateVerdict(entryGate);
+    const entryRoute = deps.progression.decideGate(entryGate);
 
     if (entryRoute.action === 'healing_skip') {
       runOk(deps, ['state', 'heal', '--change', deps.changeId, '--to', 'not_needed']);
@@ -126,7 +103,7 @@ export async function runHealingSubroutine(deps: HealingDeps): Promise<HealingRe
     // of restarting at zero (which would exceed max_healing_attempts and trip
     // the applied→proposal_created loop-back precondition). Fresh runs start at 0.
     let attempt = readHealingAttemptsUsed(deps.projectRoot, deps.changeId);
-    while (attempt < deps.maxAttempts) {
+    while (attempt < maxAttempts) {
       attempt++;
 
       try {
@@ -151,15 +128,10 @@ export async function runHealingSubroutine(deps: HealingDeps): Promise<HealingRe
         agent: proposalEntry.agent,
         text: buildPhasePrompt(proposalEntry.skill, 'fix-proposal', deps.changeId),
       });
-      (deps.applyPhase ?? applyPhaseState)(
-        deps.projectRoot,
-        deps.changeId,
-        'fix-proposal',
-        {
-          minMtimeMs: proposalDispatchStartedAt,
-          skillMdPath: deps.skillMdPathFor?.(proposalEntry.skill),
-        },
-      );
+      applyHealingPhase(deps, 'fix-proposal', attempt, {
+        minMtimeMs: proposalDispatchStartedAt,
+        skillMdPath: deps.skillMdPathFor?.(proposalEntry.skill),
+      });
       for (const target of deps.eligibleTargets) {
         // Only run a fixer for a target that actually has eligible proposals.
         // `aws heal record-apply` validates --proposal against this set and
@@ -206,7 +178,7 @@ export async function runHealingSubroutine(deps: HealingDeps): Promise<HealingRe
     }
 
     runOk(deps, ['state', 'heal', '--change', deps.changeId, '--to', 'exhausted']);
-    return { kind: 'exhausted', detail: `max_healing_attempts=${deps.maxAttempts}` };
+    return { kind: 'exhausted', detail: `max_healing_attempts=${maxAttempts}` };
   } catch (err) {
     return { kind: 'error', reason: (err as Error).message, exitCode: 40 };
   }
@@ -230,7 +202,7 @@ async function completeAppliedAttempt(
   if (rerun.exitCode !== 0 && !executionResultsPresent(deps.projectRoot, deps.changeId)) {
     throw new Error(`aws run failed (${rerun.exitCode}): ${rerun.stderr || rerun.stdout}`);
   }
-  (deps.applyPhase ?? applyPhaseState)(deps.projectRoot, deps.changeId, 'healing-rerun');
+  applyHealingPhase(deps, 'healing-rerun', attempt);
 
   const reinspectEntry = deps.resolveDispatch('healing-reinspect');
   const reinspectDispatchAt = Date.now();
@@ -243,20 +215,15 @@ async function completeAppliedAttempt(
       text: buildPhasePrompt(reinspectEntry.skill, 'healing-reinspect', deps.changeId),
     });
   }
-  (deps.applyPhase ?? applyPhaseState)(
-    deps.projectRoot,
-    deps.changeId,
-    'healing-reinspect',
-    {
-      minMtimeMs: reinspectDispatchAt,
-      skillMdPath: reinspectEntry.skill
-        ? deps.skillMdPathFor?.(reinspectEntry.skill)
-        : undefined,
-    },
-  );
+  applyHealingPhase(deps, 'healing-reinspect', attempt, {
+    minMtimeMs: reinspectDispatchAt,
+    skillMdPath: reinspectEntry.skill
+      ? deps.skillMdPathFor?.(reinspectEntry.skill)
+      : undefined,
+  });
 
   const loopGate = checkGate('healing-loop-gate');
-  const loopRoute = routeGateVerdict(loopGate);
+  const loopRoute = deps.progression.decideGate(loopGate);
   if (loopRoute.action === 'healing_exit') {
     runOk(deps, ['state', 'heal', '--change', deps.changeId, '--to', 'resolved']);
     return { kind: 'result', result: { kind: 'resolved' } };
@@ -273,6 +240,19 @@ async function completeAppliedAttempt(
       exitCode: 40,
     },
   };
+}
+
+function applyHealingPhase(
+  deps: HealingDeps,
+  phase: string,
+  attempt: number,
+  options: { minMtimeMs?: number; skillMdPath?: string } = {},
+): void {
+  deps.progression.applyOutcome({
+    phase,
+    attemptId: createDispatchAttemptId(phase),
+    ...options,
+  });
 }
 
 function runOk(deps: HealingDeps, args: string[]): void {

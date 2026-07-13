@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   acquireDriverLock,
+  createDispatchAttemptId,
   createInitialDriverJson,
   evaluateStartGuard,
   readDriverJson,
@@ -65,6 +66,15 @@ describe('driver_state lock + start guard', () => {
     const d = createInitialDriverJson({ directory: projectRoot, parentSessionId: 'ses_1' });
     writeDriverJsonAtomic(projectRoot, changeId, d);
     expect(readDriverJson(projectRoot, changeId)?.parent_session_id).toBe('ses_1');
+  });
+
+  it('creates a unique identity for every real dispatch attempt', () => {
+    const first = createDispatchAttemptId('design');
+    const second = createDispatchAttemptId('design');
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^design:/);
+    expect(second).toMatch(/^design:/);
   });
 });
 

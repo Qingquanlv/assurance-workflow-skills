@@ -7,8 +7,7 @@ import {
   loadSchemaFromFile,
   validateSchema,
 } from '../orchestration/schema';
-import { checkGate } from '../orchestration/engine';
-import { appendEvents, buildGateVerdictEvent } from '../core/events';
+import { createWorkflowProgression } from '../orchestration/progression';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 /** Exit codes per orchestration-cli-contract.md. */
@@ -66,8 +65,8 @@ export function registerGateCommand(program: Command): void {
           for (const e of validation.errors) console.error('  - ' + e);
           process.exit(1);
         }
-        report = checkGate({ schema, projectRoot, changeId, phaseId });
-        appendEvents(projectRoot, changeId, [buildGateVerdictEvent(projectRoot, changeId, report, schema)]);
+        const progression = createWorkflowProgression({ schema, projectRoot, changeId });
+        report = progression.adjudicatePhaseGate(phaseId);
       } catch (err) {
         logError(`gate check failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
