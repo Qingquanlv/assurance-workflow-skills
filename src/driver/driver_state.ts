@@ -20,7 +20,7 @@ export interface DriverJson {
   parent_session_id: string | null;
   directory: string;
   current_phase: string | null;
-  current_attempt_id: DispatchAttemptId | null;
+  current_attempt_id: string | null;
   paused_on: string | null;
   notify_pending: { messageId: string; text: string } | null;
   model?: { providerID: string; modelID: string; variant?: string };

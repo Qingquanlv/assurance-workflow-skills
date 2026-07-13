@@ -1,14 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { createHash } from 'crypto';
 import type { PhaseAgentAdapter } from './adapter';
 import type { ProcessRunner } from './process_runner';
 import { buildPhasePrompt } from './phase_prompt';
-import { runReviewFixLoop } from './review_fix_loop';
-import { runHealingSubroutine } from './healing_subroutine';
 import {
   acquireDriverLock,
-  createDispatchAttemptId,
   createInitialDriverJson,
   evaluateStartGuard,
   readDriverJson,
@@ -18,7 +14,6 @@ import {
 } from './driver_state';
 import { appendEvents, buildDriverEvent } from '../core/events';
 import { setWorkflowGate } from '../core/workflow_state';
-import { readHealingStatus } from '../core/healing_state';
 import {
   findSchemaFile,
   loadSchemaFromFile,
@@ -27,11 +22,13 @@ import {
   resolveNextDispatch,
   PhaseDispatchEntry,
 } from '../orchestration/engine';
+import type { Schema } from '../orchestration/schema';
 import {
   createWorkflowProgression,
-  ProgressResult,
+  PhaseOutcome,
   WorkflowProgressionRuntime,
 } from '../orchestration/progression';
+import type { Action } from '../orchestration/next_action';
 import {
   evaluateTestInfraBootstrap,
   markTestInfraBootstrapDone,
@@ -76,16 +73,6 @@ export interface WorkflowLoopResult {
   driver?: DriverJson;
 }
 
-function sha256File(file: string): string {
-  const h = createHash('sha256');
-  h.update(fs.readFileSync(file));
-  return h.digest('hex');
-}
-
-function workflowStatePath(projectRoot: string, changeId: string): string {
-  return path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
-}
-
 /**
  * Resolve the absolute SKILL.md path for a phase skill so the driver can
  * satisfy the Skill Load Gate while applying state in-process.
@@ -114,6 +101,11 @@ export const HEALING_SKILLS = [
   'aws-e2e-codegen-fixer',
 ] as const;
 
+const HEALING_FIXER_BY_TARGET: Record<'api' | 'e2e', { skill: string; phase: string }> = {
+  api: { skill: 'aws-api-codegen-fixer', phase: 'api-codegen-fix' },
+  e2e: { skill: 'aws-e2e-codegen-fixer', phase: 'e2e-codegen-fix' },
+};
+
 /**
  * Healing is available only when every healing skill ships in the package AND
  * max_healing_attempts > 0. Mirrors the orchestrator's Phase 1.1 derivation so
@@ -138,13 +130,56 @@ export function executionResultsPresent(projectRoot: string, changeId: string): 
   );
 }
 
+function phaseOutcomeFromAction(
+  action: Extract<Action, { kind: 'dispatch_phase' | 'heal' }>,
+  agentExit: number,
+): PhaseOutcome {
+  return {
+    attemptId: action.attemptId,
+    stateGuard: action.stateGuard,
+    kind: action.kind,
+    ...(action.kind === 'dispatch_phase'
+      ? { phase: action.phase }
+      : { target: action.target }),
+    agentExit,
+  };
+}
+
+async function executeAction(
+  action: Extract<Action, { kind: 'dispatch_phase' | 'heal' }>,
+  opts: WorkflowLoopOptions,
+  schema: Schema,
+  onDispatch?: (phase: string) => void,
+): Promise<void> {
+  if (action.kind === 'heal') {
+    const { skill, phase } = HEALING_FIXER_BY_TARGET[action.target];
+    onDispatch?.(phase);
+    const def = schema.phasesById.get(phase);
+    const session = await opts.adapter.createPhaseSession({
+      title: `Heal ${action.target} attempt ${action.attemptNumber}`,
+      parentSessionID: opts.parentSessionId ?? undefined,
+    });
+    await opts.adapter.promptSync(session.id, {
+      agent: def?.agent ?? 'opencode',
+      text: buildPhasePrompt(skill, phase, opts.changeId),
+    });
+    return;
+  }
+
+  onDispatch?.(action.phase);
+  if (!schema.phasesById.has(action.phase)) {
+    return;
+  }
+  const entry = resolveNextDispatch([action.phase], schema)[0];
+  await executeEntry(entry, opts);
+}
+
 /**
  * Deterministic execute-scope orchestration loop (M1 serial).
  */
 export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<WorkflowLoopResult> {
   const maxIter = opts.maxIterations ?? 50;
   const packageRoot = opts.packageRoot ?? path.resolve(__dirname, '..', '..');
-  const skillMdPathFor = (skill: string) => resolveSkillMdPath(packageRoot, skill);
 
   let driver: DriverJson;
   if (opts.adoptLockToken) {
@@ -197,6 +232,20 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     return { exitCode, reason, driver };
   };
 
+  const notifyTerminal = async (kind: 'completed' | 'stopped', reason: string): Promise<void> => {
+    const messageId = `driver:${driver.run_id}:${kind}`;
+    const text = kind === 'completed'
+      ? `Workflow completed for ${opts.changeId}.`
+      : `Workflow stopped: ${reason}`;
+    try {
+      await opts.adapter.notifyParentOnce({ messageId, text });
+    } catch {
+      driver.notify_pending = { messageId, text };
+    }
+  };
+
+  const onDispatch = (opts.adapter as { onDispatch?: (phase: string) => void }).onDispatch;
+
   try {
     // configure
     const orchestrator = opts.scope === 'execute' ? 'aws-execute' : 'aws-workflow';
@@ -219,6 +268,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       schema,
       projectRoot: opts.projectRoot,
       changeId: opts.changeId,
+      packageRoot,
     });
 
     // Derive gates.healing_available the way the orchestrator would (see
@@ -229,7 +279,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     // still sees the configured max_healing_attempts. The driver dispatches
     // these skills itself, so it stamps the flag the healing-entry-gate reads
     // (`enter_when` requires `state.gates.healing_available == true`).
-    const resolvedParams = (progression.inspect().report.params ?? {}) as Record<string, unknown>;
+    const resolvedParams = (progression.inspect().snapshot.report?.params ?? {}) as Record<string, unknown>;
     setWorkflowGate(
       opts.projectRoot,
       opts.changeId,
@@ -245,25 +295,6 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     }
 
     if (opts.scope === 'full') {
-      // Stamp the skill-registry-check marker phase. The driver ships and
-      // dispatches every workflow skill, so its startup *is* the registry check.
-      // Without this the registry-gate evaluates 'stop' on the very first status
-      // poll (the marker phase has not run yet) and the workflow halts before it
-      // can dispatch anything (explore never starts).
-      try {
-        const startupAttemptId = createDispatchAttemptId('skill-registry-check');
-        progression.applyOutcome({
-          phase: 'skill-registry-check',
-          attemptId: startupAttemptId,
-        });
-      } catch (err) {
-        return finish(
-          EXIT_ERROR,
-          `skill-registry-check apply failed: ${(err as Error).message}`,
-          'failed',
-        );
-      }
-
       const boot = evaluateTestInfraBootstrap(opts.projectRoot, opts.changeId);
       if (boot.kind === 'needs_human') {
         return await pauseForHuman(
@@ -285,201 +316,55 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       );
     }
 
+    progression.resume();
+
     for (let i = 0; i < maxIter; i++) {
-      const statusSnapshot = progression.inspect();
-      const statusJson = {
-        next: statusSnapshot.nextActions,
-        terminal: statusSnapshot.report.terminal,
-        pending_decision: statusSnapshot.report.pending_decision,
-      };
+      const { action } = progression.inspect();
 
-      // Resume an evidence-derived active healing attempt before terminal routing.
-      const healingStatusNow = readHealingStatus(opts.projectRoot, opts.changeId);
-      if (healingStatusNow === 'proposal_created' || healingStatusNow === 'applied') {
-        // The subroutine is stage-aware: an applied attempt must complete its
-        // rerun/reinspect before budget exhaustion can be judged.
-        const healResult = await runHealingSubroutine({
-          projectRoot: opts.projectRoot,
-          changeId: opts.changeId,
-          runner: opts.runner,
-          adapter: opts.adapter,
-          resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
-          eligibleTargets: ['api', 'e2e'],
-          skillMdPathFor,
-          progression,
-        });
-        if (healResult.kind === 'needs_human_review') {
-          return await pauseForHuman(opts, driver, 'healing', healResult.reason, finish);
+      if (action.kind === 'terminal') {
+        const status = action.status === 'completed' ? 'completed' : 'failed';
+        if (action.status === 'completed') {
+          await notifyTerminal('completed', action.reason);
+        } else if (action.status === 'stopped') {
+          await notifyTerminal('stopped', action.reason);
         }
-        if (healResult.kind === 'error') {
-          return finish(healResult.exitCode, healResult.reason, 'failed');
-        }
-        if (healResult.kind === 'failed') {
-          return finish(EXIT_STOPPED, healResult.detail ?? 'healing failed', 'failed');
-        }
-        continue;
+        return finish(action.exitCode, action.reason, status);
       }
 
-      if (statusJson.terminal?.kind === 'completed') {
-        try {
-          await opts.adapter.notifyParentOnce({
-            messageId: `driver:${driver.run_id}:completed`,
-            text: `Workflow completed for ${opts.changeId}.`,
-          });
-        } catch {
-          driver.notify_pending = {
-            messageId: `driver:${driver.run_id}:completed`,
-            text: `Workflow completed for ${opts.changeId}.`,
-          };
-        }
-        return finish(EXIT_COMPLETED, statusJson.terminal.reason, 'completed');
-      }
-      if (statusJson.terminal?.kind === 'stopped') {
-        try {
-          await opts.adapter.notifyParentOnce({
-            messageId: `driver:${driver.run_id}:stopped`,
-            text: `Workflow stopped: ${statusJson.terminal.reason}`,
-          });
-        } catch {
-          driver.notify_pending = {
-            messageId: `driver:${driver.run_id}:stopped`,
-            text: `Workflow stopped: ${statusJson.terminal.reason}`,
-          };
-        }
-        return finish(EXIT_STOPPED, statusJson.terminal.reason, 'failed');
+      if (action.kind === 'pause_for_human') {
+        return await pauseForHuman(opts, driver, action.checkpoint, action.reason, finish);
       }
 
-      if (statusJson.pending_decision) {
-        return await pauseForHuman(
-          opts,
-          driver,
-          statusJson.pending_decision.phase,
-          statusJson.pending_decision.reason,
-          finish,
-        );
+      driver.current_phase = action.kind === 'dispatch_phase'
+        ? action.phase
+        : `heal:${action.target}`;
+      driver.current_attempt_id = action.attemptId;
+      driver.updated_at = new Date().toISOString();
+      writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
+      appendEvents(opts.projectRoot, opts.changeId, [
+        buildDriverEvent('phase_dispatched', driver.run_id, {
+          phase: driver.current_phase,
+          attempt_id: action.attemptId,
+        }),
+      ]);
+
+      await executeAction(action, opts, schema, onDispatch);
+
+      try {
+        progression.advance(phaseOutcomeFromAction(action, 0));
+      } catch (err) {
+        return finish(EXIT_ERROR, (err as Error).message, 'failed');
       }
 
-      for (const entry of statusJson.next) {
-        const attemptId = createDispatchAttemptId(entry.phase);
-        driver.current_phase = entry.phase;
-        driver.current_attempt_id = attemptId;
-        driver.updated_at = new Date().toISOString();
-        writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
-        appendEvents(opts.projectRoot, opts.changeId, [
-          buildDriverEvent('phase_dispatched', driver.run_id, {
-            phase: entry.phase,
-            attempt_id: attemptId,
-          }),
-        ]);
-
-        const stateFile = workflowStatePath(opts.projectRoot, opts.changeId);
-        const h0 = fs.existsSync(stateFile) ? sha256File(stateFile) : '';
-        const dispatchAt = Date.now();
-
-        await executeEntry(entry, opts);
-
-        // H0 assert
-        const h1 = fs.existsSync(stateFile) ? sha256File(stateFile) : '';
-        if (h0 && h1 !== h0) {
-          // Agent must not write workflow-state; only reducers may. If hash changed
-          // before apply, fail closed.
-          return finish(
-            EXIT_ERROR,
-            `H0 violation: workflow-state.yaml changed during phase ${entry.phase}`,
-            'failed',
-          );
-        }
-
-        let progressResult: ProgressResult;
-        try {
-          progressResult = progression.applyOutcome({
-            phase: entry.phase,
-            attemptId,
-            minMtimeMs: entry.kind === 'agent' || entry.kind === 'cli' ? dispatchAt : undefined,
-            skillMdPath: entry.kind === 'agent'
-              ? resolveSkillMdPath(packageRoot, entry.skill)
-              : undefined,
-          });
-        } catch (err) {
-          return finish(
-            EXIT_ERROR,
-            `state apply failed for ${entry.phase}: ${(err as Error).message}`,
-            'failed',
-          );
-        }
-
-        appendEvents(opts.projectRoot, opts.changeId, [
-          buildDriverEvent('phase_attempt_finished', driver.run_id, {
-            phase: entry.phase,
-            attempt_id: attemptId,
-          }),
-        ]);
-        driver.current_attempt_id = null;
-        driver.updated_at = new Date().toISOString();
-        writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
-
-        if (progressResult.gate) {
-          const gate = progressResult.gate;
-          const routed = progressResult.decision;
-          if (!routed) {
-            return finish(EXIT_ERROR, `missing Gate decision for ${entry.phase}`, 'failed');
-          }
-          if (routed.action === 'continue') continue;
-
-          if (routed.action === 'needs_fix') {
-            const fixResult = await runReviewFixLoop(entry.phase, gate, {
-              projectRoot: opts.projectRoot,
-              changeId: opts.changeId,
-              adapter: opts.adapter,
-              resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
-              skillMdPathFor,
-              runId: driver.run_id,
-              progression,
-            });
-            if (fixResult.kind === 'pass') continue;
-            if (fixResult.kind === 'needs_human_review') {
-              return await pauseForHuman(opts, driver, entry.phase, fixResult.reason, finish);
-            }
-            if (fixResult.kind === 'stopped') {
-              return finish(EXIT_STOPPED, fixResult.reason, 'failed');
-            }
-            return finish(EXIT_ERROR, fixResult.reason, 'failed');
-          }
-
-          if (routed.action === 'needs_human_review') {
-            return await pauseForHuman(opts, driver, entry.phase, routed.reason, finish);
-          }
-          if (routed.action === 'stopped') {
-            return finish(EXIT_STOPPED, routed.reason, 'failed');
-          }
-          if (routed.action === 'fail') {
-            return finish(routed.exitCode, routed.reason, 'failed');
-          }
-        }
-
-        // After inspect, run healing subroutine when entry gate says so
-        if (entry.phase === 'inspect') {
-          const healResult = await runHealingSubroutine({
-            projectRoot: opts.projectRoot,
-            changeId: opts.changeId,
-            runner: opts.runner,
-            adapter: opts.adapter,
-            resolveDispatch: (phase) => resolveNextDispatch([phase], schema)[0],
-            eligibleTargets: ['api', 'e2e'],
-            skillMdPathFor,
-            progression,
-          });
-          if (healResult.kind === 'needs_human_review') {
-            return await pauseForHuman(opts, driver, 'healing', healResult.reason, finish);
-          }
-          if (healResult.kind === 'error') {
-            return finish(healResult.exitCode, healResult.reason, 'failed');
-          }
-          if (healResult.kind === 'failed') {
-            return finish(EXIT_STOPPED, healResult.detail ?? 'healing failed', 'failed');
-          }
-        }
-      }
+      appendEvents(opts.projectRoot, opts.changeId, [
+        buildDriverEvent('phase_attempt_finished', driver.run_id, {
+          phase: driver.current_phase,
+          attempt_id: action.attemptId,
+        }),
+      ]);
+      driver.current_attempt_id = null;
+      driver.updated_at = new Date().toISOString();
+      writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
     }
 
     return finish(EXIT_ERROR, `max iterations (${maxIter}) exceeded`, 'failed');

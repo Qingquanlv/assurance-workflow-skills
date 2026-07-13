@@ -67,6 +67,7 @@ export function createHeadlessAdapter(opts: HeadlessAdapterOptions): PhaseAgentA
 export function createStubAdapter(handlers: {
   onPrompt?: (sessionID: string, prompt: PhasePrompt) => Promise<PromptResult> | PromptResult;
   onNotify?: (input: ParentNotification) => void;
+  onDispatch?: (phase: string) => void;
 } = {}): PhaseAgentAdapter & { prompts: Array<{ sessionID: string; prompt: PhasePrompt }> } {
   let seq = 0;
   const prompts: Array<{ sessionID: string; prompt: PhasePrompt }> = [];
@@ -91,5 +92,9 @@ export function createStubAdapter(handlers: {
       handlers.onNotify?.(input);
     },
   };
+  if (handlers.onDispatch) {
+    (adapter as typeof adapter & { onDispatch: (phase: string) => void }).onDispatch =
+      handlers.onDispatch;
+  }
   return adapter;
 }
