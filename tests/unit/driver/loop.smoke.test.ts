@@ -217,6 +217,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       inspectGate: baseProgression.inspectGate,
       resolveLoopBudget: baseProgression.resolveLoopBudget,
       adjudicatePhaseGate: baseProgression.adjudicatePhaseGate,
+      applyHealing: baseProgression.applyHealing,
       inspect: () => {
         const snapshot = baseProgression.inspect();
         return {
@@ -363,6 +364,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
       inspectGate: baseProgression.inspectGate,
       resolveLoopBudget: baseProgression.resolveLoopBudget,
       adjudicatePhaseGate: baseProgression.adjudicatePhaseGate,
+      applyHealing: baseProgression.applyHealing,
       inspect: () => {
         const snapshot = baseProgression.inspect();
         return {

@@ -33,7 +33,7 @@
 - Consumes: validated `Schema`, `DerivedHealingState`, named Gate reports, loop budget, Healing pin/apply Events.
 - Produces: `HealingEpisodeSnapshot`, `HealingEpisodeAction`, and `projectHealingEpisode(options)`; `ProgressSnapshot.healingEpisode` is the only caller-facing projection.
 
-- [ ] **Step 1: Write the failing projection test**
+- [x] **Step 1: Write the failing projection test**
 
 ```ts
 it('returns rerun as the exact resume action for an applied attempt', () => {
@@ -46,13 +46,13 @@ it('returns rerun as the exact resume action for an applied attempt', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `npm test -- --runInBand tests/unit/orchestration/healing_episode.test.ts`
 
 Expected: FAIL because `ProgressSnapshot` has no `healingEpisode` projection.
 
-- [ ] **Step 3: Implement the minimal Episode types and projector**
+- [x] **Step 3: Implement the minimal Episode types and projector**
 
 ```ts
 export type HealingEpisodeStage =
@@ -83,13 +83,13 @@ export interface HealingEpisodeSnapshot {
 
 Implement only the already-applied resume case plus inactive/terminal fallbacks, then attach the projection in `inspectProgression()`.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run: `npm test -- --runInBand tests/unit/orchestration/healing_episode.test.ts tests/unit/orchestration/progression.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/orchestration/healing_episode.ts src/orchestration/progression.ts tests/unit/orchestration/healing_episode.test.ts tests/unit/orchestration/progression.test.ts
@@ -110,7 +110,7 @@ git commit -m "feat(progression): project healing episode resume actions"
 - Consumes: existing baseline artifact, `healing_entry_baseline_pinned`, proposal/batch identity, Progression transaction support.
 - Produces: `healing_attempt_allocated` Event and idempotent `advanceHealing({ kind: 'enter' | 'allocate_attempt', operationId })` behavior internal to `WorkflowProgressionRuntime.applyHealing()`.
 
-- [ ] **Step 1: Write failing identity and replay tests**
+- [x] **Step 1: Write failing identity and replay tests**
 
 ```ts
 it('allocates one attempt before proposal dispatch and replays by operation id', () => {
@@ -123,13 +123,13 @@ it('allocates one attempt before proposal dispatch and replays by operation id',
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm test -- --runInBand tests/unit/orchestration/healing_episode.test.ts`
 
 Expected: FAIL because `applyHealing` and `healing_attempt_allocated` do not exist.
 
-- [ ] **Step 3: Add Event vocabulary and transactional entry/allocation**
+- [x] **Step 3: Add Event vocabulary and transactional entry/allocation**
 
 ```ts
 export interface HealingAttemptAllocatedEvent extends QaEventBase {
@@ -145,13 +145,13 @@ export interface HealingAttemptAllocatedEvent extends QaEventBase {
 
 Move baseline creation under the same Progression commit as its pin Event. Recover legacy Episodes from the existing baseline pin without emitting migration Events during inspection.
 
-- [ ] **Step 4: Verify GREEN and entry compatibility**
+- [x] **Step 4: Verify GREEN and entry compatibility**
 
 Run: `npm test -- --runInBand tests/unit/orchestration/healing_episode.test.ts tests/unit/core/healing_entry_baseline.test.ts tests/unit/core/healing_derivation.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/core/events.ts src/orchestration/healing_episode.ts src/orchestration/progression.ts src/core/healing_state.ts tests/unit/orchestration/healing_episode.test.ts tests/unit/core/healing_entry_baseline.test.ts
