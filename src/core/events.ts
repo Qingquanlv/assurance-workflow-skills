@@ -72,6 +72,16 @@ export interface PhaseOutcomeCommittedEvent extends QaEventBase {
   gate_report: GateReport | null;
 }
 
+/** Ledger marker when a dispatch action is signed with attemptId + stateGuard. */
+export interface DispatchSignedEvent extends QaEventBase {
+  source: 'progression';
+  type: 'dispatch_signed';
+  phase: string;
+  attempt_id: string;
+  state_guard: string;
+  dispatched_at: number;
+}
+
 export interface HealTransitionEvent extends QaEventBase {
   source: 'status';
   type: 'heal_transition';
@@ -189,6 +199,7 @@ export type QaEvent =
   | PhaseTransitionEvent
   | GateVerdictEvent
   | PhaseOutcomeCommittedEvent
+  | DispatchSignedEvent
   | HealTransitionEvent
   | HealRecordApplyEvent
   | HealingEntryBaselinePinnedEvent
@@ -204,6 +215,7 @@ export type QaEventInput =
   | Omit<PhaseTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<GateVerdictEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<PhaseOutcomeCommittedEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<DispatchSignedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealRecordApplyEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealingEntryBaselinePinnedEvent, 'seq' | 'ts' | 'change_id'>
