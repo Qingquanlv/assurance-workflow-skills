@@ -173,7 +173,7 @@ describe('Workflow Progression Runtime', () => {
     fs.mkdirSync(reviewDir, { recursive: true });
     fs.writeFileSync(
       path.join(reviewDir, 'review.json'),
-      JSON.stringify({ decision: 'pass' }),
+      JSON.stringify({ schema_version: '1.0', decision: 'pass', findings: [] }),
       'utf-8',
     );
     const options = { schema: parseSchema(GATED_SCHEMA), projectRoot, changeId };
@@ -225,7 +225,11 @@ describe('Workflow Progression Runtime', () => {
       'utf-8',
     );
     const stateFile = path.join(projectRoot, 'qa', 'changes', changeId, 'workflow-state.yaml');
-    fs.writeFileSync(stateFile, 'params:\n  max_healing_attempts: 2\n', 'utf-8');
+    fs.writeFileSync(
+      stateFile,
+      'params:\n  max_healing_attempts: 2\nphases: {}\n',
+      'utf-8',
+    );
     const runtime = createWorkflowProgression({
       schema: parseSchema(LOOP_SCHEMA),
       projectRoot,

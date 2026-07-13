@@ -31,6 +31,7 @@ import { resolveDecisionSupport } from '../core/decision_support';
 import { sha256File } from '../core/hash';
 import { isAuditedGateRead } from '../core/audit_scope';
 import { deriveHealingState } from '../core/healing_state';
+import { validateArtifactFile } from '../schema';
 
 // ─── Report types (match the CLI JSON contract) ─────────────────────────────
 
@@ -399,6 +400,26 @@ export class Engine {
           return { verdict: 'stop', matchedRule: 'invalid_json', evidence: {}, reads: readPaths };
         }
       }
+    }
+
+    // Schema-invalid structured artifacts fail closed like parse failures.
+    const schemaInvalid: string[] = [];
+    for (const r of gate.reads) {
+      const doc = this.loadDoc(r.path);
+      if (!doc.present || doc.parseError) continue;
+      const invalid = validateArtifactFile(this.resolvePath(r.path), r.path)
+        .filter(result => !result.ok);
+      schemaInvalid.push(
+        ...invalid.map(result => `${result.path}: ${result.errors.join('; ')}`),
+      );
+    }
+    if (schemaInvalid.length > 0) {
+      return {
+        verdict: gate.invalid_json ?? gate.default,
+        matchedRule: 'schema_invalid',
+        evidence: { schema_invalid: schemaInvalid },
+        reads: readPaths,
+      };
     }
 
     // Build scope: primary doc hoisting + per-gate aliases.

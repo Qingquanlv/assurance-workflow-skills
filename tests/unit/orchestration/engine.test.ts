@@ -94,7 +94,49 @@ function writeChangeFile(rel: string, contents: string): void {
   fs.writeFileSync(abs, contents, 'utf-8');
 }
 function writeJson(rel: string, obj: unknown): void {
-  writeChangeFile(rel, JSON.stringify(obj));
+  let value = obj;
+  if (/^review\/.+\.json$/.test(rel) && isRecord(obj)) {
+    value = { schema_version: '1.0', findings: [], ...obj };
+  }
+  if (rel === 'inspect/failure-analysis.json' && isRecord(obj)) {
+    const failures = Array.isArray(obj.failures)
+      ? obj.failures.map(failure => ({
+        category: 'business_logic_failure',
+        severity: 'high',
+        evidence: {
+          result_file: '', test_file: '', trace: '', screenshot: '',
+          video: '', raw_log: '', log_excerpt: '',
+        },
+        diagnosis: 'test fixture',
+        recommended_action: 'test fixture',
+        ...(isRecord(failure) ? failure : {}),
+      }))
+      : [];
+    value = {
+      schema_version: '1.0',
+      change_id: changeId,
+      source_manifest: 'execution/execution-manifest.yaml',
+      inspection_status: 'completed',
+      batch_id: obj.source_batch_id ?? 'b1',
+      source_batch_id: 'b1',
+      final_status: 'FAIL',
+      inspect_mode: 'primary',
+      classification_performed: true,
+      status: 'analyzed',
+      hard_fails: failures,
+      needs_review: [],
+      known_product_issues: [],
+      ...obj,
+      failures,
+    };
+  }
+  writeChangeFile(rel, JSON.stringify(value));
+}
+function writeWorkflowState(value: Record<string, unknown>): void {
+  writeChangeFile('workflow-state.yaml', yaml.dump({ params: {}, phases: {}, ...value }));
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 function statusOf(id: string) {
   return computeStatus({ schema, projectRoot, changeId }).phases.find(p => p.id === id);
@@ -177,11 +219,7 @@ describe('terminal states', () => {
 
 describe('pruning via when', () => {
   it('build pruned in quick mode; exec uses any_active over remaining dep', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ params: { run_mode: 'quick' } }),
-      'utf-8'
-    );
+    writeWorkflowState({ params: { run_mode: 'quick' } });
     writeJson('design.json', { ok: true });
     writeJson('review.json', { decision: 'pass' });
     writeJson('codegen.json', { ok: true });
@@ -199,11 +237,7 @@ describe('active_scope from run_context', () => {
   });
 
   it('excludes ready phases outside the current scope from next dispatch', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ run_context: { active_scope: 'intake' } }),
-      'utf-8'
-    );
+    writeWorkflowState({ run_context: { active_scope: 'intake' } });
     writeJson('explore/advisory.json', { ok: true });
     writeJson('review/case-review.json', { decision: 'pass' });
 
@@ -215,11 +249,7 @@ describe('active_scope from run_context', () => {
   });
 
   it('marks phases outside the current scope out_of_scope before dependency blocking', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ run_context: { active_scope: 'intake' } }),
-      'utf-8'
-    );
+    writeWorkflowState({ run_context: { active_scope: 'intake' } });
 
     const r = computeStatus({ schema: scopedSchema, projectRoot, changeId });
     expect(r.phases.find(p => p.id === 'fact-baseline')!.status).toBe('out_of_scope');
@@ -227,11 +257,7 @@ describe('active_scope from run_context', () => {
   });
 
   it('allows execute-scope phases to use completed intake dependencies', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ run_context: { active_scope: 'execute' } }),
-      'utf-8'
-    );
+    writeWorkflowState({ run_context: { active_scope: 'execute' } });
     writeJson('explore/advisory.json', { ok: true });
     writeJson('review/case-review.json', { decision: 'pass' });
 
@@ -242,18 +268,14 @@ describe('active_scope from run_context', () => {
   });
 
   it('includes run_context and open question summary in the status report', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({
-        run_context: {
-          orchestrator_skill: 'aws-intake',
-          interaction_mode: 'interactive',
-          active_scope: 'intake',
-          stamped_at: '2026-07-04T00:00:00.000Z',
-        },
-      }),
-      'utf-8'
-    );
+    writeWorkflowState({
+      run_context: {
+        orchestrator_skill: 'aws-intake',
+        interaction_mode: 'interactive',
+        active_scope: 'intake',
+        stamped_at: '2026-07-04T00:00:00.000Z',
+      },
+    });
     writeJson('explore/advisory.json', {
       open_questions_for_case_design: [
         { id: 'OQ-001', status: 'answered' },
@@ -709,14 +731,10 @@ describe('force_continue gate matrix (real schema)', () => {
 
 describe('params resolution + healing summary', () => {
   it('defaults params from schema and ignores persisted healing status counters', () => {
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({
-        params: { run_mode: 'quick', max_healing_attempts: 3 },
-        phases: { healing: { status: 'resolved', attempts: [{}, {}] } },
-      }),
-      'utf-8'
-    );
+    writeWorkflowState({
+      params: { run_mode: 'quick', max_healing_attempts: 3 },
+      phases: { healing: { status: 'resolved', attempts: [{}, {}] } },
+    });
     const e = new Engine({ schema, projectRoot, changeId });
     expect(e.params.run_mode).toBe('quick');
     expect(e.params.max_healing_attempts).toBe(3);
@@ -734,11 +752,7 @@ describe('params resolution + healing summary', () => {
 describe('real workflow-schema.yaml smoke', () => {
   it('computes status without throwing and covers all phases', () => {
     const real = loadSchemaFromFile(REAL_SCHEMA);
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ params: { run_mode: 'full', test_types: ['api', 'e2e'] } }),
-      'utf-8'
-    );
+    writeWorkflowState({ params: { run_mode: 'full', test_types: ['api', 'e2e'] } });
     const r = computeStatus({ schema: real, projectRoot, changeId });
     expect(r.phases.length).toBe(real.phases.length);
     expect(r.params.run_mode).toBe('full');
@@ -765,13 +779,13 @@ describe('real workflow-schema.yaml smoke', () => {
 
   it('ignores persisted attempt arrays and stale all_fixers_no_op in loop gates', () => {
     const real = loadSchemaFromFile(REAL_SCHEMA);
-    fs.writeFileSync(path.join(changeDir(), 'workflow-state.yaml'), yaml.dump({
+    writeWorkflowState({
       params: { max_healing_attempts: 2 },
       phases: {
         execution: { status: 'FAIL' },
         healing: { attempts: [{}, {}], all_fixers_no_op: true },
       },
-    }));
+    });
     fs.mkdirSync(path.join(changeDir(), 'execution'), { recursive: true });
     fs.writeFileSync(
       path.join(changeDir(), 'execution', 'execution-manifest.yaml'),
@@ -830,6 +844,22 @@ describe('real workflow-schema.yaml smoke', () => {
     );
     writeJson('explore/advisory.json', { open_questions_for_case_design: [] });
     writeChangeFile('.qa.yaml', yaml.dump({
+      schema_version: '1.0',
+      schema: 'aws',
+      created_at: '2026-07-04T07:00:00.000Z',
+      change: {
+        change_id: changeId,
+        requirement_id: 'REQ-001',
+        feature_name: 'Case design',
+        status: 'draft',
+      },
+      targets: {
+        cases: [{
+          module: 'role',
+          change_case_file: 'cases/role/case.yaml',
+          target_case_file: 'qa/cases/role/case.yaml',
+        }],
+      },
       approval: {
         approved_by: 'user',
         approved_approach: 'api_e2e_core',
@@ -837,7 +867,10 @@ describe('real workflow-schema.yaml smoke', () => {
       },
     }));
     writeChangeFile('proposal.md', '# proposal\n');
-    writeChangeFile('cases/role/case.yaml', 'schema_version: "1.0"\nadded: []\n');
+    writeChangeFile(
+      'cases/role/case.yaml',
+      'schema_version: "1.0"\nadded: []\nmodified: []\nremoved: []\n',
+    );
 
     const r = computeStatus({ schema: real, projectRoot, changeId });
     const phase = r.phases.find(p => p.id === 'case-design')!;
@@ -882,11 +915,7 @@ describe('ready_when readiness guard', () => {
 
   it('blocks the phase (not ready) while the predicate is undefined — healing never recorded', () => {
     writeJson('inspect.json', { ok: true });
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ phases: { execution: { status: 'PASS' } } }),
-      'utf-8'
-    );
+    writeWorkflowState({ phases: { execution: { status: 'PASS' } } });
     const r = computeStatus({ schema: healSchema, projectRoot, changeId });
     const report = healStatusOf('report')!;
     expect(report.status).toBe('blocked');
@@ -896,11 +925,7 @@ describe('ready_when readiness guard', () => {
 
   it('blocks while healing.status is a mid-loop value', () => {
     writeJson('inspect.json', { ok: true });
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ phases: { healing: { status: 'proposal_created', attempts: [{}] } } }),
-      'utf-8'
-    );
+    writeWorkflowState({ phases: { healing: { status: 'proposal_created', attempts: [{}] } } });
     expect(healStatusOf('report')!.status).toBe('blocked');
   });
 
@@ -911,11 +936,7 @@ describe('ready_when readiness guard', () => {
       path.join(changeDir(), 'execution', 'execution-manifest.yaml'),
       yaml.dump({ batch_id: 'b1' }),
     );
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ phases: { healing: { status: 'not_needed', attempts: [] } } }),
-      'utf-8'
-    );
+    writeWorkflowState({ phases: { healing: { status: 'not_needed', attempts: [] } } });
     appendEvents(projectRoot, changeId, [{
       source: 'status',
       type: 'heal_transition',
@@ -937,11 +958,7 @@ describe('ready_when readiness guard', () => {
 
   it('entry gate fires enter when phases.healing is absent (defined() hardening)', () => {
     writeJson('inspect.json', { ok: true });
-    fs.writeFileSync(
-      path.join(changeDir(), 'workflow-state.yaml'),
-      yaml.dump({ phases: { execution: { status: 'FAIL' } } }),
-      'utf-8'
-    );
+    writeWorkflowState({ phases: { execution: { status: 'FAIL' } } });
     const fix = healStatusOf('fix-proposal')!;
     expect(fix.status).toBe('ready');
   });
