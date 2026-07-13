@@ -2,14 +2,17 @@ import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
 import { ArtifactValidationResult } from './types';
+import { validateAdvisory } from './advisory';
 import { validateApplySummary } from './apply_summary';
 import { validateCaseYaml } from './case_yaml';
+import { validateFactBaseline } from './fact_baseline';
 import { validateExecutionManifest } from './execution_manifest';
 import { validateFailureAnalysis } from './failure_analysis';
 import { validateFixProposal } from './fix_proposal';
 import { validateQaYaml } from './qa_yaml';
 import { validateQualityGateResult } from './quality_gate_result';
 import { validateQualityReport } from './quality_report';
+import { validateReview } from './review';
 
 export interface ArtifactSpec {
   artifact_type: string;
@@ -27,6 +30,9 @@ export const ARTIFACT_SPECS: ArtifactSpec[] = [
   { artifact_type: 'quality_report', glob: 'report/quality-report.json', validate: validateQualityReport },
   { artifact_type: 'fix_proposal', glob: 'healing/fix-proposal.json', validate: validateFixProposal },
   { artifact_type: 'apply_summary', glob: 'healing/*-apply-summary.json', validate: validateApplySummary },
+  { artifact_type: 'review', glob: 'review/*.json', validate: validateReview },
+  { artifact_type: 'fact_baseline', glob: 'facts/fact-baseline.json', validate: validateFactBaseline },
+  { artifact_type: 'advisory', glob: 'explore/advisory.json', validate: validateAdvisory },
 ];
 
 export function resolveSpecs(relPath: string): ArtifactSpec[] {
