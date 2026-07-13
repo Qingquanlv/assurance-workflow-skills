@@ -5,7 +5,7 @@ import {
 } from '../core/workflow_state';
 import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
 import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
-import { applyPhaseOutcome } from '../orchestration/progression';
+import { createWorkflowProgression } from '../orchestration/progression';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 const CONFIGURE_ORCHESTRATORS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
@@ -38,11 +38,19 @@ export function registerStateCommand(program: Command): void {
       try {
         const schema = loadSchemaFromFile(findSchemaFile(projectRoot));
         const progressionOptions = { schema, projectRoot, changeId };
-        applyPhaseOutcome(progressionOptions, {
+        const progression = createWorkflowProgression(progressionOptions);
+        const { action } = progression.inspect();
+        if (action.kind !== 'dispatch_phase' || action.phase !== phase) {
+          throw new Error(
+            `state apply: phase '${phase}' is not the current dispatch target ` +
+            `(inspect returned ${action.kind === 'dispatch_phase' ? action.phase : action.kind})`,
+          );
+        }
+        progression.advance({
+          attemptId: options.attemptId ? String(options.attemptId) : action.attemptId,
+          stateGuard: action.stateGuard,
+          kind: 'dispatch_phase',
           phase,
-          attemptId: options.attemptId
-            ? String(options.attemptId)
-            : `cli:${phase}:${Date.now()}`,
         });
         logOk(`workflow-state.yaml updated for phase "${phase}"`);
         logBlank();

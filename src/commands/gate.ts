@@ -7,21 +7,9 @@ import {
   loadSchemaFromFile,
   validateSchema,
 } from '../orchestration/schema';
-import { adjudicatePhaseGate } from '../orchestration/progression';
+import { inspectNamedGate } from '../orchestration/progression';
+import { exitCodeForGateVerdict } from '../core/exit_codes';
 import { logError, logHeader, logBlank } from '../utils/logger';
-
-/** Exit codes per orchestration-cli-contract.md. */
-const VERDICT_EXIT: Record<string, number> = {
-  pass: 0,
-  enter: 0,
-  exit: 0,
-  needs_fix: 30,
-  needs_human_review: 31,
-  continue: 32,
-  reject: 40,
-  stop: 40,
-  skip: 0,
-};
 
 const VERDICT_COLOR: Record<string, (s: string) => string> = {
   pass: chalk.green,
@@ -66,7 +54,20 @@ export function registerGateCommand(program: Command): void {
           process.exit(1);
         }
         const progressionOptions = { schema, projectRoot, changeId };
-        report = adjudicatePhaseGate(progressionOptions, phaseId);
+        const phase = schema.phasesById.get(phaseId);
+        if (!phase) {
+          throw new Error(`Unknown phase '${phaseId}'`);
+        }
+        if (!phase.gate) {
+          throw new Error(`Phase '${phaseId}' has no gate`);
+        }
+        report = inspectNamedGate(progressionOptions, phase.gate);
+        if (report.verdict === 'needs_fix') {
+          const recommended = schema.phases.find(p => p.repair_of === phaseId)?.id ?? null;
+          report = { ...report, phase: phaseId, recommended_phase: recommended };
+        } else {
+          report = { ...report, phase: phaseId };
+        }
       } catch (err) {
         logError(`gate check failed: ${(err as Error).message}`);
         if (process.env.AWS_DEBUG) console.error((err as Error).stack);
@@ -90,6 +91,6 @@ export function registerGateCommand(program: Command): void {
         logBlank();
       }
 
-      process.exit(VERDICT_EXIT[report.verdict] ?? 1);
+      process.exit(exitCodeForGateVerdict(report.verdict));
     });
 }

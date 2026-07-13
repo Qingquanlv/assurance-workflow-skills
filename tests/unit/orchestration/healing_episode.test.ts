@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { projectHealingEpisode } from '../../../src/orchestration/healing_episode';
 import { parseSchema } from '../../../src/orchestration/schema';
-import { createWorkflowProgression } from '../../../src/orchestration/progression';
+import { applyHealingOperation } from '../../../src/orchestration/progression';
 import { hashTestTree } from '../../../src/core/hash';
 import { readEvents } from '../../../src/core/events';
 
@@ -79,17 +79,17 @@ describe('Healing Episode projection', () => {
         path.join(changeDir, 'workflow-state.yaml'),
         yaml.dump({ params: { max_healing_attempts: 3 }, phases: {} }),
       );
-      const runtime = createWorkflowProgression({
+      const options = {
         schema: parseSchema(HEALING_SCHEMA),
         projectRoot,
         changeId,
-      });
+      };
 
-      const first = runtime.applyHealing({
+      const first = applyHealingOperation(options, {
         kind: 'allocate_attempt',
         operationId: 'operation-1',
       });
-      const replay = runtime.applyHealing({
+      const replay = applyHealingOperation(options, {
         kind: 'allocate_attempt',
         operationId: 'operation-1',
       });
@@ -127,13 +127,13 @@ describe('Healing Episode projection', () => {
       const eventsFile = path.join(changeDir, 'events.jsonl');
       fs.writeFileSync(eventsFile, '');
       fs.chmodSync(eventsFile, 0o444);
-      const runtime = createWorkflowProgression({
+      const options = {
         schema: parseSchema(HEALING_SCHEMA),
         projectRoot,
         changeId,
-      });
+      };
 
-      expect(() => runtime.applyHealing({
+      expect(() => applyHealingOperation(options, {
         kind: 'allocate_attempt',
         operationId: 'operation-fails',
       })).toThrow();

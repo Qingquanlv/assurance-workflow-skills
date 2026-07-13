@@ -33,11 +33,16 @@ import {
   evaluateTestInfraBootstrap,
   markTestInfraBootstrapDone,
 } from './test_infra_bootstrap';
+import { CliExitCodes } from '../core/exit_codes';
 
-export const EXIT_COMPLETED = 0;
-export const EXIT_STOPPED = 20;
-export const EXIT_HUMAN_REVIEW = 30;
-export const EXIT_ERROR = 40;
+/** @deprecated prefer CliExitCodes */
+export const EXIT_COMPLETED = CliExitCodes.completed;
+/** @deprecated prefer CliExitCodes */
+export const EXIT_STOPPED = CliExitCodes.stopped;
+/** @deprecated prefer CliExitCodes */
+export const EXIT_HUMAN_REVIEW = CliExitCodes.humanReview;
+/** @deprecated prefer CliExitCodes */
+export const EXIT_ERROR = CliExitCodes.error;
 
 export interface WorkflowLoopOptions {
   projectRoot: string;
@@ -186,7 +191,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     const existing = readDriverJson(opts.projectRoot, opts.changeId);
     if (!existing || existing.start_token !== opts.adoptLockToken) {
       return {
-        exitCode: EXIT_ERROR,
+        exitCode: CliExitCodes.error,
         reason: 'adopt-lock token mismatch or missing driver.json',
       };
     }
@@ -197,7 +202,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
   } else {
     const guard = evaluateStartGuard(opts.projectRoot, opts.changeId);
     if (!guard.allowed) {
-      return { exitCode: EXIT_ERROR, reason: guard.reason ?? 'start refused' };
+      return { exitCode: CliExitCodes.error, reason: guard.reason ?? 'start refused' };
     }
 
     driver = createInitialDriverJson({
@@ -210,7 +215,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       try {
         acquireDriverLock(opts.projectRoot, opts.changeId, driver.start_token);
       } catch (err) {
-        return { exitCode: EXIT_ERROR, reason: (err as Error).message };
+        return { exitCode: CliExitCodes.error, reason: (err as Error).message };
       }
     }
   }
@@ -260,7 +265,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       opts.projectRoot,
     );
     if (configure.exitCode !== 0) {
-      return finish(EXIT_ERROR, `configure failed: ${configure.stderr || configure.stdout}`, 'failed');
+      return finish(CliExitCodes.error, `configure failed: ${configure.stderr || configure.stdout}`, 'failed');
     }
 
     const schema = loadSchemaFromFile(findSchemaFile(opts.projectRoot));
@@ -290,7 +295,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
     if (opts.scope === 'execute') {
       const pre = executePreflight(opts.projectRoot, opts.changeId);
       if (!pre.ok) {
-        return finish(EXIT_ERROR, pre.reason, 'failed');
+        return finish(CliExitCodes.error, pre.reason, 'failed');
       }
     }
 
@@ -306,7 +311,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
         );
       }
       if (boot.kind === 'error') {
-        return finish(EXIT_ERROR, boot.reason, 'failed');
+        return finish(CliExitCodes.error, boot.reason, 'failed');
       }
       markTestInfraBootstrapDone(
         opts.projectRoot,
@@ -353,7 +358,7 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       try {
         progression.advance(phaseOutcomeFromAction(action, 0));
       } catch (err) {
-        return finish(EXIT_ERROR, (err as Error).message, 'failed');
+        return finish(CliExitCodes.error, (err as Error).message, 'failed');
       }
 
       appendEvents(opts.projectRoot, opts.changeId, [
@@ -367,9 +372,9 @@ export async function runWorkflowLoop(opts: WorkflowLoopOptions): Promise<Workfl
       writeDriverJsonAtomic(opts.projectRoot, opts.changeId, driver);
     }
 
-    return finish(EXIT_ERROR, `max iterations (${maxIter}) exceeded`, 'failed');
+    return finish(CliExitCodes.error, `max iterations (${maxIter}) exceeded`, 'failed');
   } catch (err) {
-    return finish(EXIT_ERROR, (err as Error).message, 'failed');
+    return finish(CliExitCodes.error, (err as Error).message, 'failed');
   }
 }
 
@@ -395,7 +400,7 @@ async function pauseForHuman(
     buildDriverEvent('driver_paused', driver.run_id, { phase, detail: reason }),
   ]);
   if (!opts.skipLock) releaseDriverLock(opts.projectRoot, opts.changeId);
-  return { exitCode: EXIT_HUMAN_REVIEW, reason, driver };
+  return { exitCode: CliExitCodes.humanReview, reason, driver };
 }
 
 async function executeEntry(

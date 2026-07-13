@@ -11,6 +11,7 @@ import {
   readDriverStatus,
   runWorkflowLoop,
 } from '../driver/loop';
+import { CliExitCodes } from '../core/exit_codes';
 import { startWorkflowDetached } from '../driver/workflow_start';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
@@ -182,6 +183,8 @@ export function registerWorkflowCommand(program: Command): void {
       }
       const payload = { driver, status: statusJson };
       console.log(JSON.stringify(payload, null, 2));
-      process.exit(status.exitCode === 10 || status.exitCode === 20 ? status.exitCode : 0);
+      process.exit(
+        status.exitCode === CliExitCodes.stopped ? CliExitCodes.stopped : 0,
+      );
     });
 }

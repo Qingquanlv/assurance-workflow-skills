@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { createWorkflowProgression } from '../../../src/orchestration/progression';
+import { adjudicatePhaseGate } from '../../../src/orchestration/progression';
 import { parseSchema } from '../../../src/orchestration/schema';
 
 const SCHEMA = parseSchema(`
@@ -72,11 +72,11 @@ describe('gate artifact schema validation', () => {
   it('passes when a parsed gate artifact satisfies its schema', () => {
     writeCase('P0');
 
-    const gate = createWorkflowProgression({
+    const gate = adjudicatePhaseGate({
       schema: SCHEMA,
       projectRoot,
       changeId,
-    }).adjudicatePhaseGate('case-design');
+    }, 'case-design');
 
     expect(gate.verdict).toBe('pass');
     expect(gate.evidence.schema_invalid).toBeUndefined();
@@ -85,11 +85,11 @@ describe('gate artifact schema validation', () => {
   it('uses the configured invalid_json verdict when a parsed artifact violates its schema', () => {
     writeCase('P9');
 
-    const gate = createWorkflowProgression({
+    const gate = adjudicatePhaseGate({
       schema: SCHEMA,
       projectRoot,
       changeId,
-    }).adjudicatePhaseGate('case-design');
+    }, 'case-design');
 
     expect(gate.verdict).toBe('needs_fix');
     expect(gate.matched_rule).toBe('schema_invalid');
@@ -101,11 +101,11 @@ describe('gate artifact schema validation', () => {
   it('falls back to the gate default when invalid_json is not configured', () => {
     writeCase('P9');
 
-    const gate = createWorkflowProgression({
+    const gate = adjudicatePhaseGate({
       schema: SCHEMA,
       projectRoot,
       changeId,
-    }).adjudicatePhaseGate('case-default');
+    }, 'case-default');
 
     expect(gate.verdict).toBe('stop');
     expect(gate.matched_rule).toBe('schema_invalid');
