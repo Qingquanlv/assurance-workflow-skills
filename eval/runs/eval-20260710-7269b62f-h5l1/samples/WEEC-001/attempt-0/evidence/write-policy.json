@@ -1,0 +1,10 @@
+{
+  "mode": "allowlist",
+  "patterns": [
+    "qa/changes/eval-sample-*/**",
+    "qa/changes/**",
+    "tests/e2e",
+    "tests/e2e/**",
+    "eval/runs/**"
+  ]
+}

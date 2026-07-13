@@ -1,0 +1,53 @@
+change_id: "eval-sample-004"
+title: "部门管理模块 QA 全量覆盖"
+module: "depts"
+created_at: "2026-06-14"
+created_by: "sisyphus"
+status: "in_progress"
+phase: "case_design"
+
+scope:
+  summary: "对 app/api/v1/depts/ 部门管理模块进行 API + E2E 全量覆盖，含树形 CRUD"
+  in_scope:
+    - "GET /api/v1/dept/list 部门树形列表（含 name 搜索）"
+    - "GET /api/v1/dept/get 查询单个部门"
+    - "POST /api/v1/dept/create 创建部门（根/子）"
+    - "POST /api/v1/dept/update 更新部门"
+    - "DELETE /api/v1/dept/delete 删除部门"
+    - "/system/dept 前端部门管理页：树形列表/新建/编辑/删除"
+  out_of_scope:
+    - "用户 dept_id 关联回归"
+    - "角色管理 / 菜单管理 / API 管理本身的 CRUD"
+    - "系统初始化与数据库迁移"
+
+test_types:
+  - "api"
+  - "e2e"
+
+automation:
+  api_framework: "pytest"
+  e2e_framework: "python-playwright"
+  data_strategy: "scripts_with_cleanup"
+
+constraints:
+  exception_depth: "standard"
+  e2e_pages: ["/system/dept"]
+  default_admin: { username: "admin", password: "123456" }
+  base_url_backend: "http://localhost:9999"
+  base_url_frontend: "http://localhost:3100"
+  api_prefix: "/api/v1"
+
+runtime_params:
+  run_mode: "full"
+  run_tests: true
+  auto_archive: false
+  max_case_fix_attempts: 2
+  max_plan_fix_attempts: 2
+  max_healing_attempts: 2
+  force_continue: false
+
+artifacts:
+  proposal: "proposal.md"
+  case_delta: "cases/depts/case.yaml"
+  facts_baseline: "facts/fact-baseline.json"
+  case_review: "review/case-review.json"

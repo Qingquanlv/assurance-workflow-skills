@@ -1,0 +1,10 @@
+{
+  "sample_id": "FC-004",
+  "status": "ok",
+  "metrics": {
+    "evidence_integrity": 1,
+    "unknown_rate": 0,
+    "predicted_category": "environment_failure",
+    "category_match_rate": 1
+  }
+}

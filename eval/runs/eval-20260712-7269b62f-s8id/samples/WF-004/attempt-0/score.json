@@ -1,0 +1,18 @@
+{
+  "sample_id": "WF-004",
+  "status": "ok",
+  "metrics": {
+    "full_run_completed_rate": 1,
+    "end_to_end_pass_rate": 1,
+    "healing_triggered_rate": 0,
+    "wall_time_seconds": 0.345,
+    "evidence_integrity_diag": 1,
+    "process_observability_available": 0,
+    "permission_denied_count": 0,
+    "tool_call_count": 0,
+    "tool_error_count": 0,
+    "tool_error_rate": 0,
+    "write_bypass_count": 0,
+    "malformed_event_line_count": 1
+  }
+}

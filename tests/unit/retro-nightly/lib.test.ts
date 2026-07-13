@@ -4,19 +4,19 @@ import * as path from 'path';
 import { createRequire } from 'module';
 
 const req = createRequire(__filename);
-const { shouldIncludeChangeInWindow } = req('../../../scripts/lib/retro-nightly/state.cjs');
+const { shouldIncludeChangeInWindow } = req('../../../src/retro/nightly/state.cjs');
 const {
   enumeratePhaseACandidates,
   snapshotUnarchivedEvidence,
-} = req('../../../scripts/lib/retro-nightly/phase_a.cjs');
-const { partitionProposalsForReview } = req('../../../scripts/lib/retro-nightly/phase_d.cjs');
+} = req('../../../src/retro/nightly/phase_a.cjs');
+const { partitionProposalsForReview } = req('../../../src/retro/nightly/phase_d.cjs');
 const {
   classifyEvalGateForNightly,
   compareSuiteRegression,
   shouldAutoApplyComparison,
-} = req('../../../scripts/lib/retro-nightly/phase_f.cjs');
-const { buildCrossRunReport } = req('../../../scripts/lib/retro-nightly/report.cjs');
-const { assertCommandSucceeded } = req('../../../scripts/lib/retro-nightly/exec.cjs');
+} = req('../../../src/retro/nightly/phase_f.cjs');
+const { buildCrossRunReport } = req('../../../src/retro/nightly/report.cjs');
+const { assertCommandSucceeded } = req('../../../src/retro/nightly/exec.cjs');
 
 describe('retro-nightly lib', () => {
   it('shouldIncludeChangeInWindow allows aggregated replay', () => {

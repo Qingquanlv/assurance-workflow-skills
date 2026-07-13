@@ -116,8 +116,8 @@ node scripts/eval-aws-run.mjs \
   --project-dir <sut.dir> \
   --change eval-sample-001 \
   --fixture-tier L3-run-seed \
-  --archive-dir eval/runs/RUN/samples/WR-001/attempt-0/raw-output \
-  [--attempt-dir eval/runs/.../attempt-0] \
+  --archive-dir eval/out/runs/RUN/samples/WR-001/attempt-0/raw-output \
+  [--attempt-dir eval/out/runs/.../attempt-0] \
   [--skip-seed] \
   [--aws-bin /path/to/fake-aws] \
   [--timeout-seconds 900]

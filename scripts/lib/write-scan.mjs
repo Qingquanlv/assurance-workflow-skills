@@ -18,37 +18,37 @@ export const DEFAULT_ALLOWLISTS = {
   workflow_case: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
-    'eval/runs/**',
+    'eval/out/runs/**',
   ],
   workflow_api_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
     'tests/api',
     'tests/api/**',
-    'eval/runs/**',
+    'eval/out/runs/**',
   ],
   workflow_e2e_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
     'tests/e2e',
     'tests/e2e/**',
-    'eval/runs/**',
+    'eval/out/runs/**',
   ],
   workflow_fuzz_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
     'tests/fuzz',
     'tests/fuzz/**',
-    'eval/runs/**',
+    'eval/out/runs/**',
   ],
   workflow_performance_codegen: [
     'qa/changes/eval-sample-*/**',
     'qa/changes/**',
     'tests/perf',
     'tests/perf/**',
-    'eval/runs/**',
+    'eval/out/runs/**',
   ],
-  safety_lite: ['qa/changes/**', 'tests/**', 'eval/runs/**'],
+  safety_lite: ['qa/changes/**', 'tests/**', 'eval/out/runs/**'],
 };
 
 /** E3 workflow-run — product paths must not change */

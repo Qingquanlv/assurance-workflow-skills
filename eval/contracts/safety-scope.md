@@ -20,25 +20,25 @@
 
 - `qa/changes/**`
 - `tests/api/**`（**非** `tests/**`）
-- `eval/runs/**`
+- `eval/out/runs/**`
 
 ### workflow-e2e-codegen allowlist
 
 - `qa/changes/**`
 - `tests/e2e/**`
-- `eval/runs/**`
+- `eval/out/runs/**`
 
 ### workflow-fuzz-codegen allowlist
 
 - `qa/changes/**`
 - `tests/fuzz/**`
-- `eval/runs/**`
+- `eval/out/runs/**`
 
 ### workflow-performance-codegen allowlist
 
 - `qa/changes/**`
 - `tests/perf/**`
-- `eval/runs/**`
+- `eval/out/runs/**`
 
 Codegen-only runs require **exactly one** `--test-types` value; no allowlist union.
 

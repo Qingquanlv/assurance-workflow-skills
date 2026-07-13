@@ -15,6 +15,7 @@ import {
 } from './execution_stats';
 import { formatTokenUsage, type TokenUsage } from './token_usage';
 import { renderRunReportHtml, renderTrendReportHtml } from './report_html';
+import { evalReportsDir, evalRootFromRunsDir } from './paths';
 
 const VERDICT_EMOJI: Record<EvalVerdict, string> = {
   pass: '✅',
@@ -362,8 +363,8 @@ export function generateTrendReport(
 
   let htmlPath: string | undefined;
   if (opts.html) {
-    const evalRoot = opts.evalRoot ?? path.dirname(runsDir);
-    const reportsDir = path.join(evalRoot, 'reports');
+    const evalRoot = opts.evalRoot ?? evalRootFromRunsDir(runsDir);
+    const reportsDir = evalReportsDir(evalRoot);
     fs.mkdirSync(reportsDir, { recursive: true });
 
     const suiteSlug = opts.suite ?? 'all';

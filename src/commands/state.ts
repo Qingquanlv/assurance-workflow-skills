@@ -5,7 +5,7 @@ import {
 } from '../core/workflow_state';
 import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
 import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
-import { createWorkflowProgression } from '../orchestration/progression';
+import { applyPhaseOutcome } from '../orchestration/progression';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 const CONFIGURE_ORCHESTRATORS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
@@ -37,8 +37,8 @@ export function registerStateCommand(program: Command): void {
 
       try {
         const schema = loadSchemaFromFile(findSchemaFile(projectRoot));
-        const progression = createWorkflowProgression({ schema, projectRoot, changeId });
-        progression.applyOutcome({
+        const progressionOptions = { schema, projectRoot, changeId };
+        applyPhaseOutcome(progressionOptions, {
           phase,
           attemptId: options.attemptId
             ? String(options.attemptId)

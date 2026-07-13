@@ -302,13 +302,14 @@ function checkVerdictMigration(
   // A repair phase whose status is already `done` from an earlier attempt in
   // the same needs_fix streak produces no fresh `phase_transition ... to=done`
   // on a later re-dispatch (no-op transition) — so also accept a
-  // `phase_dispatched` driver event for the repair phase as valid evidence.
-  // This keeps legitimate multi-attempt fixer loops (attempt 2, 3, ...) from
-  // being flagged GATE-TRANSITION-ILLEGAL just because the phase state didn't
-  // change on repeat attempts.
+  // `dispatch_signed` (or legacy `phase_dispatched`) event for the repair phase
+  // as valid evidence. This keeps legitimate multi-attempt fixer loops
+  // (attempt 2, 3, ...) from being flagged GATE-TRANSITION-ILLEGAL just because
+  // the phase state didn't change on repeat attempts.
   const repairDone = repairPhase
     ? betweenRepair.some(e => (
         (e.type === 'phase_transition' && e.phase === repairPhase && e.to === 'done')
+        || (e.type === 'dispatch_signed' && e.phase === repairPhase)
         || (e.type === 'phase_dispatched' && e.phase === repairPhase)
       ))
     : false;

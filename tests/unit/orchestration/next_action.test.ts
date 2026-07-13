@@ -152,8 +152,8 @@ describe('deriveNextAction — healing (coarse grained)', () => {
       episodeId: 'ep-1',
       attemptKey: 'heal-api#2',
       attemptNumber: 2,
-      stage: 'rerun_required',
-      nextActions: [{ kind: 'dispatch_phase', phase: 'healing-rerun' }],
+      stage: 'proposal_required',
+      nextActions: [{ kind: 'dispatch_phase', phase: 'fix-proposal' }],
     };
     const action = deriveNextAction(snap, ctx);
     expect(action).toMatchObject({ kind: 'terminal', status: 'exhausted', exitCode: 40 });
@@ -177,5 +177,94 @@ describe('deriveNextAction — healing (coarse grained)', () => {
       checkpoint: 'healing.safety',
       reason: 'unrelated tests modified',
     });
+  });
+
+  it('inactive healing episode falls through to base phase dispatch (skip path)', () => {
+    const snap = snapshot({ params: { max_healing_attempts: 3 } });
+    snap.nextActions = [{ phase: 'execution', kind: 'cli' } as any];
+    const action = deriveNextAction(snap, ctx);
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'execution' });
+  });
+
+  it('applied-resume at max budget still projects heal to finish in-flight attempt', () => {
+    const snap = snapshot({ params: { max_healing_attempts: 1 } });
+    snap.healingEpisode = {
+      state: 'active',
+      episodeId: 'ep-1',
+      attemptKey: 'proposal-sha:batch-1',
+      attemptNumber: 1,
+      stage: 'rerun_required',
+      nextActions: [{ kind: 'dispatch_phase', phase: 'healing-rerun' }],
+    };
+    const action = deriveNextAction(snap, ctx);
+    expect(action).toMatchObject({ kind: 'heal', target: 'api', attemptNumber: 2 });
+  });
+});
+
+describe('deriveNextAction — scenario regressions (S1–S5)', () => {
+  const repairSchema = {
+    phases: [{ id: 'api-fixer', repair_of: 'review', max_attempts_param: 'max_fix_attempts' }],
+    phasesById: new Map([
+      ['review', { id: 'review' }],
+      ['api-fixer', { id: 'api-fixer', repair_of: 'review', max_attempts_param: 'max_fix_attempts', produces: ['plans/api-plan.md'] }],
+      ['verify', { id: 'verify', produces: [] }],
+    ]),
+    gates: {},
+    loops: {},
+  } as any;
+
+  it('S1: pass gate verdict falls through to next pending phase', () => {
+    const snap = snapshot({});
+    snap.nextActions = [{ phase: 'verify', kind: 'agent' } as any];
+    const events = gateEvents('review', 'pass') as any;
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'verify' });
+  });
+
+  it('S2: needs_fix then fixer dispatched without a phase_dispatched workaround', () => {
+    const events = [
+      { type: 'gate_verdict', phase: 'review', verdict: 'needs_fix', gate: 'review-gate' },
+      { type: 'phase_outcome_committed', phase: 'review', attempt_id: 'review#1' },
+    ] as any;
+    const snap = snapshot({ params: { max_fix_attempts: 3 } });
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'api-fixer' });
+  });
+
+  it('S3: second fixer attempt still dispatches when prior dispatch_signed exists', () => {
+    const events = [
+      ...gateEvents('review', 'needs_fix'),
+      { type: 'dispatch_signed', phase: 'api-fixer', attempt_id: 'api-fixer#1' },
+      { type: 'phase_outcome_committed', phase: 'api-fixer', attempt_id: 'api-fixer#1' },
+      { type: 'gate_verdict', phase: 'review', verdict: 'needs_fix', gate: 'review-gate' },
+      { type: 'phase_outcome_committed', phase: 'review', attempt_id: 'review#2' },
+    ] as any;
+    const snap = snapshot({ params: { max_fix_attempts: 3 } });
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'dispatch_phase', phase: 'api-fixer' });
+  });
+
+  it('S4: repair budget exhausted yields terminal exhausted', () => {
+    const snap = snapshot({ params: { max_fix_attempts: 1 } });
+    const events = [
+      ...gateEvents('review', 'needs_fix'),
+      { type: 'dispatch_signed', phase: 'api-fixer', attempt_id: 'api-fixer#1' },
+    ] as any;
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'terminal', status: 'exhausted', exitCode: 40 });
+  });
+
+  it('S5: needs_human_review yields pause_for_human', () => {
+    const snap = snapshot({});
+    const events = gateEvents('review', 'needs_human_review', 'review-gate') as any;
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'pause_for_human', checkpoint: 'review' });
+  });
+
+  it('reject gate verdict routes to terminal stopped', () => {
+    const snap = snapshot({});
+    const events = gateEvents('review', 'reject', 'review-gate') as any;
+    const action = deriveNextAction(snap, { schema: repairSchema, events });
+    expect(action).toMatchObject({ kind: 'terminal', status: 'stopped', exitCode: 20 });
   });
 });

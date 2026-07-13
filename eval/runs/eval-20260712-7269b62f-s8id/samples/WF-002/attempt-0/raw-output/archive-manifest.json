@@ -1,0 +1,207 @@
+{
+  "change_id": "eval-sample-002",
+  "source_change_dir": "/Users/lvqingquan/pycharmProject/vue-fastapi-admin/qa/changes/eval-sample-002",
+  "archived_at": "2026-07-12T18:00:45.968Z",
+  "files": [
+    {
+      "relative_path": ".aws/data-knowledge.yaml",
+      "sha256": "7a828317f35375c53ecdd04051b6e053e7b3d98020f59533d9f998cd0e2c658d",
+      "bytes": 25953
+    },
+    {
+      "relative_path": ".qa.yaml",
+      "sha256": "ee9456f835daf6bf88421cf7fb11a69e8405b9a41438f8525ad268245399edf8",
+      "bytes": 1609
+    },
+    {
+      "relative_path": "cases/roles/case.yaml",
+      "sha256": "21cb9636c132bfd550cf93f2d370976de670525f6bdf7feb3d146380e2e525f2",
+      "bytes": 33064
+    },
+    {
+      "relative_path": "codegen/e2e-codegen-summary.md",
+      "sha256": "973edde5f14d3be4c04134e3d84b873625b22bb0ed897c66a85a0676af807d0d",
+      "bytes": 273
+    },
+    {
+      "relative_path": "codegen/fuzz-codegen-summary.md",
+      "sha256": "b1fdd21856650b3203640f29153ad537b8250c90b9d9c153feef53d96df40ba0",
+      "bytes": 117
+    },
+    {
+      "relative_path": "codegen/performance-codegen-summary.md",
+      "sha256": "6f20a1752e473c25ae7e167f2c4b12245d759f7aef308a9cd679c2ed4150a669",
+      "bytes": 125
+    },
+    {
+      "relative_path": "execution/api-result.json",
+      "sha256": "f58482a52bd952c71855e566424455bd02bbd26a8df72aac0a4558c18338293d",
+      "bytes": 83
+    },
+    {
+      "relative_path": "execution/execution-manifest.yaml",
+      "sha256": "53e5b2f7de6ef5c8b5505a1a0ba28643106b7515fdfd75b2237fdcff6d284631",
+      "bytes": 208
+    },
+    {
+      "relative_path": "execution/summary.md",
+      "sha256": "8a7e003a05d8b7778d7d364b7953afad9b548c5923c2e60f50e258b26ec08308",
+      "bytes": 71
+    },
+    {
+      "relative_path": "facts/fact-baseline.json",
+      "sha256": "61f6a6233e075ddb3a490448209fca0025f97243a7599d3a8b902ad2bfdd4aed",
+      "bytes": 1342
+    },
+    {
+      "relative_path": "plans/api-codegen-plan.md",
+      "sha256": "62d220dab2974771ac1b5fc80526a32797acc98c77576d2b3a7610e83b38197c",
+      "bytes": 951
+    },
+    {
+      "relative_path": "plans/api-plan.md",
+      "sha256": "ab691671ba402bdaf7d26716a0ba09ffde6d94dafbd5abab1582843016e8c4e2",
+      "bytes": 2090
+    },
+    {
+      "relative_path": "plans/api-test-data-plan.md",
+      "sha256": "59f9c1ad68d5021dfd33f0f3c687b986055255f652c90d2bad2cc6ba16879a42",
+      "bytes": 1101
+    },
+    {
+      "relative_path": "plans/e2e-codegen-plan.md",
+      "sha256": "8c8c664a32d7b275dda34191249f55cde080b0d2851ecc4a5f458a6218733369",
+      "bytes": 482
+    },
+    {
+      "relative_path": "plans/e2e-plan.md",
+      "sha256": "d0711b64ddfe32530108e25d2e88d062fb13d5623f74ed8e9608b822507d1a06",
+      "bytes": 417
+    },
+    {
+      "relative_path": "plans/e2e-test-data-plan.md",
+      "sha256": "694977682916b2d7a3e8f1b40d52aff2d1aaff26c491e6a0513aebae0215cb90",
+      "bytes": 369
+    },
+    {
+      "relative_path": "plans/fuzz-codegen-plan.md",
+      "sha256": "a0fb82d562e249ee9ddeca50b49b43b6c1adadfdd3a2cae0d5febec596cbef1d",
+      "bytes": 198
+    },
+    {
+      "relative_path": "plans/fuzz-plan.md",
+      "sha256": "f361784d88cc3e59737f6b3610852c7cf06996ea08702f3fbe42651ebbbed54f",
+      "bytes": 420
+    },
+    {
+      "relative_path": "plans/performance-codegen-plan.md",
+      "sha256": "f364fe47f7fbaa043567eef162778a4ee2f41e016abece4a3a66ef739d73d11b",
+      "bytes": 327
+    },
+    {
+      "relative_path": "plans/performance-plan.md",
+      "sha256": "f941c26e74bb57d404581ef4fc7877233ef4be2ffa46c6e9d162b2ba65301e83",
+      "bytes": 351
+    },
+    {
+      "relative_path": "proposal.md",
+      "sha256": "3195b15079008301b28c9cd5b7d3546837218f6b2c7c69721203535ec15a588c",
+      "bytes": 2599
+    },
+    {
+      "relative_path": "review/api-plan-review.json",
+      "sha256": "ec850fdd50c307fe4d46cda50aa93fef6ff820ed4e5eb412cb7cd7cbbfc1f131",
+      "bytes": 868
+    },
+    {
+      "relative_path": "review/case-review.json",
+      "sha256": "e47c2e8b5d7d32549487107c302eebe2ed5031718b72e7f0011c856b8820a3ae",
+      "bytes": 1000
+    },
+    {
+      "relative_path": "review/e2e-plan-review.json",
+      "sha256": "c04a009c147f2601f1c538532255d30afad82aeddba013aab68ba7df24f55179",
+      "bytes": 673
+    },
+    {
+      "relative_path": "review/fuzz-plan-review.json",
+      "sha256": "07a5031348cf2f060e84875c8baf73a465f2171c88023dd96d283719bd8a8ef8",
+      "bytes": 593
+    },
+    {
+      "relative_path": "review/performance-plan-review.json",
+      "sha256": "b8bb1d789722885be71943422a584b08f64b189d218ab9c9ec366c5df8a69f13",
+      "bytes": 618
+    },
+    {
+      "relative_path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/api/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/api/conftest.py",
+      "sha256": "6b218668e3982e69c045ae35e9c473fc597754e7e317d227fa8ddc921e4101fb",
+      "bytes": 9474
+    },
+    {
+      "relative_path": "tests/api/helpers/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/api/helpers/auth.py",
+      "sha256": "2a8f3c5330b91cc4d21e93513b2140734fefd251b1ca812e0a45fa1f3234ce4a",
+      "bytes": 1328
+    },
+    {
+      "relative_path": "tests/api/helpers/role_api.py",
+      "sha256": "ef526da48d7875efb7d7c121669e16ba5ea3ecfc2ad18ae76db39dac9216a1fa",
+      "bytes": 2313
+    },
+    {
+      "relative_path": "tests/api/test_role_api.py",
+      "sha256": "dadcac0536c6fff75f1b8a3b1cbcce706cfb35249caf660dd7bf0d9cc8eb529d",
+      "bytes": 7409
+    },
+    {
+      "relative_path": "tests/e2e/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/e2e/eval/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/e2e/eval/test_role_eval_smoke.py",
+      "sha256": "b44f85e3ae21e8d82d0f75455bafa12c68420994a2c862f94638e1afd28ad1f0",
+      "bytes": 257
+    },
+    {
+      "relative_path": "tests/fuzz/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "relative_path": "tests/fuzz/test_roles_fuzz.py",
+      "sha256": "b897792ea05848e30933068e1cfd12aac87269200c280dbbc3eb66da8288049c",
+      "bytes": 416
+    },
+    {
+      "relative_path": "tests/perf/locustfile_roles.py",
+      "sha256": "970159e6b4f012419aac0d02c990bf95bb738e3493713cc23eba6efb7556e2f3",
+      "bytes": 262
+    },
+    {
+      "relative_path": "workflow-state.yaml",
+      "sha256": "affb01ffe13984406035ec2fc66877ef8a9d3235dce6a824b1758e09ecd4114c",
+      "bytes": 4202
+    }
+  ]
+}

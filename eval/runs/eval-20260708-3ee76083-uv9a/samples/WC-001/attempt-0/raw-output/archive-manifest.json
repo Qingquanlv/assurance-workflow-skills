@@ -1,0 +1,42 @@
+{
+  "change_id": "eval-sample-001",
+  "source_change_dir": "/Users/lvqingquan/skills/aws-bench-fastapi-vue-admin/qa/changes/eval-sample-001",
+  "archived_at": "2026-07-08T01:57:02.493Z",
+  "files": [
+    {
+      "relative_path": ".aws/data-knowledge.yaml",
+      "sha256": "7a828317f35375c53ecdd04051b6e053e7b3d98020f59533d9f998cd0e2c658d",
+      "bytes": 25953
+    },
+    {
+      "relative_path": ".qa.yaml",
+      "sha256": "1a36945c5b9ca87293c33678136d3990636adb623d3f72aa65c50b0c4bfc1118",
+      "bytes": 2097
+    },
+    {
+      "relative_path": "cases/users/case.yaml",
+      "sha256": "30d109d5a7bbbf4f6f394b0c5ff4d0f201caa5f3e51587b768691ff4c4bc3ee3",
+      "bytes": 39349
+    },
+    {
+      "relative_path": "facts/fact-baseline.json",
+      "sha256": "a76afbf5e8ab745b1dd588f2d2ff059510df4af8f17a3842d381ec5eb8316a90",
+      "bytes": 13189
+    },
+    {
+      "relative_path": "proposal.md",
+      "sha256": "9cfefea562903feba7a812d5d180eadf8896f11fd6ad6ae5e984b69fbcefa465",
+      "bytes": 5119
+    },
+    {
+      "relative_path": "review/case-review.json",
+      "sha256": "1517c560448a285fdf9bc1a3b05c37ad8352ef2ef000f398fe8bd54a6d4cb057",
+      "bytes": 4268
+    },
+    {
+      "relative_path": "workflow-state.yaml",
+      "sha256": "2d52121fc1c1ad3a5a1d1b703488242505b6a3523058c91aaf07f3dd10a7c413",
+      "bytes": 15725
+    }
+  ]
+}

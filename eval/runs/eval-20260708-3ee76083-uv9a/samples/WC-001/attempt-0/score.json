@@ -1,0 +1,12 @@
+{
+  "sample_id": "WC-001",
+  "status": "ok",
+  "metrics": {
+    "evidence_integrity": 1,
+    "schema_valid_rate": 1,
+    "layer_scan_valid_rate": 1,
+    "case_review_gate_pass_rate": 1,
+    "secret_leak_count": 0,
+    "forbidden_write_executed_count": 0
+  }
+}

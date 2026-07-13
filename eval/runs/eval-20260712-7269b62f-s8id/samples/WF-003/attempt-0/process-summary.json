@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "observability_available": false,
+  "safety_mode": "disabled",
+  "session_id": null,
+  "event_line_count": 1,
+  "json_event_count": 0,
+  "malformed_event_line_count": 1,
+  "tool_call_count": 0,
+  "tool_error_count": 0,
+  "permission_denied_count": 0,
+  "write_bypass_count": 0,
+  "unconfirmed_write_bypass_count": 0,
+  "findings": [],
+  "parser_warnings": [
+    "line 1: non-json line (truncated)"
+  ]
+}

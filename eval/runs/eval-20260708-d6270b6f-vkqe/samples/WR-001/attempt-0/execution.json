@@ -1,0 +1,22 @@
+{
+  "executor": "eval-aws-run",
+  "command": [
+    "/opt/homebrew/Cellar/node/25.9.0_1/bin/node",
+    "/Users/lvqingquan/skills/assurance-workflow-skills/dist/cli.js",
+    "run",
+    "--change",
+    "eval-sample-001"
+  ],
+  "cwd": "/var/folders/hf/49z_24wd2t71ssqrcjd30qgr0000gn/T/tmp.Ut8EvyOoWS/fastapi-vue-admin",
+  "signal": null,
+  "duration_ms": 205,
+  "timed_out": false,
+  "safety_mode": "enabled",
+  "change_id": "eval-sample-001",
+  "fixture_tier": "L3-run-seed",
+  "exit_code": 0,
+  "wrapper_exit_code": 0,
+  "archive_completed": true,
+  "evidence_completed": true,
+  "aws_run_exit_code": 0
+}

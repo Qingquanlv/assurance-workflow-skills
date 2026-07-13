@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { EvalTrendSignal } from './types';
+import { evalRunsDir } from '../eval/paths';
 
 interface MetricsFile {
   suite?: string;
@@ -31,7 +32,7 @@ function readJson<T>(file: string): T | null {
 }
 
 export function readEvalTrend(projectRoot: string, since?: string): EvalTrendSignal[] {
-  const runsRoot = path.join(projectRoot, 'eval', 'runs');
+  const runsRoot = evalRunsDir(path.join(projectRoot, 'eval'));
   const baseline = readJson<Record<string, BaselineEntry>>(
     path.join(projectRoot, 'eval', 'baselines', 'main.json'),
   ) ?? {};

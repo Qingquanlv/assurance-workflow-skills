@@ -55,7 +55,7 @@ Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
 1. **Seed** — apply fixture tier → `qa/changes/<change-id>/` (+ `tests/` for L3)
 2. **Reset state** — apply tier `resets` (align `test_types`, phase status)
 3. **Run** — OpenCode (`eval-workflow-run.mjs`) or `aws run` (`eval-aws-run.mjs`)
-4. **Archive** — copy change dir (+ execution artifacts) → `eval/runs/<run-id>/.../raw-output/`
+4. **Archive** — copy change dir (+ execution artifacts) → `eval/out/runs/<run-id>/.../raw-output/`
 
 ## Golden sample
 

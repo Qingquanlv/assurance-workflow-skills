@@ -1,0 +1,62 @@
+{
+  "change_id": "eval-sample-001",
+  "source_change_dir": "/var/folders/hf/49z_24wd2t71ssqrcjd30qgr0000gn/T/tmp.Ut8EvyOoWS/fastapi-vue-admin/qa/changes/eval-sample-001",
+  "archived_at": "2026-07-08T07:16:12.566Z",
+  "files": [
+    {
+      "relative_path": ".aws/data-knowledge.yaml",
+      "sha256": "7a828317f35375c53ecdd04051b6e053e7b3d98020f59533d9f998cd0e2c658d",
+      "bytes": 25953
+    },
+    {
+      "relative_path": ".qa.yaml",
+      "sha256": "1fb57850107b8f8e3ed4262c6d8e4e54d6a7ef904b2e51cd47e53120861112bf",
+      "bytes": 2019
+    },
+    {
+      "relative_path": "cases/users/case.yaml",
+      "sha256": "30d109d5a7bbbf4f6f394b0c5ff4d0f201caa5f3e51587b768691ff4c4bc3ee3",
+      "bytes": 39349
+    },
+    {
+      "relative_path": "facts/fact-baseline.json",
+      "sha256": "a76afbf5e8ab745b1dd588f2d2ff059510df4af8f17a3842d381ec5eb8316a90",
+      "bytes": 13189
+    },
+    {
+      "relative_path": "plans/e2e-codegen-plan.md",
+      "sha256": "ba48ef0558b1a34434796dd6582e88da8f4f44f8f6a7cf1fc20f965a9422384d",
+      "bytes": 482
+    },
+    {
+      "relative_path": "plans/e2e-plan.md",
+      "sha256": "a1ed020d4cffe99abba54d1be3b066a8b50f9dae7739d3a8f8bb86951fbe17f4",
+      "bytes": 415
+    },
+    {
+      "relative_path": "plans/e2e-test-data-plan.md",
+      "sha256": "6ba52597e694e99180a1e9b915b6430df0fd6cb8352ba9feb81050e1a363cf13",
+      "bytes": 319
+    },
+    {
+      "relative_path": "proposal.md",
+      "sha256": "9cfefea562903feba7a812d5d180eadf8896f11fd6ad6ae5e984b69fbcefa465",
+      "bytes": 5119
+    },
+    {
+      "relative_path": "review/case-review.json",
+      "sha256": "1517c560448a285fdf9bc1a3b05c37ad8352ef2ef000f398fe8bd54a6d4cb057",
+      "bytes": 4268
+    },
+    {
+      "relative_path": "review/e2e-plan-review.json",
+      "sha256": "d338e7341b6006f4b51738e7415bf14daae0f65fddd257c119853606d9982ee6",
+      "bytes": 673
+    },
+    {
+      "relative_path": "workflow-state.yaml",
+      "sha256": "3edb9e825ea56385813b58dc9b9da3f141457d085a8cd583a421dae8f2858afa",
+      "bytes": 15984
+    }
+  ]
+}

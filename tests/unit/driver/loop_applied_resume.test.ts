@@ -5,20 +5,9 @@ import * as yaml from 'js-yaml';
 import { runWorkflowLoop } from '../../../src/driver/loop';
 import { createStubAdapter } from '../../../src/driver/headless_adapter';
 import type { ProcessRunner, ProcessResult } from '../../../src/driver/process_runner';
-import { runHealingSubroutine } from '../../../src/driver/healing_subroutine';
+import type { Action } from '../../../src/orchestration/next_action';
+import type { ProgressSnapshot } from '../../../src/orchestration/progression';
 
-jest.mock('../../../src/core/healing_state', () => ({
-  ...jest.requireActual('../../../src/core/healing_state'),
-  readHealingStatus: jest.fn(() => 'applied'),
-  readHealingAttemptsUsed: jest.fn(() => 1),
-}));
-
-jest.mock('../../../src/driver/healing_subroutine', () => ({
-  ...jest.requireActual('../../../src/driver/healing_subroutine'),
-  runHealingSubroutine: jest.fn(async () => ({ kind: 'resolved' })),
-}));
-
-const mockedHealingSubroutine = runHealingSubroutine as jest.MockedFunction<typeof runHealingSubroutine>;
 const REAL_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
 const changeId = 'REQ-LOOP-APPLIED-RESUME';
 
@@ -44,15 +33,15 @@ describe('workflow loop applied resume incident', () => {
       },
       phases: { skill_registry_check: { status: 'pass' } },
     }));
-    mockedHealingSubroutine.mockClear();
   });
 
   afterEach(() => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('delegates an applied attempt at max budget instead of preemptively exhausting it', async () => {
+  it('dispatches an applied-attempt heal action once and does not re-dispatch on second inspect', async () => {
     const commands: string[] = [];
+    const healDispatches: string[] = [];
     const runner: ProcessRunner = {
       runAws(args): ProcessResult {
         commands.push(args.join(' '));
@@ -67,18 +56,64 @@ describe('workflow loop applied resume incident', () => {
       },
     };
 
-    await runWorkflowLoop({
+    const healAction: Action = {
+      kind: 'heal',
+      target: 'api',
+      attemptId: 'heal:api#1',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      expectedEvidence: ['healing/api-apply-summary.json', 'healing/fix-proposal.json'],
+      stateGuard: 'guard-1',
+    };
+    const terminalAction: Action = {
+      kind: 'terminal',
+      status: 'completed',
+      exitCode: 0,
+      reason: 'done',
+    };
+    const emptySnapshot = {} as ProgressSnapshot;
+
+    let inspectCalls = 0;
+    const setupSnapshot = {
+      report: { params: { max_healing_attempts: 1 } },
+    } as unknown as ProgressSnapshot;
+    const progression = {
+      resume: jest.fn(() => ({ action: healAction, snapshot: setupSnapshot })),
+      inspect: jest.fn(() => {
+        inspectCalls += 1;
+        if (inspectCalls === 2) {
+          return { action: healAction, snapshot: setupSnapshot };
+        }
+        if (inspectCalls >= 3) {
+          return { action: terminalAction, snapshot: setupSnapshot };
+        }
+        return { action: terminalAction, snapshot: setupSnapshot };
+      }),
+      advance: jest.fn(() => ({ action: terminalAction, snapshot: setupSnapshot })),
+    };
+
+    const adapter = createStubAdapter({
+      onDispatch: phase => healDispatches.push(phase),
+    });
+
+    const result = await runWorkflowLoop({
       projectRoot,
       changeId,
       scope: 'full',
-      adapter: createStubAdapter(),
+      adapter,
       runner,
       skipLock: true,
-      maxIterations: 1,
+      maxIterations: 3,
       params: { max_healing_attempts: 1 },
+      progression: progression as any,
     });
 
-    expect(mockedHealingSubroutine).toHaveBeenCalledTimes(1);
+    expect(result.exitCode).toBe(0);
+    expect(progression.inspect).toHaveBeenCalledTimes(3);
+    expect(progression.resume).toHaveBeenCalledTimes(1);
+    expect(adapter.prompts).toHaveLength(1);
+    expect(progression.advance).toHaveBeenCalledTimes(1);
+    expect(healDispatches).toEqual(['api-codegen-fix']);
     expect(commands.some(command => command.includes('state heal') && command.includes('exhausted')))
       .toBe(false);
   });

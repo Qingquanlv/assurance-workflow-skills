@@ -1,5 +1,6 @@
 import { RiskContext } from './types';
 import { AdvisoryValidationResult } from './types';
+import { validateAdvisory as validateAdvisoryStructure } from '../schema/advisory';
 
 type AdvisoryJson = Record<string, unknown>;
 
@@ -304,6 +305,14 @@ export function validateAdvisory(
   options?: ValidateAdvisoryOptions,
 ): AdvisoryValidationResult {
   const errors: string[] = [];
+
+  if (typeof advisory.schema_version === 'string') {
+    const structural = validateAdvisoryStructure(advisory);
+    if (!structural.ok) {
+      return { valid: false, errors: structural.errors };
+    }
+  }
+
   const evidenceById = new Map(context.evidence.map((e) => [e.id, e] as const));
   const moduleConfidence = new Map(
     context.impact.modules.map((m) => [m.name, m.confidence] as const),

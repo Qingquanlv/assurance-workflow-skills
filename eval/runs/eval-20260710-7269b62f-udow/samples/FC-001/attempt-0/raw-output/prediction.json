@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "predicted_category": "locator_failure",
+  "fix_proposal_eligible": true,
+  "severity": "medium",
+  "needs_review": false
+}

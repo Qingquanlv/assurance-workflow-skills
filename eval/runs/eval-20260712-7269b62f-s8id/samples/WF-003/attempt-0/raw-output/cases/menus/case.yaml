@@ -1,0 +1,711 @@
+schema_version: "1.0"
+
+added:
+  - case_id: TC-MENUS-API-001
+    title: 已认证管理员获取菜单树形列表成功
+    status: draft
+    priority: P0
+    severity: blocker
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-001
+    design_technique: use_case
+    tags:
+      - menu
+      - list
+      - happy-path
+
+    objective: 验证管理员携带有效 token 调用菜单列表接口时返回完整树形列表。
+    summary: >
+      管理员登录后调用菜单列表接口，应返回 HTTP 200 与树形结构，
+      包含 data 数组、children 嵌套、total/page/page_size 元数据。
+
+    risk:
+      likelihood: 3
+      impact: 5
+      level: high
+      rationale: 菜单列表是动态路由的核心数据源，列表失败将阻塞全部前端导航。
+
+    preconditions:
+      - 系统已初始化默认管理员账号 admin
+      - 种子数据至少包含一个根菜单
+
+    test_data:
+      - 使用默认管理员账号 admin 登录获取 access_token
+      - 复用种子数据中的菜单作为列表内容
+
+    steps:
+      - 使用管理员账号登录并获取访问令牌
+      - 携带令牌调用菜单列表接口
+      - 查看响应状态码和响应内容
+
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - 响应 data 字段为数组
+      - 响应包含 total、page、page_size 字段
+      - 至少一个顶层节点包含 children 字段（即使为空数组）
+
+    postconditions:
+      - 不需要清理（只读操作）
+
+    edge_cases:
+      - 自定义 page / page_size 参数
+      - 多层级嵌套子菜单的递归结构
+
+    related_cases:
+      - TC-MENUS-API-002
+      - TC-MENUS-API-005
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+        - newly_added_feature
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 菜单树是后台导航核心，P0 happy path 归入 smoke。
+
+    trace:
+      change_reason: 建立 menus 模块 API 自动化基线
+
+  - case_id: TC-MENUS-API-002
+    title: 未认证请求菜单列表被拒绝
+    status: draft
+    priority: P1
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-002
+    design_technique: negative
+    tags:
+      - menu
+      - list
+      - auth
+
+    objective: 验证未携带令牌调用菜单列表接口时被认证中间件拒绝。
+    summary: >
+      未携带或携带无效 Authorization 调用菜单列表接口，
+      应返回 401（或等价的认证拒绝响应）。
+
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 鉴权失效会导致菜单数据未授权外泄，存在权限提升风险。
+
+    preconditions:
+      - 系统已启动，菜单接口可达
+
+    test_data:
+      - 不需要构造特殊数据
+      - 仅构造一个不携带或携带无效 token 的请求
+
+    steps:
+      - 不携带 Authorization 头调用菜单列表接口
+      - 查看响应状态码
+
+    assertions:
+      - 接口返回 HTTP 401（认证拒绝）
+      - 响应体不包含菜单业务数据
+
+    postconditions:
+      - 不需要清理
+
+    edge_cases:
+      - 携带过期 token
+      - 携带格式错误的 Bearer token
+
+    related_cases:
+      - TC-MENUS-API-001
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: regression
+      selection_reason:
+        - security_related
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 鉴权 negative 用例稳定且必要，纳入常规回归。
+
+    trace:
+      change_reason: 建立 menus 模块认证边界基线
+
+  - case_id: TC-MENUS-API-003
+    title: 已认证用户按 menu_id 获取单条菜单
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-003
+    design_technique: use_case
+    tags:
+      - menu
+      - get
+      - happy-path
+
+    objective: 验证管理员可按 menu_id 查询单条菜单详情。
+    summary: >
+      管理员携带有效 token 调用 /api/v1/menus/get?menu_id=<id> 时，
+      返回 HTTP 200 和该菜单的完整字段。
+
+    risk:
+      likelihood: 3
+      impact: 3
+      level: medium
+      rationale: 单条菜单读取是编辑表单的基础数据来源。
+
+    preconditions:
+      - 管理员已登录并获得 access_token
+      - 数据库中存在一个已知 menu_id 的菜单（来自种子或预创建）
+
+    test_data:
+      - 使用 admin 登录获取 token
+      - 通过列表接口或预创建脚本获得一个存在的 menu_id
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 通过列表接口找到一个存在的 menu_id
+      - 携带令牌调用单条菜单查询接口并传入该 menu_id
+      - 查看响应状态码和响应内容
+
+    assertions:
+      - 接口返回 HTTP 200
+      - 响应业务码为 200
+      - 响应 data.id 等于请求中的 menu_id
+      - 响应 data 包含 name、path、component 等关键字段
+
+    postconditions:
+      - 不需要清理
+
+    edge_cases:
+      - menu_id 为 0
+      - menu_id 为字符串类型
+
+    related_cases:
+      - TC-MENUS-API-001
+      - TC-MENUS-API-004
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 单条 get 是编辑流程基础，P0 归入 smoke。
+
+    trace:
+      change_reason: 建立 menus 模块单条读取基线
+
+  - case_id: TC-MENUS-API-004
+    title: 查询不存在的 menu_id 返回业务错误
+    status: draft
+    priority: P2
+    severity: minor
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-004
+    design_technique: negative
+    tags:
+      - menu
+      - get
+      - error
+
+    objective: 验证 get 接口对不存在的 menu_id 返回明确的业务错误。
+    summary: >
+      调用 /api/v1/menus/get 传入数据库中不存在的 menu_id 时，
+      应返回业务错误（非 5xx）。
+
+    risk:
+      likelihood: 2
+      impact: 2
+      level: low
+      rationale: 错误路径不影响主流程，但需保证不返回 5xx。
+
+    preconditions:
+      - 管理员已登录获得 token
+
+    test_data:
+      - 使用一个肯定不存在的 menu_id（如 99999999）
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 携带令牌调用单条菜单查询接口并传入不存在的 menu_id
+      - 查看响应状态码和响应内容
+
+    assertions:
+      - 接口未返回 5xx 错误
+      - 响应业务码或 HTTP 状态明确表示资源不存在或查询失败
+      - 响应不包含菜单数据 payload
+
+    postconditions:
+      - 不需要清理
+
+    edge_cases:
+      - menu_id 为负数
+
+    related_cases:
+      - TC-MENUS-API-003
+
+    automation:
+      required: false
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: false
+      tier: none
+      selection_reason: []
+      maintenance_rule: review_after_refactor
+      rationale: 低风险错误路径，不纳入常规回归套件，仅在重构时复查。
+
+    trace:
+      change_reason: 记录 get 不存在 menu_id 的契约边界
+
+  - case_id: TC-MENUS-API-005
+    title: 创建根级菜单成功
+    status: draft
+    priority: P0
+    severity: blocker
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-005
+    design_technique: use_case
+    tags:
+      - menu
+      - create
+      - happy-path
+
+    objective: 验证管理员可创建根级菜单（parent_id=0）。
+    summary: >
+      携带有效 token 提交合法 MenuCreate payload（parent_id=0）后，
+      接口返回成功，且后续列表中包含新菜单。
+
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 创建失败将阻塞菜单维护与动态路由配置。
+
+    preconditions:
+      - 管理员已登录获得 token
+      - 测试用菜单名称在系统中不存在，避免与既有数据冲突
+
+    test_data:
+      - 构造唯一的菜单名称与 path（使用随机后缀）
+      - 设置 parent_id=0、menu_type=catalog、component=Layout
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 携带令牌提交创建菜单请求，使用唯一名称、parent_id=0
+      - 查看响应状态码和响应内容
+      - 调用列表接口确认新菜单已出现在树中
+
+    assertions:
+      - 创建接口返回 HTTP 200
+      - 响应业务码为 200
+      - 响应 msg 表示创建成功
+      - 后续列表接口结果中存在与该名称匹配的根节点
+
+    postconditions:
+      - 清理：删除本 case 创建的菜单
+
+    edge_cases:
+      - 重复 name 创建
+      - 缺失必填字段
+
+    related_cases:
+      - TC-MENUS-API-006
+      - TC-MENUS-API-001
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+        - newly_added_feature
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 根菜单创建是核心写入路径，P0 归入 smoke。
+
+    trace:
+      change_reason: 建立 menus 创建根节点基线
+
+  - case_id: TC-MENUS-API-006
+    title: 创建子菜单挂载到已有父节点
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-006
+    design_technique: use_case
+    tags:
+      - menu
+      - create
+      - tree
+
+    objective: 验证管理员可在已有父菜单下创建子菜单并形成树形结构。
+    summary: >
+      先创建（或选取）一个父菜单，再创建一个 parent_id 指向该父菜单的子菜单，
+      最后通过列表接口断言树形结构中父节点包含子节点。
+
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 子菜单嵌套是动态路由二级导航的关键，结构错误将导致路由丢失。
+
+    preconditions:
+      - 管理员已登录获得 token
+      - 存在一个可作为父节点的菜单（本 case 内创建或复用 TC-MENUS-API-005 创建的菜单）
+
+    test_data:
+      - 构造一个唯一的父菜单（catalog 类型，parent_id=0）
+      - 构造一个唯一的子菜单（menu 类型，parent_id=父菜单 id）
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 创建一个唯一的父菜单并记录其 id
+      - 携带令牌创建子菜单，parent_id 指向父菜单 id
+      - 调用列表接口获取菜单树
+      - 在响应树中定位父节点并查看其 children
+
+    assertions:
+      - 子菜单创建接口返回 HTTP 200 与成功业务码
+      - 列表响应中父节点的 children 数组包含本次新建子菜单
+      - 子节点的 parent_id 等于父菜单 id
+
+    postconditions:
+      - 清理：先删除子菜单再删除父菜单
+
+    edge_cases:
+      - parent_id 指向不存在的菜单
+      - 超过约定层级的深嵌套
+
+    related_cases:
+      - TC-MENUS-API-005
+      - TC-MENUS-API-009
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 子菜单挂载维护树形结构，是 navigation 的关键路径。
+
+    trace:
+      change_reason: 建立 menus 子节点创建与树形结构基线
+
+  - case_id: TC-MENUS-API-007
+    title: 更新菜单提交完整 payload 后字段被持久化
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-007
+    design_technique: use_case
+    tags:
+      - menu
+      - update
+      - happy-path
+
+    objective: 验证更新接口在提交完整 payload（含 component）后字段被正确持久化。
+    summary: >
+      读取一个现有菜单的完整字段，修改其中部分字段（如 name、order），
+      携带完整 payload 调用更新接口，随后 get 验证字段已变更。
+
+    risk:
+      likelihood: 4
+      impact: 4
+      level: high
+      rationale: MenuUpdate.component 无默认值，漏字段会导致字段被覆盖为空，是高频踩坑点。
+
+    preconditions:
+      - 管理员已登录获得 token
+      - 已存在一个可更新的菜单（本 case 内创建或复用前置 case 的产物）
+
+    test_data:
+      - 创建或获取一个测试用菜单，记录其全部字段
+      - 修改 name 和 order 字段，保持 component 等其它字段原值
+      - 提交完整 payload（不是 partial patch）
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 创建一个唯一的测试菜单并记录返回数据
+      - 读取该菜单当前完整字段
+      - 基于读取的数据修改 name 与 order，保留其它字段（含 component）
+      - 携带令牌提交完整 payload 调用更新接口
+      - 调用 get 接口重新读取该菜单
+      - 查看 get 响应
+
+    assertions:
+      - 更新接口返回 HTTP 200 与成功业务码
+      - 后续 get 响应中 name 与 order 为更新后的值
+      - 后续 get 响应中 component 仍为原值（未被空值覆盖）
+
+    postconditions:
+      - 清理：删除本 case 创建的测试菜单
+
+    edge_cases:
+      - 提交 partial payload（缺失 component）
+      - 更新到与其它菜单同名
+
+    related_cases:
+      - TC-MENUS-API-005
+      - TC-MENUS-API-003
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+        - regression_prone
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: MenuUpdate 完整 payload 行为是已知踩坑点，必须 smoke 守护。
+
+    trace:
+      change_reason: 建立 menus 更新完整 payload 行为基线
+
+  - case_id: TC-MENUS-API-008
+    title: 删除无子节点的叶子菜单成功
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-008
+    design_technique: use_case
+    tags:
+      - menu
+      - delete
+      - happy-path
+
+    objective: 验证管理员可成功删除一个无子节点的菜单。
+    summary: >
+      创建一个临时叶子菜单并立即删除，断言删除接口返回成功，
+      且后续 get 不再返回该菜单。
+
+    risk:
+      likelihood: 3
+      impact: 4
+      level: high
+      rationale: 删除接口失败将影响菜单生命周期管理与回收。
+
+    preconditions:
+      - 管理员已登录获得 token
+
+    test_data:
+      - 在本 case 内创建一个唯一的叶子菜单并记录 id
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 创建一个唯一的叶子菜单
+      - 携带令牌调用删除接口删除该菜单
+      - 查看删除响应
+      - 调用 get 接口再次查询该菜单
+
+    assertions:
+      - 删除接口返回 HTTP 200
+      - 删除响应业务码为成功
+      - 删除响应 msg 表示删除成功
+      - 后续 get 调用未返回该菜单数据（或返回业务错误）
+
+    postconditions:
+      - 已通过删除完成清理
+
+    edge_cases:
+      - 重复删除同一 id
+
+    related_cases:
+      - TC-MENUS-API-009
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 叶子删除是 CRUD 写路径，P0 归入 smoke。
+
+    trace:
+      change_reason: 建立 menus 叶子删除基线
+
+  - case_id: TC-MENUS-API-009
+    title: 删除含子节点的菜单被业务层拒绝
+    status: draft
+    priority: P0
+    severity: critical
+    type: API
+    module: menus
+    requirement_id: REQ-MENUS-001
+    feature_name: menu-management
+    test_condition_id: COND-MENUS-009
+    design_technique: decision_table
+    tags:
+      - menu
+      - delete
+      - constraint
+
+    objective: 验证当目标菜单包含子节点时，删除请求被业务层拒绝且数据未被破坏。
+    summary: >
+      创建一个父菜单与一个挂载在其下的子菜单，尝试删除父菜单，
+      接口应返回业务失败（msg 含 child menus），父菜单及其子菜单仍存在。
+
+    risk:
+      likelihood: 3
+      impact: 5
+      level: high
+      rationale: 删除约束失效会导致孤儿子菜单数据，破坏树形完整性。
+
+    preconditions:
+      - 管理员已登录获得 token
+
+    test_data:
+      - 在本 case 内创建一个父菜单与一个挂载其下的子菜单
+      - 记录两者的 id
+
+    steps:
+      - 使用管理员账号登录获取令牌
+      - 创建唯一的父菜单
+      - 创建唯一的子菜单，parent_id 指向父菜单
+      - 携带令牌尝试删除父菜单
+      - 查看删除响应
+      - 调用 list 接口确认父子菜单仍存在
+
+    assertions:
+      - 删除接口返回 HTTP 200（业务层错误不使用 4xx）
+      - 响应 msg 包含 "child menus" 字样（业务拒绝提示）
+      - 响应业务码不是成功码
+      - 后续 list 中父菜单与子菜单仍然存在
+
+    postconditions:
+      - 清理：先删除子菜单再删除父菜单
+
+    edge_cases:
+      - 父菜单下有多层后代时的删除行为
+
+    related_cases:
+      - TC-MENUS-API-006
+      - TC-MENUS-API-008
+
+    automation:
+      required: true
+      framework: pytest
+      suggested_file: tests/api/test_menus_api.py
+      status: planned
+      confirmed_by: user
+      confirmed_at: "2026-06-22T00:00:00Z"
+
+    regression:
+      candidate: true
+      tier: smoke
+      selection_reason:
+        - critical_user_journey
+        - regression_prone
+      maintenance_rule: keep_until_feature_deprecated
+      rationale: 删除约束是已知踩坑点，必须 smoke 守护防止退化。
+
+    trace:
+      change_reason: 建立 menus 删除约束（含子节点拒绝）基线
+
+  - case_id: TC-MENUS-FUZZ-001
+    title: 菜单列表接口 schema fuzz
+    type: Fuzz
+    module: menus
+    automation:
+      required: true
+      suggested_file: tests/fuzz/test_menu_fuzz.py
+    thresholds: {}
+
+  - case_id: TC-MENUS-PERF-001
+    title: 菜单列表查询性能基线
+    type: Performance
+    module: menus
+    thresholds:
+      p95_ms: 500
+      error_rate_max: 0.01
+    performance:
+      capability: menu-list-query
+    automation:
+      required: true
+      suggested_file: tests/perf/locustfile_menu.py
+
+modified: []
+removed: []

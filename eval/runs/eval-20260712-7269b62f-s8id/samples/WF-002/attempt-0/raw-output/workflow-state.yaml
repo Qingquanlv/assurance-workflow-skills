@@ -1,0 +1,199 @@
+schema_version: "1.0"
+change_id: eval-sample-002
+module: roles
+
+execution_mode: inline
+subagent_skill_inheritance: disabled
+
+subagents:
+  used: false
+  purpose: []
+  loaded_skills: false
+  attempted_skill_loading: false
+  attempted_phase_execution: false
+  affected_gates: false
+
+phases:
+  skill_registry_check:
+    status: pass
+    checked_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+
+  case_design:
+    status: done
+    outputs:
+      - .qa.yaml
+      - proposal.md
+      - cases/roles/case.yaml
+
+  case_review:
+    status: pass
+    gate_file: review/case-review.json
+    fix_attempts: []
+
+  fact_baseline:
+    status: done
+    source: seed_file
+    file: facts/fact-baseline.json
+
+  layers:
+    api: true
+    e2e: true
+    fuzz: false
+    performance: false
+
+  api_plan:
+    status: pending
+    outputs:
+      - plans/api-plan.md
+      - plans/api-test-data-plan.md
+      - plans/api-codegen-plan.md
+
+  e2e_plan:
+    status: pending
+    outputs:
+      - plans/e2e-plan.md
+      - plans/e2e-test-data-plan.md
+      - plans/e2e-codegen-plan.md
+
+  api_plan_review:
+    status: pending
+    gate_file: review/api-plan-review.json
+    fix_attempts: []
+
+  e2e_plan_review:
+    status: pending
+    gate_file: review/e2e-plan-review.json
+    fix_attempts: []
+
+  fuzz_plan:
+    status: pending
+    outputs:
+      - plans/fuzz-plan.md
+      - plans/fuzz-codegen-plan.md
+
+  fuzz_plan_review:
+    status: pending
+    gate_file: review/fuzz-plan-review.json
+    fix_attempts: []
+
+  performance_plan:
+    status: pending
+    outputs:
+      - plans/performance-plan.md
+      - plans/performance-codegen-plan.md
+
+  performance_plan_review:
+    status: pending
+    gate_file: review/performance-plan-review.json
+    fix_attempts: []
+
+  api_codegen:
+    status: pending
+    review_gate_file: null
+    codegen_readiness: null
+    generated_tests:
+      framework: pytest
+      language: python
+      files: []
+      semantic_validity: null
+    warnings_carried: []
+    known_product_issues:
+      present: false
+      file: null
+
+  e2e_codegen:
+    status: pending
+    review_gate_file: review/e2e-plan-review.json
+    codegen_readiness: null
+    generated_tests:
+      framework: pytest-playwright
+      language: python
+      files: []
+      semantic_validity: null
+    data_setup:
+      scripts: []
+      reused: []
+    fixtures:
+      generated: []
+      reused: []
+    warnings_carried: []
+    known_product_issues:
+      present: false
+      file: null
+
+  fuzz_codegen:
+    status: pending
+    review_gate_file: review/fuzz-plan-review.json
+    codegen_readiness: null
+    generated_tests:
+      framework: pytest-schemathesis
+      language: python
+      files: []
+    warnings_carried: []
+
+  performance_codegen:
+    status: pending
+    review_gate_file: review/performance-plan-review.json
+    codegen_readiness: null
+    generated_tests:
+      framework: locust
+      language: python
+      files: []
+    warnings_carried: []
+
+  execution:
+    status: done
+    batch_id: null
+    manifest: null
+
+  inspect:
+    status: pending
+    inspect_mode: null
+    classification_performed: false
+    outputs: []
+
+  healing:
+    status: skipped
+    attempts: []
+
+  report:
+    status: pending
+    quality_score: null
+
+  archive:
+    status: pending
+
+gates:
+  data_knowledge:
+    status: present
+    decision: pass
+  healing_available: false
+
+known_product_issues: []
+
+agent_warnings:
+  - id: OPENCODE-SKILL-RESOLUTION-001
+    severity: medium
+    title: OpenCode subagent skill inheritance is disabled
+    impact:
+      - no skill-based background subagent execution
+      - workflow phases run inline
+    workaround:
+      - use file-based phase contracts
+      - use document-driven subagents only if parallelism is needed
+    status: acknowledged
+  - id: SKILL-TOOL-UNREGISTERED
+    severity: low
+    title: Skill exists on disk but not registered with skill tool
+    detail: >
+      aws-case-design, aws-case-reviewer, aws-case-fixer could not be loaded via
+      the skill tool but were found on disk. Using on-disk fallback (reading
+      SKILL.md directly).
+    affected_skills:
+      - aws-case-design
+      - aws-case-reviewer
+      - aws-case-fixer
+    status: acknowledged

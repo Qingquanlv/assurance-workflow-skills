@@ -392,7 +392,7 @@ interface PhaseAgentAdapter {
   `cursor-agent --print …`（或任意兼容 CLI），prompt 同一契约。
 - 无 session 树与流式 UI；stdout 落 driver 日志。产物校验、gate、state 路径与
   opencode adapter 完全一致。
-- 以 `scripts/retro-nightly.mjs` / `scripts/lib/retro-nightly/exec.cjs` 的 agent command
+- 以 `scripts/retro-nightly.mjs` / `src/retro/nightly/exec.cjs` 的 agent command
   注入为参考；现有仓库没有 `run-workflow-loop-cursor.sh`，不得把不存在的脚本列为迁移目标。
 - 后续实际 benchmark 入口先盘点并记录路径，再迁移为
   `aws workflow run --adapter headless`，消除另写编排 prompt 的漂移源。

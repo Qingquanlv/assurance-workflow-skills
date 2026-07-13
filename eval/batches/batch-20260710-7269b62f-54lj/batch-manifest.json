@@ -1,0 +1,11 @@
+{
+  "batch_id": "batch-20260710-7269b62f-54lj",
+  "git_sha": "7269b62f34392831bc65a39d492688ac6d0fa3ef",
+  "plan_hash": "sha256:62121482f8173ed24fd14973a99ea61155fa3d748fa03ff3ee3b15bce54ea9ce",
+  "suite_runs": {
+    "classification-unit": "eval-20260710-7269b62f-udow",
+    "safety-lite": "eval-20260710-7269b62f-k74n"
+  },
+  "started_at": "2026-07-10T16:48:28.777Z",
+  "completed_at": "2026-07-10T16:48:32.204Z"
+}

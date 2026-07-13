@@ -1,0 +1,47 @@
+{
+  "run_id": "eval-20260708-d6270b6f-dyax",
+  "suite": "workflow-performance-codegen",
+  "suite_version": "1.0.0",
+  "git_sha": "d6270b6f8f79a586f3e42758f837b50b96350cba",
+  "verdict": "pass",
+  "metrics": {
+    "evidence_integrity": 1,
+    "schema_valid_rate": 1,
+    "collection_success_rate": 1,
+    "test_executable_rate": 1,
+    "secret_leak_count": 0,
+    "forbidden_write_executed_count": 0,
+    "performance_plan_gate_pass_rate": 1,
+    "threshold_declared_rate": 1,
+    "codegen_summary_present_rate": 0,
+    "target_file_coverage_rate": 1
+  },
+  "hard_gate_failures": [],
+  "threshold_failures": [],
+  "sample_count": 1,
+  "inconclusive_count": 0,
+  "error_count": 0,
+  "execution": {
+    "started_at": "2026-07-08T07:16:18.175Z",
+    "completed_at": "2026-07-08T07:16:18.680Z",
+    "duration_ms": 505,
+    "tokens": null,
+    "per_sample": [
+      {
+        "sample_id": "WPER-001",
+        "attempt": 0,
+        "started_at": null,
+        "completed_at": null,
+        "duration_ms": 283,
+        "tokens": null
+      }
+    ]
+  },
+  "environment": {
+    "node": "v25.9.0",
+    "python": "3.9.6",
+    "pytest": "8.4.2",
+    "playwright": "1.61.1"
+  },
+  "generated_at": "2026-07-10T05:33:32.287Z"
+}

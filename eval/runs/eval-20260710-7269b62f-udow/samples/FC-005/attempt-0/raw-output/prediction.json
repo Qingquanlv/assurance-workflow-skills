@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "predicted_category": "unknown",
+  "fix_proposal_eligible": false,
+  "severity": "low",
+  "needs_review": true
+}

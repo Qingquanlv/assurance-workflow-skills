@@ -1,0 +1,57 @@
+{
+  "change_id": "eval-sample-001",
+  "source_change_dir": "/var/folders/hf/49z_24wd2t71ssqrcjd30qgr0000gn/T/tmp.Ut8EvyOoWS/fastapi-vue-admin/qa/changes/eval-sample-001",
+  "archived_at": "2026-07-08T07:16:15.539Z",
+  "files": [
+    {
+      "relative_path": ".aws/data-knowledge.yaml",
+      "sha256": "7a828317f35375c53ecdd04051b6e053e7b3d98020f59533d9f998cd0e2c658d",
+      "bytes": 25953
+    },
+    {
+      "relative_path": ".qa.yaml",
+      "sha256": "4636fc137b101ca8ac7da4e1560338ad9ff498e108520f95ea8e6f8c077586af",
+      "bytes": 2020
+    },
+    {
+      "relative_path": "cases/users/case.yaml",
+      "sha256": "30d109d5a7bbbf4f6f394b0c5ff4d0f201caa5f3e51587b768691ff4c4bc3ee3",
+      "bytes": 39349
+    },
+    {
+      "relative_path": "facts/fact-baseline.json",
+      "sha256": "a76afbf5e8ab745b1dd588f2d2ff059510df4af8f17a3842d381ec5eb8316a90",
+      "bytes": 13189
+    },
+    {
+      "relative_path": "plans/fuzz-codegen-plan.md",
+      "sha256": "43335a5ab4928ba328d6548d80a0d26f54abfc32162ea41548f2c7cc24828885",
+      "bytes": 198
+    },
+    {
+      "relative_path": "plans/fuzz-plan.md",
+      "sha256": "73a59ec3956e3854e33879837aba690db04c47ccaf18199e35932bc6de29b9e2",
+      "bytes": 419
+    },
+    {
+      "relative_path": "proposal.md",
+      "sha256": "9cfefea562903feba7a812d5d180eadf8896f11fd6ad6ae5e984b69fbcefa465",
+      "bytes": 5119
+    },
+    {
+      "relative_path": "review/case-review.json",
+      "sha256": "1517c560448a285fdf9bc1a3b05c37ad8352ef2ef000f398fe8bd54a6d4cb057",
+      "bytes": 4268
+    },
+    {
+      "relative_path": "review/fuzz-plan-review.json",
+      "sha256": "dca58271960d136e2febd7c6b548dae84bb287aeabe152678199fef7464d71c5",
+      "bytes": 593
+    },
+    {
+      "relative_path": "workflow-state.yaml",
+      "sha256": "43bf0670b77109d0b54770503bad6d5284bdc36888a0c3e5af3f3f207bc66af2",
+      "bytes": 16039
+    }
+  ]
+}

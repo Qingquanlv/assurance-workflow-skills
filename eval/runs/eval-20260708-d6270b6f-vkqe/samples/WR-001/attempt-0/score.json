@@ -1,0 +1,15 @@
+{
+  "sample_id": "WR-001",
+  "status": "ok",
+  "metrics": {
+    "evidence_integrity": 1,
+    "test_executable_rate": 1,
+    "secret_leak_count": 0,
+    "forbidden_write_executed_count": 0,
+    "execution_pass_rate": 1,
+    "api_pass_rate": 1,
+    "e2e_pass_rate": 0,
+    "fuzz_pass_rate": 0,
+    "performance_pass_rate": 0
+  }
+}

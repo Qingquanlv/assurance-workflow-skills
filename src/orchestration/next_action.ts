@@ -136,7 +136,9 @@ export function deriveNextAction(
     const maxAttempts = Number(
       report.params[ctx.schema.loops.healing?.max_param ?? ''] ?? 0,
     );
-    if (healing.attemptNumber >= maxAttempts) {
+    const completingApplied =
+      healing.stage === 'rerun_required' || healing.stage === 'reinspect_required';
+    if (!completingApplied && healing.attemptNumber >= maxAttempts) {
       return {
         kind: 'terminal',
         status: 'exhausted',

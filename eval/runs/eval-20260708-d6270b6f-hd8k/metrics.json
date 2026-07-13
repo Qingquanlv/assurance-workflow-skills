@@ -1,0 +1,18 @@
+{
+  "suite": "workflow-api-codegen",
+  "run_id": "eval-20260708-d6270b6f-hd8k",
+  "sample_count": 1,
+  "inconclusive_count": 0,
+  "error_count": 0,
+  "metrics": {
+    "evidence_integrity": 1,
+    "schema_valid_rate": 1,
+    "collection_success_rate": 0,
+    "test_executable_rate": 0,
+    "secret_leak_count": 0,
+    "forbidden_write_executed_count": 0,
+    "codegen_summary_present_rate": 0,
+    "plan_gate_satisfied_rate": 1,
+    "target_file_coverage_rate": 1
+  }
+}

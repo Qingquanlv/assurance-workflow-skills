@@ -19,7 +19,7 @@ const {
   enumeratePhaseACandidates,
   isTerminalStatusExitCode,
   snapshotUnarchivedEvidence,
-} = require('./lib/retro-nightly/phase_a.cjs');
+} = require('../src/retro/nightly/phase_a.cjs');
 const {
   buildReviewQueueMarkdown,
   listPendingProposals,
@@ -27,21 +27,21 @@ const {
   partitionProposalsForReview,
   stuckProposalTags,
   effectiveDecisions,
-} = require('./lib/retro-nightly/phase_d.cjs');
+} = require('../src/retro/nightly/phase_d.cjs');
 const {
   classifyEvalGateForNightly,
   compareSuiteRegression,
   groupProposalsBySuite,
   shouldAutoApplyComparison,
   suiteNeedsEval,
-} = require('./lib/retro-nightly/phase_f.cjs');
+} = require('../src/retro/nightly/phase_f.cjs');
 const {
   buildRunReport,
   buildCrossRunReport,
   listRetroRuns,
   renderCrossRunReportMarkdown,
   writeRunReport,
-} = require('./lib/retro-nightly/report.cjs');
+} = require('../src/retro/nightly/report.cjs');
 const {
   resolveSkillsRoot,
   runAws,
@@ -56,13 +56,13 @@ const {
   runAgent,
   mkdtemp,
   rmDir,
-} = require('./lib/retro-nightly/exec.cjs');
+} = require('../src/retro/nightly/exec.cjs');
 const {
   countSignals,
   generateRetroId,
   readJson,
   writeJson,
-} = require('./lib/retro-nightly/utils.cjs');
+} = require('../src/retro/nightly/utils.cjs');
 
 const yaml = require('js-yaml');
 

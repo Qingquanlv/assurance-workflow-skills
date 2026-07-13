@@ -1,0 +1,8 @@
+{
+  "run_id": "eval-20260710-7269b62f-5jp9",
+  "suite": "workflow-performance-codegen",
+  "verdict": "pass",
+  "hard_gate_failures": [],
+  "threshold_failures": [],
+  "inconclusive_count": 0
+}

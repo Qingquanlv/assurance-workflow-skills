@@ -1,0 +1,10 @@
+{
+  "mode": "denylist",
+  "patterns": [
+    ".aws/memory/**",
+    "backend/**",
+    "frontend/**",
+    "src/**",
+    "!src/tests/**"
+  ]
+}

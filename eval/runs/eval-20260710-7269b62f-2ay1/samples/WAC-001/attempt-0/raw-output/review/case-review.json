@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "review_type": "case",
+  "change_id": "eval-sample-001",
+  "decision": "pass",
+  "risk_level": "low",
+  "auto_fix_allowed": false,
+  "human_review_required": false,
+  "summary": "21 cases (15 API + 6 E2E) for the users module are schema-valid, complete, testable, and ready for API/E2E planning. Coverage spans list/get/create/update/delete/reset_password with happy paths, negative paths, validation, auth boundary, and superuser protection. No blockers. Two low-severity informational findings about strengthening assertions on negative-path P2 cases, and two non-blocking advisories about forward references to the Phase 3.5 fact baseline (declared as known unknowns, acceptable per aws-case-design). Workflow may continue to API planning.",
+  "reviewed_files": [
+    "qa/changes/20260612-user-mgmt/proposal.md",
+    "qa/changes/20260612-user-mgmt/.qa.yaml",
+    "qa/changes/20260612-user-mgmt/cases/users/case.yaml"
+  ],
+  "blockers": [],
+  "findings": [
+    {
+      "id": "CASE-FINDING-001",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260612-user-mgmt/cases/users/case.yaml",
+      "message": "TC-USER-041 (delete missing user) has only one assertion: '响应表示失败状态'. Could be strengthened by also asserting that no other rows are affected and the response carries an error description.",
+      "suggestion": "Append assertions: '响应中包含错误描述信息' and '其它已存在用户记录数量保持不变'.",
+      "auto_fix_allowed": true,
+      "human_review_required": false
+    },
+    {
+      "id": "CASE-FINDING-002",
+      "severity": "low",
+      "category": "assertion",
+      "file": "qa/changes/20260612-user-mgmt/cases/users/case.yaml",
+      "message": "TC-USER-052 (reset_password missing user) has only one assertion: '响应表示失败状态'. Could be strengthened by also asserting that no password rotation occurs on existing users.",
+      "suggestion": "Append assertion: '响应中包含错误描述信息（提及用户不存在或类似语义）'.",
+      "auto_fix_allowed": true,
+      "human_review_required": false
+    },
+    {
+      "id": "CASE-FINDING-003",
+      "severity": "low",
+      "category": "traceability",
+      "file": "qa/changes/20260612-user-mgmt/cases/users/case.yaml",
+      "message": "TC-USER-022 (validation - missing email) does not list 'depends_on_schema' in tags; the assertion checks 'email 字段缺失' which is tightly coupled to UserCreate Pydantic schema and would benefit from explicit tagging for regression filtering.",
+      "suggestion": "Append 'depends_on_schema' to TC-USER-022 tags.",
+      "auto_fix_allowed": true,
+      "human_review_required": false
+    }
+  ],
+  "needs_review": [
+    {
+      "id": "CASE-REVIEW-001",
+      "severity": "medium",
+      "category": "data",
+      "file": "qa/changes/20260612-user-mgmt/cases/users/case.yaml",
+      "question": "TC-USER-050 references '重置后预期固定密码：项目内置约定值（在 fact baseline 中确定）'. The fact baseline (Phase 3.5) will resolve this to '123456' from app/controllers/user.py. Confirm this forward reference is acceptable at case-review time.",
+      "reason": "The reset password fixed value is hardcoded in source (app/controllers/user.py UserController.reset_password) but is intentionally deferred to the Phase 3.5 fact baseline so that test code does not duplicate magic strings. This is by design per aws-case-design.",
+      "blocking": false
+    },
+    {
+      "id": "CASE-REVIEW-002",
+      "severity": "medium",
+      "category": "data",
+      "file": "qa/changes/20260612-user-mgmt/cases/users/case.yaml",
+      "question": "TC-USER-103 references '目标角色名称（在 fact baseline 中确定）'. The fact baseline (Phase 3.5) will identify a stable role name (likely the seeded 普通用户/管理员 role) from app/core/init_app.py. Confirm this forward reference is acceptable.",
+      "reason": "Role name is environment-derived (init_app.py seeds roles) and is intentionally deferred to fact baseline so the case stays decoupled from seed data shape changes.",
+      "blocking": false
+    }
+  ],
+  "auto_fix_plan": [],
+  "next_action": "continue",
+  "created_at": "2026-06-12T15:05:39Z"
+}

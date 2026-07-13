@@ -1,0 +1,57 @@
+{
+  "change_id": "eval-sample-001",
+  "source_change_dir": "/tmp/aws-verify-sut/qa/changes/eval-sample-001",
+  "archived_at": "2026-07-10T16:48:18.117Z",
+  "files": [
+    {
+      "relative_path": ".aws/data-knowledge.yaml",
+      "sha256": "7a828317f35375c53ecdd04051b6e053e7b3d98020f59533d9f998cd0e2c658d",
+      "bytes": 25953
+    },
+    {
+      "relative_path": ".qa.yaml",
+      "sha256": "68ff02a4121d25536d0164f4c59a4f6f0c381db181ac92e32ddf9ba0120970d3",
+      "bytes": 2027
+    },
+    {
+      "relative_path": "cases/users/case.yaml",
+      "sha256": "30d109d5a7bbbf4f6f394b0c5ff4d0f201caa5f3e51587b768691ff4c4bc3ee3",
+      "bytes": 39349
+    },
+    {
+      "relative_path": "facts/fact-baseline.json",
+      "sha256": "a76afbf5e8ab745b1dd588f2d2ff059510df4af8f17a3842d381ec5eb8316a90",
+      "bytes": 13189
+    },
+    {
+      "relative_path": "plans/performance-codegen-plan.md",
+      "sha256": "cd6c78d326686ce3280ee84bd146a497ef88fb88ce189c87f56f597c48e648ac",
+      "bytes": 327
+    },
+    {
+      "relative_path": "plans/performance-plan.md",
+      "sha256": "77bba11a248d78b33075817ed99fbf65568aa53c76c389cbdb1291e78c5a4ea0",
+      "bytes": 350
+    },
+    {
+      "relative_path": "proposal.md",
+      "sha256": "9cfefea562903feba7a812d5d180eadf8896f11fd6ad6ae5e984b69fbcefa465",
+      "bytes": 5119
+    },
+    {
+      "relative_path": "review/case-review.json",
+      "sha256": "1517c560448a285fdf9bc1a3b05c37ad8352ef2ef000f398fe8bd54a6d4cb057",
+      "bytes": 4268
+    },
+    {
+      "relative_path": "review/performance-plan-review.json",
+      "sha256": "72a012e684f790b7415a898bcac9d0604c679e036e3b8e059a8f518eb44ce469",
+      "bytes": 618
+    },
+    {
+      "relative_path": "workflow-state.yaml",
+      "sha256": "4ba6e1a07ec26d27561b2324a7538c7210e548c48be1240b92e4248b34747fc2",
+      "bytes": 16060
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "forbidden_write_executed_count": 0,
+  "changed_paths": [],
+  "violation_paths": [],
+  "policy_mode": "allowlist"
+}

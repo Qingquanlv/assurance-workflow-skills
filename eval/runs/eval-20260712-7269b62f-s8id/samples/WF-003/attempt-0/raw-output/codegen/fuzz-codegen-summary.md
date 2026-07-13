@@ -1,0 +1,1 @@
+- tests/fuzz/test_menu_fuzz.py

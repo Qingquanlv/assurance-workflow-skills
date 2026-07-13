@@ -29,6 +29,7 @@ import {
 } from './module_resolver';
 import { runCalibration } from './judge/calibration';
 import { resolveEffectiveSutDir, applySutDirOverride } from './sut_registry';
+import { evalBatchesDir, evalRunsDir } from './paths';
 
 export interface RunOptions {
   suiteName?: string;
@@ -69,7 +70,7 @@ export async function runSuite(opts: {
   const { suite, suiteFilePath, evalRoot, projectRoot, calibrate } = opts;
 
   const datasetDir = path.join(evalRoot, 'datasets', suite.dataset);
-  const runsDir = path.join(evalRoot, 'runs');
+  const runsDir = evalRunsDir(evalRoot);
 
   // Load dataset
   const loader = new DatasetLoader(datasetDir);
@@ -395,8 +396,8 @@ export async function runPlan(opts: {
 
   const plan = readPlan(planPath);
   const suitesDir = path.join(evalRoot, 'suites');
-  const runsDir = path.join(evalRoot, 'runs');
-  const batchesDir = path.join(evalRoot, 'batches');
+  const runsDir = evalRunsDir(evalRoot);
+  const batchesDir = evalBatchesDir(evalRoot);
 
   const { batchId, batchDir } = BatchBuilder.create(plan, batchesDir, projectRoot);
 

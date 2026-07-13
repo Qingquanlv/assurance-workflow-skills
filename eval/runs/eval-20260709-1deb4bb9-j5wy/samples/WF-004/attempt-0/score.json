@@ -1,0 +1,6 @@
+{
+  "sample_id": "WF-004",
+  "status": "error",
+  "metrics": {},
+  "error": "External evidence missing stdout.log under /Users/lvqingquan/skills/assurance-workflow-skills/eval/runs/eval-20260709-1deb4bb9-j5wy/samples/WF-004/attempt-0 (evidence-spec E4)"
+}
