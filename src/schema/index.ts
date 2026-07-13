@@ -13,6 +13,7 @@ import { validateQaYaml } from './qa_yaml';
 import { validateQualityGateResult } from './quality_gate_result';
 import { validateQualityReport } from './quality_report';
 import { validateReview } from './review';
+import { validateWorkflowState } from './workflow_state';
 
 export interface ArtifactSpec {
   artifact_type: string;
@@ -33,6 +34,7 @@ export const ARTIFACT_SPECS: ArtifactSpec[] = [
   { artifact_type: 'review', glob: 'review/*.json', validate: validateReview },
   { artifact_type: 'fact_baseline', glob: 'facts/fact-baseline.json', validate: validateFactBaseline },
   { artifact_type: 'advisory', glob: 'explore/advisory.json', validate: validateAdvisory },
+  { artifact_type: 'workflow_state', glob: 'workflow-state.yaml', validate: validateWorkflowState },
 ];
 
 export function resolveSpecs(relPath: string): ArtifactSpec[] {
