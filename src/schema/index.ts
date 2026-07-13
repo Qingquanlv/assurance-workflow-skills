@@ -3,6 +3,7 @@ import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
 import { ArtifactValidationResult } from './types';
 import { validateCaseYaml } from './case_yaml';
+import { validateQaYaml } from './qa_yaml';
 
 export interface ArtifactSpec {
   artifact_type: string;
@@ -13,6 +14,7 @@ export interface ArtifactSpec {
 
 export const ARTIFACT_SPECS: ArtifactSpec[] = [
   { artifact_type: 'case_yaml', glob: 'cases/**/case.yaml', validate: validateCaseYaml },
+  { artifact_type: 'qa_yaml', glob: '.qa.yaml', validate: validateQaYaml },
 ];
 
 export function resolveSpecs(relPath: string): ArtifactSpec[] {
