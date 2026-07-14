@@ -7,6 +7,7 @@ import { hashTestTree } from './hash';
 import { sha256File } from './hash';
 import type { GateStatus, ExecutionManifest } from './types';
 import type { TestTreeIntegrityResult } from './healing_state';
+import { loadExecutionEvidence } from '../execution/evidence';
 
 export type TestChangesOverrideMode = 'forbidden' | 'with-evidence' | 'free' | 'conditional';
 
@@ -196,21 +197,21 @@ function countConsumedTestChangeOverrides(projectRoot: string, changeId: string)
 }
 
 function readLatestFinalStatus(projectRoot: string, changeId: string): GateStatus | null {
-  const manifest = readLatestExecutionManifest(projectRoot, changeId);
-  if (isGateStatus(manifest?.final_status)) return manifest.final_status;
-  const qualityGate = readJson(path.join(changeDir(projectRoot, changeId), 'execution', 'quality-gate-result.json'));
-  return isGateStatus(qualityGate?.final_status) ? qualityGate.final_status : null;
+  const evidence = loadExecutionEvidence(
+    path.join(changeDir(projectRoot, changeId), 'execution'),
+  );
+  if (isGateStatus(evidence.manifest?.final_status)) {
+    return evidence.manifest.final_status;
+  }
+  return isGateStatus(evidence.qualityGate?.final_status)
+    ? evidence.qualityGate.final_status
+    : null;
 }
 
 function readLatestExecutionManifest(projectRoot: string, changeId: string): ExecutionManifest | null {
-  const manifestPath = path.join(changeDir(projectRoot, changeId), 'execution', 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return null;
-  try {
-    const parsed = yaml.load(fs.readFileSync(manifestPath, 'utf-8')) as unknown;
-    return isRecord(parsed) ? parsed as unknown as ExecutionManifest : null;
-  } catch {
-    return null;
-  }
+  return loadExecutionEvidence(
+    path.join(changeDir(projectRoot, changeId), 'execution'),
+  ).manifest;
 }
 
 function readJson(file: string): Record<string, unknown> | null {

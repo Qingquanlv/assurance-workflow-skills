@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import yaml from 'js-yaml';
 import { ApiResult, E2eResult } from '../core/types';
+import { loadExecutionEvidence } from '../execution/evidence';
 import { ArchiveBatchSample, Layer } from './types';
 
 export interface SampledArchive {
@@ -29,9 +29,34 @@ function readArchivedAt(archivePath: string): number | null {
 }
 
 function findLatestBatch(archivePath: string, archiveId: string): ArchiveBatchSample | null {
-  const runsDir = path.join(archivePath, 'execution', 'runs');
+  const executionDir = path.join(archivePath, 'execution');
+  const evidence = loadExecutionEvidence(executionDir);
+  if (evidence.mode === 'primary') {
+    if (evidence.integrityIssues.length > 0) {
+      throw new Error(
+        `EXECUTION-EVIDENCE-INTEGRITY: ${evidence.integrityIssues
+          .map(issue => issue.path)
+          .join(', ')}`,
+      );
+    }
+    if (!fs.existsSync(evidence.resultRoot)) {
+      throw new Error(
+        `EXECUTION-EVIDENCE-BATCH-MISSING: ${evidence.resultRoot}`,
+      );
+    }
+    return {
+      archive_id: archiveId,
+      batch_id: evidence.batchId,
+      batch_path: evidence.resultRoot,
+      batch_mtime_ms: fs.statSync(evidence.resultRoot).mtimeMs,
+      api_result_path: evidence.apiResult ? evidence.resultPaths.api : undefined,
+      e2e_result_path: evidence.e2eResult ? evidence.resultPaths.e2e : undefined,
+    };
+  }
+
+  const runsDir = path.join(executionDir, 'runs');
   if (!fs.existsSync(runsDir)) {
-    const legacyExec = path.join(archivePath, 'execution');
+    const legacyExec = executionDir;
     if (fs.existsSync(path.join(legacyExec, 'api-result.json'))) {
       return {
         archive_id: archiveId,
@@ -107,16 +132,8 @@ export function readLayerResult(
 }
 
 export function loadExecutionManifestBatchDir(archivePath: string): string | null {
-  const manifestPath = path.join(archivePath, 'execution', 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return null;
-  try {
-    const doc = yaml.load(fs.readFileSync(manifestPath, 'utf-8')) as { batch_id?: string } | null;
-    if (doc?.batch_id) {
-      const batchDir = path.join(archivePath, 'execution', 'runs', doc.batch_id);
-      if (fs.existsSync(batchDir)) return batchDir;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
+  const evidence = loadExecutionEvidence(path.join(archivePath, 'execution'));
+  return evidence.mode === 'primary' && fs.existsSync(evidence.resultRoot)
+    ? evidence.resultRoot
+    : null;
 }

@@ -6,7 +6,7 @@ import type { GateReport, PhaseStatusKind, StatusReport } from '../orchestration
 import type { DslValue } from '../orchestration/dsl';
 import type { Schema } from '../orchestration/schema';
 
-export type QaEventSource = 'status' | 'gate' | 'run' | 'report' | 'heal' | 'driver' | 'decide';
+export type QaEventSource = 'status' | 'gate' | 'run' | 'report' | 'heal' | 'driver' | 'decide' | 'progression';
 export type PhaseTransitionStatus = PhaseStatusKind | string;
 export type HumanDecisionAction =
   | 'fix_and_proceed'
@@ -63,6 +63,15 @@ export interface GateVerdictEvent extends QaEventBase {
   reads_sha256?: Record<string, string>;
 }
 
+/** Durable idempotency marker for one accepted Phase outcome. */
+export interface PhaseOutcomeCommittedEvent extends QaEventBase {
+  source: 'progression';
+  type: 'phase_outcome_committed';
+  phase: string;
+  attempt_id: string;
+  gate_report: GateReport | null;
+}
+
 export interface HealTransitionEvent extends QaEventBase {
   source: 'status';
   type: 'heal_transition';
@@ -96,6 +105,16 @@ export interface HealingEntryBaselinePinnedEvent extends QaEventBase {
   artifact_sha256: string;
   entry_batch_id: string;
   episode_id: string;
+}
+
+export interface HealingAttemptAllocatedEvent extends QaEventBase {
+  source: 'progression';
+  type: 'healing_attempt_allocated';
+  episode_id: string;
+  attempt_id: string;
+  attempt_number: number;
+  operation_id: string;
+  source_batch_id: string;
 }
 
 export interface HumanDecisionEvent extends QaEventBase {
@@ -161,6 +180,7 @@ export interface DriverLifecycleEvent extends QaEventBase {
   type: DriverEventType;
   run_id: string;
   phase?: string;
+  attempt_id?: string;
   detail?: string;
   exit_code?: number;
 }
@@ -168,9 +188,11 @@ export interface DriverLifecycleEvent extends QaEventBase {
 export type QaEvent =
   | PhaseTransitionEvent
   | GateVerdictEvent
+  | PhaseOutcomeCommittedEvent
   | HealTransitionEvent
   | HealRecordApplyEvent
   | HealingEntryBaselinePinnedEvent
+  | HealingAttemptAllocatedEvent
   | HumanDecisionEvent
   | ExecutionStartEvent
   | ProductTreeChangedEvent
@@ -181,9 +203,11 @@ export type QaEvent =
 export type QaEventInput =
   | Omit<PhaseTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<GateVerdictEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<PhaseOutcomeCommittedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealTransitionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealRecordApplyEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HealingEntryBaselinePinnedEvent, 'seq' | 'ts' | 'change_id'>
+  | Omit<HealingAttemptAllocatedEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<HumanDecisionEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ExecutionStartEvent, 'seq' | 'ts' | 'change_id'>
   | Omit<ProductTreeChangedEvent, 'seq' | 'ts' | 'change_id'>
@@ -194,7 +218,7 @@ export type QaEventInput =
 export function buildDriverEvent(
   type: DriverEventType,
   runId: string,
-  extra: { phase?: string; detail?: string; exit_code?: number } = {},
+  extra: { phase?: string; attempt_id?: string; detail?: string; exit_code?: number } = {},
 ): Omit<DriverLifecycleEvent, 'seq' | 'ts' | 'change_id'> {
   return {
     source: 'driver',

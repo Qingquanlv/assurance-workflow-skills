@@ -560,10 +560,7 @@ describe('configureWorkflowParams + agent/review reducers', () => {
     });
     const reviewDir = path.join(changeDir(projectRoot), 'review');
     fs.mkdirSync(reviewDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(reviewDir, 'api-plan-review.json'),
-      JSON.stringify({ decision: 'needs_fix', auto_fix_allowed: true }),
-    );
+    fs.writeFileSync(path.join(reviewDir, 'api-plan-review-apply-summary.md'), '# Applied\n');
     applyPhaseState(projectRoot, changeId, 'api-plan-fix');
     const state = readWorkflowState(projectRoot);
     expect(state.phases.api_plan_review.status).toBe('needs_fix');
@@ -580,6 +577,21 @@ describe('configureWorkflowParams + agent/review reducers', () => {
     expect(() =>
       applyPhaseState(projectRoot, changeId, 'fact-baseline', { minMtimeMs: past }),
     ).toThrow(/stale produce/);
+  });
+
+  it('treats same-second mtimes as fresh (Linux ext4 1s resolution)', () => {
+    // Simulate coarse mtime: file written mid-second, watermark a few ms later
+    // in the same second — millisecond compare would reject; second floor must accept.
+    const factsDir = path.join(changeDir(projectRoot), 'facts');
+    fs.mkdirSync(factsDir, { recursive: true });
+    const file = path.join(factsDir, 'fact-baseline.json');
+    fs.writeFileSync(file, JSON.stringify({ source: 'unavailable' }));
+    const secondStart = Math.floor(Date.now() / 1000) * 1000;
+    fs.utimesSync(file, secondStart / 1000, secondStart / 1000);
+    const dispatchAt = secondStart + 500;
+    expect(() =>
+      applyPhaseState(projectRoot, changeId, 'fact-baseline', { minMtimeMs: dispatchAt }),
+    ).not.toThrow();
   });
 
   it('accepts a phase where only some produces are fresh (unchanged seed files ok)', () => {

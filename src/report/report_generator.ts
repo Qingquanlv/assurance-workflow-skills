@@ -25,7 +25,7 @@ import {
   RiskLevel,
 } from '../core/types';
 import { computeQualityScore, ScoreDimension, ScoreDimensionKey } from './quality_score';
-import { loadExecutionArtifacts } from './execution_artifacts';
+import { loadExecutionEvidence } from '../execution/evidence';
 import { buildMinimumCoverageResult } from './minimum_coverage';
 import { HumanDecisionEvent, QaEvent, readEvents } from '../core/events';
 
@@ -48,7 +48,7 @@ export function generateReport(opts: GenerateReportOptions): GenerateReportResul
   const inspectDir = path.join(changeBase, 'inspect');
   const reportDir = path.join(changeBase, 'report');
 
-  const artifacts = loadExecutionArtifacts(executionDir);
+  const artifacts = loadExecutionEvidence(executionDir);
   const apiResult = artifacts.apiResult;
   const e2eResult = artifacts.e2eResult;
   const coverageResult = artifacts.coverageResult;

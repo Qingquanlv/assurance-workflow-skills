@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { appendEvents, approxDurationSince, PhaseTransitionStatus, readEvents } from './events';
 import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
+import { loadExecutionEvidence } from '../execution/evidence';
 
 export interface PhaseCompletionOptions {
   /** Schema phase id used in events.jsonl. */
@@ -336,6 +337,19 @@ export function updateWorkflowStatePhase(
   fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
 }
 
+/**
+ * Produce freshness vs dispatch watermark.
+ *
+ * Compare at whole-second resolution: ext4 and other Linux filesystems often
+ * store mtime with 1s precision, so a file written a few ms after dispatch can
+ * still round down to a second strictly less than Date.now()'s millisecond
+ * watermark. Treating "same second" as fresh matches the filesystem contract
+ * without accepting clearly pre-dispatch artifacts.
+ */
+export function isProduceFreshSince(mtimeMs: number, minMtimeMs: number): boolean {
+  return Math.floor(mtimeMs / 1000) >= Math.floor(minMtimeMs / 1000);
+}
+
 function assertProducesPresentAndFresh(
   projectRoot: string,
   changeId: string,
@@ -358,7 +372,10 @@ function assertProducesPresentAndFresh(
       if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
         throw new Error(`state apply: required produce missing or not a directory: ${rel}`);
       }
-      if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+      if (
+        minMtimeMs !== undefined &&
+        isProduceFreshSince(fs.statSync(abs).mtimeMs, minMtimeMs)
+      ) {
         freshCount++;
       }
       present.push(rel);
@@ -368,7 +385,10 @@ function assertProducesPresentAndFresh(
     if (!fs.existsSync(abs)) {
       throw new Error(`state apply: required produce missing: ${rel}`);
     }
-    if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+    if (
+      minMtimeMs !== undefined &&
+      isProduceFreshSince(fs.statSync(abs).mtimeMs, minMtimeMs)
+    ) {
       freshCount++;
     }
     present.push(rel);
@@ -496,10 +516,11 @@ function applyReviewFixerState(
 }
 
 function applyExecutionState(projectRoot: string, changeId: string, phase: 'execution' | 'healing-rerun'): void {
-  const manifest = readYamlRecord(changeFile(projectRoot, changeId, 'execution/execution-manifest.yaml'));
-  const gate = readJsonRecord(changeFile(projectRoot, changeId, 'execution/quality-gate-result.json'));
-  const status = asString(gate?.final_status) ?? asString(manifest?.final_status);
-  const batchId = asString(manifest?.batch_id) ?? asString(gate?.batch_id);
+  const evidence = loadExecutionEvidence(
+    changeFile(projectRoot, changeId, 'execution'),
+  );
+  const status = evidence.qualityGate?.final_status ?? evidence.manifest?.final_status;
+  const batchId = evidence.batchId;
 
   if (!status) throw new Error('execution final_status not found; run aws run before state apply');
   if (!batchId) throw new Error('execution batch_id not found; run aws run before state apply');
@@ -558,8 +579,10 @@ function applyInspectState(
   if (phase === 'healing-reinspect') {
     // A healing re-inspect must be based on the healing-rerun batch, not a
     // stale analysis of an earlier one.
-    const manifest = readYamlRecord(changeFile(projectRoot, changeId, 'execution/execution-manifest.yaml'));
-    const latestBatch = asString(manifest?.batch_id);
+    const evidence = loadExecutionEvidence(
+      changeFile(projectRoot, changeId, 'execution'),
+    );
+    const latestBatch = evidence.manifest?.batch_id;
     const sourceBatch = asString(analysis.source_batch_id);
     if (latestBatch && sourceBatch && latestBatch !== sourceBatch) {
       throw new Error(

@@ -22,6 +22,7 @@ import { buildQualityGate } from '../report/quality_gate';
 import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FuzzResult, PerformanceResult, QualityGateResult, SelectedTargets } from '../core/types';
 import { hashProductTree, hashTestTree } from '../core/hash';
 import { loadProductCodeRoots } from '../core/healing_state';
+import { publishExecutionEvidence } from './evidence';
 
 export interface RunnerOptions {
   changeId: string;
@@ -200,34 +201,6 @@ export function run(opts: RunnerOptions): RunnerResult {
     performanceResult,
   });
 
-  // ── Write per-batch result files ──────────────────────────────────────────
-  const batchApiResultPath = path.join(batchDir, 'api-result.json');
-  const batchE2eResultPath = path.join(batchDir, 'e2e-result.json');
-  const batchCoveragePath  = path.join(batchDir, 'coverage-result.json');
-  const batchFuzzPath      = path.join(batchDir, 'fuzz-result.json');
-  const batchPerfPath      = path.join(batchDir, 'performance-result.json');
-  const batchSummaryPath   = path.join(batchDir, 'summary.md');
-
-  const resultFiles: ExecutionManifest['result_files'] = {};
-  if (apiResult) {
-    fs.writeFileSync(batchApiResultPath, JSON.stringify(apiResult, null, 2), 'utf-8');
-    resultFiles.api = `runs/${batchId}/api-result.json`;
-  }
-  if (e2eResult) {
-    fs.writeFileSync(batchE2eResultPath, JSON.stringify(e2eResult, null, 2), 'utf-8');
-    resultFiles.e2e = `runs/${batchId}/e2e-result.json`;
-  }
-  // Coverage is always written — either a real result when api=true, or SKIPPED(api_unselected).
-  fs.writeFileSync(batchCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
-  resultFiles.coverage = `runs/${batchId}/coverage-result.json`;
-  if (fuzzResult) {
-    fs.writeFileSync(batchFuzzPath, JSON.stringify(fuzzResult, null, 2), 'utf-8');
-    resultFiles.fuzz = `runs/${batchId}/fuzz-result.json`;
-  }
-  if (performanceResult) {
-    fs.writeFileSync(batchPerfPath, JSON.stringify(performanceResult, null, 2), 'utf-8');
-    resultFiles.performance = `runs/${batchId}/performance-result.json`;
-  }
   const summaryMd = buildSummaryMd(changeId, batchId, {
     api: apiResult,
     e2e: e2eResult,
@@ -237,54 +210,25 @@ export function run(opts: RunnerOptions): RunnerResult {
     qualityGate,
     selectedTargets,
   });
-  fs.writeFileSync(batchSummaryPath, summaryMd, 'utf-8');
-  resultFiles.summary = `runs/${batchId}/summary.md`;
-
-  const manifest: ExecutionManifest = {
-    schema_version: '1.0',
-    change_id: changeId,
-    batch_id: batchId,
-    selected_targets: selectedTargets,
-    result_files: resultFiles,
-    tests_tree_sha256: testTreeHash.aggregate,
-    test_files_sha256: testTreeHash.files,
-    product_tree_sha256: productTreeHash.aggregate,
-    final_status: qualityGate.final_status,
-  };
-  const batchManifestPath = path.join(batchDir, 'execution-manifest.yaml');
-  fs.writeFileSync(path.join(batchDir, 'product-files-sha256.json'), JSON.stringify(productTreeHash.files, null, 2), 'utf-8');
-  fs.writeFileSync(batchManifestPath, yaml.dump(manifest), 'utf-8');
-
-  // Write quality-gate to batch dir so inspector can read rather than re-compute.
-  const batchGatePath = path.join(batchDir, 'quality-gate-result.json');
-  fs.writeFileSync(batchGatePath, JSON.stringify(qualityGate, null, 2), 'utf-8');
-  resultFiles.summary = `runs/${batchId}/summary.md`;
-
-  // ── Write top-level "latest" pointer files (backward compat) ─────────────
-  // Only top-level execution/*.json files are replaced — execution/runs/** is an
-  // append-only audit archive and is NEVER deleted or overwritten here.
-  const latestApiPath      = path.join(executionDir, 'api-result.json');
-  const latestE2ePath      = path.join(executionDir, 'e2e-result.json');
-  const latestCoveragePath = path.join(executionDir, 'coverage-result.json');
-  const latestFuzzPath     = path.join(executionDir, 'fuzz-result.json');
-  const latestPerfPath     = path.join(executionDir, 'performance-result.json');
-  const latestSummaryPath  = path.join(executionDir, 'summary.md');
-
-  removeIfExists(latestApiPath);
-  removeIfExists(latestE2ePath);
-  removeIfExists(latestCoveragePath);
-  removeIfExists(latestFuzzPath);
-  removeIfExists(latestPerfPath);
-
-  if (apiResult) fs.writeFileSync(latestApiPath, JSON.stringify(apiResult, null, 2), 'utf-8');
-  if (e2eResult) fs.writeFileSync(latestE2ePath, JSON.stringify(e2eResult, null, 2), 'utf-8');
-  // Coverage always written (may be SKIPPED with reason=api_unselected).
-  fs.writeFileSync(latestCoveragePath, JSON.stringify(coverageResult, null, 2), 'utf-8');
-  if (fuzzResult) fs.writeFileSync(latestFuzzPath, JSON.stringify(fuzzResult, null, 2), 'utf-8');
-  if (performanceResult) fs.writeFileSync(latestPerfPath, JSON.stringify(performanceResult, null, 2), 'utf-8');
-  fs.writeFileSync(latestSummaryPath, summaryMd, 'utf-8');
-  fs.writeFileSync(path.join(executionDir, 'execution-manifest.yaml'), yaml.dump(manifest), 'utf-8');
-  fs.writeFileSync(path.join(executionDir, 'quality-gate-result.json'), JSON.stringify(qualityGate, null, 2), 'utf-8');
+  const { manifest } = publishExecutionEvidence({
+    executionDir,
+    changeId,
+    batchId,
+    selectedTargets,
+    apiResult,
+    e2eResult,
+    coverageResult,
+    fuzzResult,
+    performanceResult,
+    qualityGate,
+    summary: summaryMd,
+    hashes: {
+      testsTreeSha256: testTreeHash.aggregate,
+      testFilesSha256: testTreeHash.files,
+      productTreeSha256: productTreeHash.aggregate,
+      productFilesSha256: productTreeHash.files,
+    },
+  });
 
   return {
     api: apiResult,
@@ -411,10 +355,6 @@ function discoverTargets(
     }
   }
   return defaults.filter(d => fs.existsSync(path.resolve(projectRoot, d)));
-}
-
-function removeIfExists(filePath: string): void {
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }
 
 const ALL_TARGETS: SelectedTargets = { api: true, e2e: true, fuzz: true, performance: true };

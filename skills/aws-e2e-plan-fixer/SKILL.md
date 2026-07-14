@@ -10,23 +10,25 @@ Do not rely on prior conversation context.
 **Before doing any work:**
 
 1. Read `qa/changes/<change-id>/workflow-state.yaml`.
-2. Verify `phases.e2e_plan_review.status == needs_fix`.
+2. Read `events.jsonl` and determine the execution mode before validating the old review fields:
+   - **automatic mode**: `phases.e2e_plan_review.status == needs_fix`.
+   - **human-approved mode**: the latest `human_decision` for checkpoint `e2e-plan-review-gate` (or legacy checkpoint `e2e-plan-review`) has action `fix_and_proceed`, and its `review_sha256` matches the current `review/plan-review.json`.
+   - Otherwise stop.
 3. Read input files from disk: `review/plan-review.json`, `plans/e2e-plan.md`, `plans/e2e-test-data-plan.md`, `plans/e2e-codegen-plan.md`, `plans/m4-review-summary.md`.
-4. Verify all gate fields in `plan-review.json` in order — **STOP** on first failure:
-   - `review_type == "e2e-plan"` — if not, stop.
-   - `change_id == <change-id>` — if mismatch, stop as reviewer contract error.
+4. Always verify `review_type == "e2e-plan"` and `change_id == <change-id>`. In human-approved mode, apply only changes explicitly resolved by the decision reason. **human-approved mode bypasses the default auto-fix gate-field requirements** for `decision`, `next_action`, `human_review_required`, `auto_fix_allowed`, and non-empty `auto_fix_plan`.
+5. In automatic mode, verify the remaining gate fields in order — **STOP** on first failure:
    - `decision == "needs_fix"` — if not, stop.
    - `next_action == "run_e2e_plan_fixer"` — if not, stop as reviewer contract error.
    - `human_review_required == false` — if not, stop **unless** human_approved exception applies (see below).
    - `auto_fix_allowed == true` — if not, stop.
    - `auto_fix_plan` exists and is non-empty — if missing or empty, stop as reviewer contract error.
 
-**human_approved exception** (only when default `human_review_required == false` check would STOP):
+**human_approved exception**:
 
-> If the latest `human_decision` for checkpoint `e2e-plan-review` has action `fix_and_proceed` **and** its `review_sha256` matches the SHA256 of the current `review/plan-review.json` on disk, allow fixing blocker / high severity items from `findings[]` per `suggested_fix`. Record each item in `plan-review-apply-summary.md` under `human_approved_fixes[]`. **Still never write review JSON or change gate status** — re-run `aws-e2e-plan-reviewer` after fixes.
+> In human-approved mode, allow fixing blocker / high severity items explicitly resolved by the decision reason, using `findings[]` and files on disk as evidence. Record each item in `plan-review-apply-summary.md` under `human_approved_fixes[]`. **Still never write review JSON or change gate status** — re-run `aws-e2e-plan-reviewer` after fixes.
 
-5. For **every** `auto_fix_plan` item, resolve and validate before applying any fix (see **Fix Source Rule**). If any item fails validation, **STOP** as reviewer contract error — do not skip and continue.
-6. Use files as the sole source of truth.
+6. In automatic mode, resolve every `auto_fix_plan` item before applying fixes. In human-approved mode, validate each approved change against the decision reason, matching finding, and target-file allowlist.
+7. Use files as the sole source of truth.
 
 **After completing work:**
 

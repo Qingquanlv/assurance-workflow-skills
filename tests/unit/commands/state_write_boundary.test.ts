@@ -12,4 +12,14 @@ describe('workflow-state write boundary', () => {
       expect(source).not.toContain('syncPhaseTimingFromEvents');
     }
   });
+
+  it('routes state apply and Gate adjudication through Workflow Progression', () => {
+    const stateSource = fs.readFileSync(path.join(repoRoot, 'src/commands/state.ts'), 'utf-8');
+    const gateSource = fs.readFileSync(path.join(repoRoot, 'src/commands/gate.ts'), 'utf-8');
+
+    expect(stateSource).not.toContain('applyPhaseState');
+    expect(stateSource).toContain('createWorkflowProgression');
+    expect(gateSource).not.toContain("from '../orchestration/engine'");
+    expect(gateSource).toContain('createWorkflowProgression');
+  });
 });

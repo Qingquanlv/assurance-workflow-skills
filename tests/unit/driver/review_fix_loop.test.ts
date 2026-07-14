@@ -1,7 +1,8 @@
 import { runReviewFixLoop } from '../../../src/driver/review_fix_loop';
 import { createStubAdapter } from '../../../src/driver/headless_adapter';
-import type { ProcessRunner, ProcessResult } from '../../../src/driver/process_runner';
 import type { GateReport, PhaseDispatchEntry } from '../../../src/orchestration/engine';
+import type { ProgressSnapshot } from '../../../src/orchestration/progression';
+import { decideGate } from '../../../src/orchestration/gate_routing';
 
 function gate(partial: Partial<GateReport> & Pick<GateReport, 'verdict'>): GateReport {
   return {
@@ -19,23 +20,7 @@ function gate(partial: Partial<GateReport> & Pick<GateReport, 'verdict'>): GateR
 
 describe('review_fix_loop', () => {
   it('runs fixer → apply → reviewer → apply → gate until pass', async () => {
-    let gateChecks = 0;
-    const calls: string[] = [];
     const applies: Array<{ phase: string; skill?: string; minMtimeMs?: number }> = [];
-    const runner: ProcessRunner = {
-      runAws(args): ProcessResult {
-        calls.push(args.join(' '));
-        if (args[0] === 'state' && args[1] === 'apply') {
-          return { exitCode: 0, stdout: '', stderr: '' };
-        }
-        if (args[0] === 'gate') {
-          gateChecks += 1;
-          const g = gate({ verdict: 'pass' });
-          return { exitCode: 0, stdout: JSON.stringify(g), stderr: '' };
-        }
-        return { exitCode: 1, stdout: '', stderr: 'unexpected' };
-      },
-    };
 
     const resolveDispatch = (phase: string): PhaseDispatchEntry => {
       if (phase === 'api-plan-fix') {
@@ -51,31 +36,39 @@ describe('review_fix_loop', () => {
     };
 
     const adapter = createStubAdapter();
+    const progression = {
+      inspect: () => ({} as ProgressSnapshot),
+      resolveRepair: () => ({ phase: 'api-plan-fix', maxAttempts: 3, attemptsUsed: 0 }),
+      decideGate,
+      applyOutcome: (outcome: { phase: string; skillMdPath?: string; minMtimeMs?: number }) => {
+        applies.push({
+          phase: outcome.phase,
+          skill: outcome.skillMdPath,
+          minMtimeMs: outcome.minMtimeMs,
+        });
+        return {
+          snapshot: {} as ProgressSnapshot,
+          gate: outcome.phase === 'api-plan-review' ? gate({ verdict: 'pass' }) : null,
+          decision: null,
+          replayed: false,
+        };
+      },
+    };
     const result = await runReviewFixLoop(
       'api-plan-review',
       gate({ verdict: 'needs_fix', recommended_phase: 'api-plan-fix' }),
       {
         projectRoot: '/tmp',
         changeId: 'c',
-        runner,
         adapter,
-        maxAttempts: 3,
         resolveDispatch,
-        applyPhase: (_root, _change, phase, options) => {
-          applies.push({
-            phase,
-            skill: options?.skillMdPath,
-            minMtimeMs: options?.minMtimeMs,
-          });
-        },
+        progression,
         skillMdPathFor: skill => `/skills/${skill}/SKILL.md`,
       },
     );
 
     expect(result).toEqual({ kind: 'pass' });
     expect(adapter.prompts.length).toBe(2); // fixer + reviewer
-    expect(gateChecks).toBe(1);
-    expect(calls.some(c => c.startsWith('state apply'))).toBe(false);
     expect(applies.map(apply => apply.phase)).toEqual(['api-plan-fix', 'api-plan-review']);
     expect(applies.every(apply => apply.skill?.endsWith('/SKILL.md'))).toBe(true);
     expect(applies[0].minMtimeMs).toBeUndefined();
@@ -83,22 +76,6 @@ describe('review_fix_loop', () => {
   });
 
   it('exhausts when still needs_fix after max attempts', async () => {
-    const runner: ProcessRunner = {
-      runAws(args): ProcessResult {
-        if (args[0] === 'state') return { exitCode: 0, stdout: '', stderr: '' };
-        if (args[0] === 'gate') {
-          return {
-            exitCode: 30,
-            stdout: JSON.stringify(gate({
-              verdict: 'needs_fix',
-              recommended_phase: 'api-plan-fix',
-            })),
-            stderr: '',
-          };
-        }
-        return { exitCode: 1, stdout: '', stderr: 'x' };
-      },
-    };
     const resolveDispatch = (phase: string): PhaseDispatchEntry => ({
       phase,
       kind: 'agent',
@@ -107,6 +84,19 @@ describe('review_fix_loop', () => {
       agent: 'aws-doc-author',
       gate: null,
     });
+    const progression = {
+      inspect: () => ({} as ProgressSnapshot),
+      resolveRepair: () => ({ phase: 'api-plan-fix', maxAttempts: 2, attemptsUsed: 0 }),
+      decideGate,
+      applyOutcome: (outcome: { phase: string }) => ({
+        snapshot: {} as ProgressSnapshot,
+        gate: outcome.phase === 'api-plan-review'
+          ? gate({ verdict: 'needs_fix', recommended_phase: 'api-plan-fix' })
+          : null,
+        decision: null,
+        replayed: false,
+      }),
+    };
 
     const result = await runReviewFixLoop(
       'api-plan-review',
@@ -114,11 +104,9 @@ describe('review_fix_loop', () => {
       {
         projectRoot: '/tmp',
         changeId: 'c',
-        runner,
         adapter: createStubAdapter(),
-        maxAttempts: 2,
         resolveDispatch,
-        applyPhase: () => undefined,
+        progression,
       },
     );
     expect(result.kind).toBe('exhausted');

@@ -1,21 +1,17 @@
 import type { PhaseAgentAdapter } from './adapter';
-import type { ProcessRunner } from './process_runner';
-import { parseJsonStdout } from './process_runner';
 import { buildPhasePrompt } from './phase_prompt';
-import { routeGateVerdict } from './gate_router';
 import { appendEvents, buildDriverEvent } from '../core/events';
 import type { GateReport, PhaseDispatchEntry } from '../orchestration/engine';
-import { applyPhaseState } from '../core/workflow_state';
+import type { RepairRoute, WorkflowProgressionRuntime } from '../orchestration/progression';
+import { createDispatchAttemptId } from './driver_state';
 
 export interface ReviewFixLoopDeps {
   projectRoot: string;
   changeId: string;
-  runner: ProcessRunner;
   adapter: PhaseAgentAdapter;
-  maxAttempts: number;
   resolveDispatch: (phase: string) => PhaseDispatchEntry;
   skillMdPathFor?: (skill: string) => string | undefined;
-  applyPhase?: typeof applyPhaseState;
+  progression: Pick<WorkflowProgressionRuntime, 'applyOutcome' | 'resolveRepair' | 'decideGate'>;
   /**
    * Driver run id, used to log a `phase_dispatched` event for each fixer
    * attempt. Once a repair phase's status is already `done` (e.g. its
@@ -48,42 +44,57 @@ export async function runReviewFixLoop(
 ): Promise<ReviewFixLoopResult> {
   let gate = initialGate;
   let attempts = 0;
+  let repair: RepairRoute;
+  try {
+    repair = deps.progression.resolveRepair(reviewerPhase);
+    attempts = repair.attemptsUsed;
+  } catch (err) {
+    return {
+      kind: 'exhausted',
+      reason: (err as Error).message,
+      exitCode: 40,
+    };
+  }
 
   while (gate.verdict === 'needs_fix') {
     attempts++;
-    if (attempts > deps.maxAttempts) {
+    if (attempts > repair.maxAttempts) {
       return {
         kind: 'exhausted',
-        reason: `review fix attempts exhausted for ${reviewerPhase} (max=${deps.maxAttempts})`,
+        reason: `review fix attempts exhausted for ${reviewerPhase} (max=${repair.maxAttempts})`,
         exitCode: 40,
       };
     }
 
-    const routed = routeGateVerdict(gate);
+    const routed = deps.progression.decideGate(gate);
     if (routed.action !== 'needs_fix') {
       break;
     }
 
-    const fixerEntry = deps.resolveDispatch(routed.recommended_phase);
+    const fixerEntry = deps.resolveDispatch(repair.phase);
     if (fixerEntry.kind !== 'agent' || !fixerEntry.skill) {
       return {
         kind: 'exhausted',
-        reason: `fixer phase ${routed.recommended_phase} is not an agent phase`,
+        reason: `fixer phase ${repair.phase} is not an agent phase`,
         exitCode: 40,
       };
     }
 
+    const fixerAttemptId = createDispatchAttemptId(repair.phase);
     if (deps.runId) {
       appendEvents(deps.projectRoot, deps.changeId, [
-        buildDriverEvent('phase_dispatched', deps.runId, { phase: routed.recommended_phase }),
+        buildDriverEvent('phase_dispatched', deps.runId, {
+          phase: repair.phase,
+          attempt_id: fixerAttemptId,
+        }),
       ]);
     }
     const fixerSession = await deps.adapter.createPhaseSession({
-      title: `Phase ${routed.recommended_phase} attempt ${attempts}`,
+      title: `Phase ${repair.phase} attempt ${attempts}`,
     });
     await deps.adapter.promptSync(fixerSession.id, {
       agent: fixerEntry.agent,
-      text: buildPhasePrompt(fixerEntry.skill, routed.recommended_phase, deps.changeId),
+      text: buildPhasePrompt(fixerEntry.skill, repair.phase, deps.changeId),
     });
 
     try {
@@ -91,14 +102,11 @@ export async function runReviewFixLoop(
       // rewrite the review JSON produce (see aws-*-fixer: "Never write review
       // JSON"). Enforce presence only here; freshness is checked on the
       // subsequent reviewer re-apply after the review file is regenerated.
-      (deps.applyPhase ?? applyPhaseState)(
-        deps.projectRoot,
-        deps.changeId,
-        routed.recommended_phase,
-        {
-          skillMdPath: deps.skillMdPathFor?.(fixerEntry.skill),
-        },
-      );
+      deps.progression.applyOutcome({
+        phase: repair.phase,
+        attemptId: fixerAttemptId,
+        skillMdPath: deps.skillMdPathFor?.(fixerEntry.skill),
+      });
     } catch (err) {
       return {
         kind: 'exhausted',
@@ -121,15 +129,17 @@ export async function runReviewFixLoop(
     });
 
     try {
-      (deps.applyPhase ?? applyPhaseState)(
-        deps.projectRoot,
-        deps.changeId,
-        reviewerPhase,
-        {
-          skillMdPath: deps.skillMdPathFor?.(reviewerEntry.skill),
-          minMtimeMs: reviewerDispatchAt,
-        },
-      );
+      const reviewerAttemptId = createDispatchAttemptId(reviewerPhase);
+      const reviewResult = deps.progression.applyOutcome({
+        phase: reviewerPhase,
+        attemptId: reviewerAttemptId,
+        skillMdPath: deps.skillMdPathFor?.(reviewerEntry.skill),
+        minMtimeMs: reviewerDispatchAt,
+      });
+      if (!reviewResult.gate) {
+        throw new Error(`reviewer ${reviewerPhase} produced no Gate result`);
+      }
+      gate = reviewResult.gate;
     } catch (err) {
       return {
         kind: 'exhausted',
@@ -138,14 +148,9 @@ export async function runReviewFixLoop(
       };
     }
 
-    const gateResult = deps.runner.runAws(
-      ['gate', 'check', '--phase', reviewerPhase, '--change', deps.changeId, '--json'],
-      deps.projectRoot,
-    );
-    gate = parseJsonStdout<GateReport>(gateResult);
   }
 
-  const finalRoute = routeGateVerdict(gate);
+  const finalRoute = deps.progression.decideGate(gate);
   if (finalRoute.action === 'continue') return { kind: 'pass' };
   if (finalRoute.action === 'needs_human_review') {
     return { kind: 'needs_human_review', reason: finalRoute.reason };
@@ -165,14 +170,4 @@ export async function runReviewFixLoop(
     reason: `unexpected post-fix route ${finalRoute.action}`,
     exitCode: 40,
   };
-}
-
-export function maxFixAttemptsForPhase(
-  phase: string,
-  params: Record<string, unknown>,
-): number {
-  if (phase.startsWith('case-')) {
-    return typeof params.max_case_fix_attempts === 'number' ? params.max_case_fix_attempts : 3;
-  }
-  return typeof params.max_plan_fix_attempts === 'number' ? params.max_plan_fix_attempts : 3;
 }

@@ -60,7 +60,7 @@ phases:
     skill: aws-case-fixer
     agent: aws-doc-author
     requires: [case-review]
-    produces: [review/case-review.json]
+    produces: [review/case-review-apply-summary.md]
     owned_by: [full, intake]
     when: "gate('case-review-gate').verdict == 'needs_fix'"
     repair_of: case-review
@@ -96,7 +96,7 @@ phases:
     skill: aws-api-plan-fixer
     agent: aws-doc-author
     requires: [api-plan-review]
-    produces: [review/api-plan-review.json]
+    produces: [review/api-plan-review-apply-summary.md]
     owned_by: [full, execute]
     when: "'api' in params.test_types and gate('api-plan-review-gate').verdict == 'needs_fix'"
     repair_of: api-plan-review
@@ -133,7 +133,7 @@ phases:
     skill: aws-e2e-plan-fixer
     agent: aws-doc-author
     requires: [e2e-plan-review]
-    produces: [review/plan-review.json]
+    produces: [review/plan-review-apply-summary.md]
     owned_by: [full, execute]
     when: "'e2e' in params.test_types and gate('e2e-plan-review-gate').verdict == 'needs_fix'"
     repair_of: e2e-plan-review

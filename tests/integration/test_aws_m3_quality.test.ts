@@ -19,8 +19,8 @@ function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-const apiResult = (failed: number): ApiResult => ({
-  schema_version: '1.0', change_id: 'R', batch_id: 'B', target: 'api', status: failed ? 'failed' : 'passed',
+const apiResult = (failed: number, batchId = 'B'): ApiResult => ({
+  schema_version: '1.0', change_id: 'R', batch_id: batchId, target: 'api', status: failed ? 'failed' : 'passed',
   command: '', source: { framework: 'pytest', raw_log: '', junit_xml: '', json_report: '' },
   total: 10, passed: 10 - failed, failed, skipped: 0, cases: [], unmapped_tests: [],
 });
@@ -50,8 +50,8 @@ const e2eResult = (failed: number): E2eResult => ({
   total: 2, passed: 2 - failed, failed, skipped: 0, cases: [], unmapped_tests: [],
 });
 
-const coverageResult = (status: CoverageResult['status']): CoverageResult => ({
-  schema_version: '1.0', change_id: 'R', batch_id: 'B', kind: 'coverage', available: status !== 'SKIPPED',
+const coverageResult = (status: CoverageResult['status'], batchId = 'B'): CoverageResult => ({
+  schema_version: '1.0', change_id: 'R', batch_id: batchId, kind: 'coverage', available: status !== 'SKIPPED',
   line_coverage: 80, branch_coverage: 70, threshold: { line: 70, branch: 60 }, status,
   uncovered_critical_files: [], source: { coverage_json: '', coverage_xml: '' },
 });
@@ -141,9 +141,9 @@ describe('M3 inspector — perf threshold failures classified', () => {
 
     fs.writeFileSync(path.join(execution, 'e2e-result.json'), JSON.stringify(e2eResult(1)));
     fs.writeFileSync(path.join(execution, 'performance-result.json'), JSON.stringify(perfResult('FAIL')));
-    fs.writeFileSync(path.join(batch, 'api-result.json'), JSON.stringify(apiResult(0)));
+    fs.writeFileSync(path.join(batch, 'api-result.json'), JSON.stringify(apiResult(0, 'B2')));
     // Coverage is derived from api=true — write a SKIPPED result so integrity guard is satisfied.
-    fs.writeFileSync(path.join(batch, 'coverage-result.json'), JSON.stringify(coverageResult('SKIPPED')));
+    fs.writeFileSync(path.join(batch, 'coverage-result.json'), JSON.stringify(coverageResult('SKIPPED', 'B2')));
     fs.writeFileSync(path.join(execution, 'execution-manifest.yaml'), [
       'schema_version: "1.0"',
       `change_id: ${changeId}`,

@@ -19,6 +19,7 @@ import {
   writeAttemptLogs,
   writeExecutionJson,
 } from './lib/eval-wrapper-utils.mjs';
+import { writeFakeExecutionEvidence } from './lib/fake-execution-evidence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,31 +99,13 @@ function main() {
 
     if (useFake) {
       const executionDir = path.join(projectDir, 'qa', 'changes', changeId, 'execution');
-      fs.mkdirSync(executionDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(executionDir, 'execution-manifest.yaml'),
-        [
-          'schema_version: "1.0"',
-          `change_id: ${changeId}`,
-          'batch_id: eval-fake-run',
-          'final_status: PASS',
-          'selected_targets:',
-          '  api: true',
-          '  e2e: false',
-          '  fuzz: false',
-          '  performance: false',
-          'result_files:',
-          '  api: api-result.json',
-        ].join('\n') + '\n'
-      );
-      fs.writeFileSync(
-        path.join(executionDir, 'api-result.json'),
-        JSON.stringify({ status: 'PASS', passed: 1, total: 1, batch_id: 'eval-fake-run' }, null, 2)
-      );
-      fs.writeFileSync(
-        path.join(executionDir, 'summary.md'),
-        '# Eval fake workflow-run\n\nSynthetic E3 execution artifact for CI smoke.\n'
-      );
+      writeFakeExecutionEvidence({
+        executionDir,
+        changeId,
+        batchId: 'eval-fake-run',
+        summary:
+          '# Eval fake workflow-run\n\nSynthetic E3 execution artifact for CI smoke.\n',
+      });
       awsStdout = `eval-aws-run: wrote fake execution for ${changeId}\n`;
       awsExit = 0;
     } else {

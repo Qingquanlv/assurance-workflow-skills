@@ -5,7 +5,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
-import { normalizeExecutionManifest } from '../../../execution/manifest_parser';
+import { loadExecutionEvidence } from '../../../execution/evidence';
 import type { SelectedTargets } from '../../../core/types';
 import { scoreForbiddenWriteExecutedCount } from './forbidden_write';
 import {
@@ -301,31 +301,24 @@ function layerExecutable(result: LayerResult | null): boolean {
 
 export function scoreTestExecutableRateE3(rawOutputDir: string): number {
   const executionDir = path.join(rawOutputDir, 'execution');
-  const manifestPath = path.join(executionDir, 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return 0;
-
-  let manifestRaw: unknown;
-  try {
-    manifestRaw = yaml.load(fs.readFileSync(manifestPath, 'utf8'));
-  } catch {
-    return 0;
-  }
-
-  const manifest = normalizeExecutionManifest(manifestRaw, executionDir);
+  const evidence = loadExecutionEvidence(executionDir);
+  const manifest = evidence.manifest;
   if (!manifest) return 0;
 
   const targets: (keyof SelectedTargets)[] = ['api', 'e2e', 'fuzz', 'performance'];
+  const results: Record<keyof SelectedTargets, LayerResult | null> = {
+    api: evidence.apiResult,
+    e2e: evidence.e2eResult,
+    fuzz: evidence.fuzzResult,
+    performance: evidence.performanceResult,
+  };
   let inScope = 0;
   let executable = 0;
 
   for (const target of targets) {
     if (!manifest.selected_targets[target]) continue;
     inScope += 1;
-    const rel = manifest.result_files[target];
-    const resultPath = rel
-      ? path.join(executionDir, rel)
-      : path.join(executionDir, `${target}-result.json`);
-    if (layerExecutable(readLayerResult(resultPath))) executable += 1;
+    if (layerExecutable(results[target])) executable += 1;
   }
 
   if (inScope === 0) return 0;
@@ -334,18 +327,11 @@ export function scoreTestExecutableRateE3(rawOutputDir: string): number {
 
 export function scoreExecutionPassRate(rawOutputDir: string): number {
   const executionDir = path.join(rawOutputDir, 'execution');
-  const manifestPath = path.join(executionDir, 'execution-manifest.yaml');
-  if (!fs.existsSync(manifestPath)) return 0;
-  try {
-    const doc = yaml.load(fs.readFileSync(manifestPath, 'utf8')) as {
-      final_status?: string;
-      quality_gate?: { final_status?: string };
-    };
-    const status = doc.final_status ?? doc.quality_gate?.final_status ?? '';
-    return ['PASS', 'PASS_WITH_WARNINGS'].includes(status) ? 1 : 0;
-  } catch {
-    return 0;
-  }
+  const evidence = loadExecutionEvidence(executionDir);
+  if (!evidence.manifest) return 0;
+  const status =
+    evidence.manifest?.final_status ?? evidence.qualityGate?.final_status ?? '';
+  return ['PASS', 'PASS_WITH_WARNINGS'].includes(status) ? 1 : 0;
 }
 
 function layerPassRate(rawOutputDir: string, target: keyof SelectedTargets): number {
