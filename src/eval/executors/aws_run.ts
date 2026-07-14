@@ -1,4 +1,3 @@
-// @ts-nocheck
 // E3 workflow-run wrapper: seed → git write-scan → aws run → archive → evidence (no OpenCode).
 // See eval/contracts/evidence-spec.md — executor: eval-aws-run
 
@@ -84,7 +83,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
   let awsSignal = null;
   let timedOut = false;
   let beforePorcelain = '';
-  const policy = { mode: 'denylist', patterns: DEFAULT_RUN_DENYLIST };
+  const policy = { mode: 'denylist' as const, patterns: DEFAULT_RUN_DENYLIST };
   const useFake = process.env.EVAL_USE_FAKE_AWS_RUN === '1';
 
   const awsCliPath = path.join(repoRoot, 'dist/cli.js');
@@ -125,7 +124,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
       awsStderr = awsResult.stderr ?? '';
       awsExit = awsResult.status ?? 1;
       awsSignal = awsResult.signal;
-      timedOut = awsResult.error?.code === 'ETIMEDOUT';
+      timedOut = spawnErrorCode(awsResult.error) === 'ETIMEDOUT';
     }
 
     writeAttemptLogs(attemptDir, awsStdout, awsStderr);
@@ -145,7 +144,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
           safety_mode: 'enabled',
           change_id: changeId,
           fixture_tier: values['fixture-tier'],
-          error: err.message,
+          error: errorMessage(err),
         },
         awsExit,
         {
@@ -155,7 +154,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
         }
       )
     );
-    console.error(err.message);
+    console.error(errorMessage(err));
     return 1;
   }
 
@@ -170,7 +169,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
     archiveArtifacts({ projectDir, changeId, archiveDir });
     archiveCompleted = true;
   } catch (err) {
-    postError = err.message;
+    postError = errorMessage(err);
   }
 
   const durationMs = Date.now() - t0;
@@ -200,4 +199,12 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
     console.error(postError);
   }
   return execution.wrapper_exit_code;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function spawnErrorCode(error: Error | undefined): string | undefined {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
 }

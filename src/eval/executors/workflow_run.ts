@@ -1,4 +1,3 @@
-// @ts-nocheck
 // E0/E2a/E4 wrapper: seed → write-scan → driver|opencode → write-scan → archive → evidence.
 // See eval/contracts/evidence-spec.md — executor: eval-workflow-run
 //
@@ -46,7 +45,7 @@ export interface WorkflowEvalInput {
   agentCmd?: string;
 }
 
-function mapScope(runMode) {
+function mapScope(runMode: string): 'execute' | 'full' {
   // case-only / full need intake+execute phases → full driver scope
   // codegen-only / plan-only style execute work → execute scope
   if (runMode === 'codegen-only' || runMode === 'plan-only' || runMode === 'review-plan') {
@@ -55,7 +54,10 @@ function mapScope(runMode) {
   return 'full';
 }
 
-function resolveAwsInvocation(repoRoot, awsBinOpt) {
+function resolveAwsInvocation(
+  repoRoot: string,
+  awsBinOpt: string | undefined,
+): { command: string; prefixArgs: string[] } {
   if (awsBinOpt) {
     if (awsBinOpt.endsWith('.js') || awsBinOpt.endsWith('.mjs') || awsBinOpt.endsWith('.cjs')) {
       return { command: process.execPath, prefixArgs: [path.resolve(awsBinOpt)] };
@@ -141,7 +143,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
   try {
     testType = runMode === 'codegen-only' ? parseSingleTestType(values['test-types']) : 'api';
   } catch (err) {
-    console.error(err.message);
+    console.error(errorMessage(err));
     return 2;
   }
   const writePolicy = resolveWritePolicy(runMode, values['test-types']);
@@ -201,7 +203,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     };
     const skill =
       entry === 'phase-skill' && runMode === 'codegen-only'
-        ? CODEGEN_SKILLS[testType] ?? 'aws-api-codegen'
+        ? CODEGEN_SKILLS[testType as keyof typeof CODEGEN_SKILLS] ?? 'aws-api-codegen'
         : 'aws-workflow';
     const prompt = [
       `use skill ${skill}`,
@@ -246,7 +248,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     opencodeStderr = result.stderr ?? '';
     opencodeExit = result.status ?? 1;
     opencodeSignal = result.signal;
-    timedOut = result.error?.code === 'ETIMEDOUT';
+    timedOut = spawnErrorCode(result.error) === 'ETIMEDOUT';
 
     writeAttemptLogs(attemptDir, opencodeStdout, opencodeStderr);
   } catch (err) {
@@ -273,7 +275,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
           change_id: changeId,
           fixture_tier: values['fixture-tier'],
           run_mode: runMode,
-          error: err.message,
+          error: errorMessage(err),
           ...buildOpenCodeProcessExecutionFields(processSummary, projectDir),
         },
         opencodeExit,
@@ -284,7 +286,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
         }
       )
     );
-    console.error(err.message);
+    console.error(errorMessage(err));
     return 1;
   }
 
@@ -307,7 +309,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     archiveArtifacts({ projectDir, changeId, archiveDir });
     archiveCompleted = true;
   } catch (err) {
-    postError = err.message;
+    postError = errorMessage(err);
     if (!processSummary) {
       processSummary = writeOpenCodeProcessSummary({
         attemptDir,
@@ -357,4 +359,12 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     console.error(postError);
   }
   return execution.wrapper_exit_code;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function spawnErrorCode(error: Error | undefined): string | undefined {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
 }

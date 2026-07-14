@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Synthetic execution evidence for eval smoke (EVAL_USE_FAKE_AWS_RUN / fake OpenCode).
 // Matches publishExecutionEvidence: primary batch under runs/{batchId}/ plus latest pointers.
 
@@ -13,13 +12,21 @@ import path from 'node:path';
  * @param {string} [opts.summary]
  * @param {object} [opts.apiResult]
  */
+export interface FakeExecutionEvidenceInput {
+  executionDir: string;
+  changeId: string;
+  batchId: string;
+  summary?: string;
+  apiResult?: Record<string, unknown>;
+}
+
 export function writeFakeExecutionEvidence({
   executionDir,
   changeId,
   batchId,
   summary = '# Eval fake execution\n\nSynthetic execution artifact for CI smoke.\n',
   apiResult = { status: 'PASS', passed: 1, total: 1, batch_id: batchId },
-}) {
+}: FakeExecutionEvidenceInput): void {
   const batchDir = path.join(executionDir, 'runs', batchId);
   fs.mkdirSync(batchDir, { recursive: true });
 

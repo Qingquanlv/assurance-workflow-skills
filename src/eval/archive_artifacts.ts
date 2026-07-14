@@ -1,17 +1,34 @@
-// @ts-nocheck
 // Archive qa/changes/{change}/ (and optional execution assets) into eval attempt raw-output.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-function sha256File(filePath) {
+interface ArchiveManifestEntry {
+  relative_path: string;
+  sha256: string;
+  bytes: number;
+}
+
+interface ArchiveManifest {
+  change_id: string;
+  source_change_dir: string;
+  archived_at: string;
+  files: ArchiveManifestEntry[];
+}
+
+function sha256File(filePath: string): string {
   const hash = createHash('sha256');
   hash.update(fs.readFileSync(filePath));
   return hash.digest('hex');
 }
 
-function copyDirRecursive(src, dest, manifest, relBase = '') {
+function copyDirRecursive(
+  src: string,
+  dest: string,
+  manifest: ArchiveManifest,
+  relBase = '',
+): void {
   if (!fs.existsSync(src)) return;
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
@@ -42,7 +59,7 @@ export interface ArchiveArtifactsInput {
   include?: string;
 }
 
-export function archiveArtifacts(input: ArchiveArtifactsInput) {
+export function archiveArtifacts(input: ArchiveArtifactsInput): ArchiveManifest {
   const changeDir = path.join(input.projectDir, 'qa/changes', input.changeId);
   const archiveDir = path.resolve(input.archiveDir);
   const includes = new Set((input.include ?? 'change,execution').split(',').map((s) => s.trim()));
@@ -54,7 +71,7 @@ export function archiveArtifacts(input: ArchiveArtifactsInput) {
 
   fs.mkdirSync(archiveDir, { recursive: true });
 
-  const manifest = {
+  const manifest: ArchiveManifest = {
     change_id: input.changeId,
     source_change_dir: changeDir,
     archived_at: new Date().toISOString(),

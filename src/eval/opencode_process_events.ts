@@ -1,4 +1,3 @@
-// @ts-nocheck
 // OpenCode process observability — parse NDJSON stdout into process-summary.json
 // See docs/design/eval-opencode-process-observability.md
 
@@ -67,22 +66,22 @@ export function sanitizeSecrets(text: string): string {
     .replace(AWS_KEY_PATTERN, '[REDACTED_AWS_KEY]');
 }
 
-export function truncateDetail(text) {
+export function truncateDetail(text: unknown): string {
   const sanitized = sanitizeSecrets(String(text ?? ''));
   const chars = [...sanitized];
   if (chars.length <= MAX_DETAIL_CODEPOINTS) return sanitized;
   return chars.slice(0, MAX_DETAIL_CODEPOINTS).join('') + '…';
 }
 
-function isPlainObject(value) {
+function isPlainObject(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function asString(value) {
+function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function extractErrorFields(errorValue) {
+function extractErrorFields(errorValue: unknown): { name: string | null; message: string | null } {
   if (typeof errorValue === 'string') {
     return { name: null, message: errorValue };
   }
@@ -98,12 +97,12 @@ function extractErrorFields(errorValue) {
   return { name: null, message: null };
 }
 
-function looksLikePermission(name, message) {
+function looksLikePermission(name: string | null, message: string | null): boolean {
   const haystack = `${name ?? ''} ${message ?? ''}`;
   return PERMISSION_RE.test(haystack);
 }
 
-function collectPathsFromValue(value, acc = []) {
+function collectPathsFromValue(value: unknown, acc: string[] = []): string[] {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (
@@ -133,7 +132,10 @@ function collectPathsFromValue(value, acc = []) {
   return acc;
 }
 
-function extractToolInput(state) {
+function extractToolInput(state: Record<string, any>): {
+  paths: string[];
+  command: string | null;
+} {
   const input = state?.input ?? state?.args ?? {};
   const paths = collectPathsFromValue(input);
   const command =
@@ -144,11 +146,11 @@ function extractToolInput(state) {
   return { paths: [...new Set(paths)], command };
 }
 
-function extractToolOutputPaths(state) {
+function extractToolOutputPaths(state: Record<string, any>): string[] {
   const output = state?.output ?? state?.result ?? null;
   if (typeof output === 'string') {
     // Prefer structured path declarations over free-form text.
-    const declared = [];
+    const declared: string[] = [];
     const pathMatches = output.matchAll(
       /(?:wrote|write|updated|created|modified)\s+[`'"]?([^\s`'"]+)/gi
     );
@@ -168,7 +170,7 @@ function extractToolOutputPaths(state) {
   return [];
 }
 
-function normalizeStatus(raw) {
+function normalizeStatus(raw: unknown): 'completed' | 'error' | 'unknown' {
   if (typeof raw !== 'string') return 'unknown';
   const lower = raw.toLowerCase();
   if (lower === 'completed' || lower === 'success' || lower === 'ok') {
@@ -180,7 +182,10 @@ function normalizeStatus(raw) {
   return 'unknown';
 }
 
-export function normalizePathForCompare(rawPath, projectDir) {
+export function normalizePathForCompare(
+  rawPath: unknown,
+  projectDir?: string | null,
+): string | null {
   if (!rawPath || typeof rawPath !== 'string') return null;
   let cleaned = rawPath.trim().replace(/\\/g, '/');
   if (
@@ -198,7 +203,10 @@ export function normalizePathForCompare(rawPath, projectDir) {
   return absolute.replace(/\\/g, '/');
 }
 
-export function toRelativeSutPath(absolutePath, projectDir) {
+export function toRelativeSutPath(
+  absolutePath: string | null,
+  projectDir?: string | null,
+): string | null {
   if (!absolutePath || !projectDir) return absolutePath;
   const base = path.resolve(projectDir).replace(/\\/g, '/');
   const abs = absolutePath.replace(/\\/g, '/');
@@ -207,14 +215,21 @@ export function toRelativeSutPath(absolutePath, projectDir) {
   return abs;
 }
 
-export function pathEscapesProject(absolutePath, projectDir) {
+export function pathEscapesProject(
+  absolutePath: string | null,
+  projectDir?: string | null,
+): boolean {
   if (!absolutePath || !projectDir) return false;
   const base = path.resolve(projectDir).replace(/\\/g, '/');
   const abs = absolutePath.replace(/\\/g, '/');
   return abs !== base && !abs.startsWith(base + '/');
 }
 
-function commandReferencesPath(command, absolutePath, projectDir) {
+function commandReferencesPath(
+  command: string | null,
+  absolutePath: string | null,
+  projectDir?: string | null,
+): boolean {
   if (!command || !absolutePath) return false;
   const rel = toRelativeSutPath(absolutePath, projectDir);
   const candidates = new Set([
@@ -231,7 +246,11 @@ function commandReferencesPath(command, absolutePath, projectDir) {
   return false;
 }
 
-function outputDeclaresPath(paths, absolutePath, projectDir) {
+function outputDeclaresPath(
+  paths: string[],
+  absolutePath: string | null,
+  projectDir?: string | null,
+): boolean {
   if (!absolutePath) return false;
   for (const raw of paths) {
     const normalized = normalizePathForCompare(raw, projectDir);
@@ -240,7 +259,7 @@ function outputDeclaresPath(paths, absolutePath, projectDir) {
   return false;
 }
 
-function makeFinding(partial) {
+function makeFinding(partial: Partial<ProcessFinding> & Pick<ProcessFinding, 'kind'>): ProcessFinding {
   return {
     kind: partial.kind,
     sequence: partial.sequence ?? 0,
@@ -254,7 +273,7 @@ function makeFinding(partial) {
   };
 }
 
-function emptySummary(safetyMode) {
+function emptySummary(safetyMode: 'enabled' | 'disabled'): OpenCodeProcessSummary {
   return {
     schema_version: PROCESS_SUMMARY_SCHEMA,
     observability_available: false,
@@ -284,14 +303,19 @@ function emptySummary(safetyMode) {
  *   writeDiffAvailable?: boolean,
  * }} [opts]
  */
-export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCodeProcessSummary {
+export function parseOpenCodeProcessLog(stdoutText: string, opts: {
+  safetyMode?: 'enabled' | 'disabled';
+  projectDir?: string | null;
+  changedPaths?: string[];
+  writeDiffAvailable?: boolean;
+} = {}): OpenCodeProcessSummary {
   const safetyMode = opts.safetyMode === 'disabled' ? 'disabled' : 'enabled';
   const projectDir = opts.projectDir ?? null;
   const writeDiffAvailable = opts.writeDiffAvailable === true;
   const changedAbs = new Set(
     (opts.changedPaths ?? [])
       .map((p) => normalizePathForCompare(p, projectDir))
-      .filter(Boolean)
+      .filter((item): item is string => item !== null)
   );
 
   const summary = emptySummary(safetyMode);
@@ -299,11 +323,11 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
   if (!text) return summary;
 
   const lines = text.split(/\r?\n/);
-  const events = [];
-  const parserWarnings = [];
+  const events: any[] = [];
+  const parserWarnings: string[] = [];
   let sequence = 0;
-  let canonicalSession = null;
-  const seenSessions = new Set();
+  let canonicalSession: string | null = null;
+  const seenSessions = new Set<string>();
   let jsonEventCount = 0;
   let malformed = 0;
 
@@ -465,11 +489,11 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
     jsonEventCount > 0 && (Boolean(canonicalSession) || hasUsefulEvent);
 
   // Deduplicate tool calls / errors / permission denials.
-  const toolCallKeys = new Set();
-  const toolErrorKeys = new Set();
-  const permissionKeys = new Set();
-  const findings = [];
-  const permissionEvents = [];
+  const toolCallKeys = new Set<string>();
+  const toolErrorKeys = new Set<string>();
+  const permissionKeys = new Set<string>();
+  const findings: ProcessFinding[] = [];
+  const permissionEvents: any[] = [];
 
   for (const event of events) {
     if (event.kind === 'tool_result') {
@@ -527,9 +551,9 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
   }
 
   // Permission denial dedupe (§9).
-  const acceptedPermissions = [];
+  const acceptedPermissions: any[] = [];
   for (const event of permissionEvents) {
-    let dedupeKey = null;
+    let dedupeKey: string;
     if (event.call_id) {
       dedupeKey = `call:${event.session_id ?? ''}:${event.call_id}`;
     } else {
@@ -601,7 +625,7 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
         e.input_paths.length > 0
     );
 
-    const seenDeniedCalls = new Set();
+    const seenDeniedCalls = new Set<string>();
     for (const denied of deniedWrites) {
       const deniedCallKey = denied.call_id
         ? `call:${denied.call_id}`
@@ -673,7 +697,9 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
             tool: denied.tool,
             path: relPath,
             detail: `denied ${denied.tool} then ${bypassEvent.tool} wrote ${relPath}`,
-            related_call_ids: [bypassEvent.call_id].filter(Boolean),
+            related_call_ids: [bypassEvent.call_id].filter(
+              (item: unknown): item is string => typeof item === 'string',
+            ),
             evidence_refs: [
               `stdout.log#L${denied.line_number}`,
               `stdout.log#L${bypassEvent.line_number}`,
@@ -694,7 +720,9 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
             detail: writeDiffAvailable
               ? `denied ${denied.tool} then ${bypassEvent.tool} referenced ${relPath}, but write-diff did not confirm`
               : `denied ${denied.tool} then ${bypassEvent.tool} referenced ${relPath}, write-diff unavailable`,
-            related_call_ids: [bypassEvent.call_id].filter(Boolean),
+            related_call_ids: [bypassEvent.call_id].filter(
+              (item: unknown): item is string => typeof item === 'string',
+            ),
             evidence_refs: [
               `stdout.log#L${denied.line_number}`,
               `stdout.log#L${bypassEvent.line_number}`,
@@ -725,21 +753,31 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts = {}): OpenCode
   return summary;
 }
 
-export function readWriteDiffChangedPaths(attemptDir) {
+export function readWriteDiffChangedPaths(attemptDir: string): {
+  available: boolean;
+  changedPaths: string[];
+} {
   const diffPath = path.join(attemptDir, 'evidence', 'write-diff.json');
   if (!fs.existsSync(diffPath)) {
     return { available: false, changedPaths: [] };
   }
   try {
-    const raw = JSON.parse(fs.readFileSync(diffPath, 'utf8'));
-    const changed = Array.isArray(raw.changed_paths) ? raw.changed_paths : [];
+    const raw = JSON.parse(fs.readFileSync(diffPath, 'utf8')) as { changed_paths?: unknown };
+    const changed = Array.isArray(raw.changed_paths)
+      ? raw.changed_paths.filter((item): item is string => typeof item === 'string')
+      : [];
     return { available: true, changedPaths: changed };
   } catch {
     return { available: false, changedPaths: [] };
   }
 }
 
-export function buildProcessSummaryForAttempt(opts) {
+export function buildProcessSummaryForAttempt(opts: {
+  stdoutText: string;
+  safetyMode?: 'enabled' | 'disabled';
+  projectDir?: string | null;
+  attemptDir?: string | null;
+}): OpenCodeProcessSummary {
   const {
     stdoutText,
     safetyMode = 'enabled',
@@ -747,7 +785,7 @@ export function buildProcessSummaryForAttempt(opts) {
     attemptDir = null,
   } = opts;
 
-  let changedPaths = [];
+  let changedPaths: string[] = [];
   let writeDiffAvailable = false;
   if (attemptDir) {
     const diff = readWriteDiffChangedPaths(attemptDir);
@@ -765,13 +803,20 @@ export function buildProcessSummaryForAttempt(opts) {
   } catch (err) {
     const summary = emptySummary(safetyMode);
     summary.parser_warnings = [
-      `parser_exception: ${truncateDetail(err?.message ?? String(err))}`,
+      `parser_exception: ${truncateDetail(err instanceof Error ? err.message : String(err))}`,
     ];
     return summary;
   }
 }
 
-export function buildSessionCommandFields(sessionId, projectDir) {
+export function buildSessionCommandFields(
+  sessionId: string | null | undefined,
+  projectDir?: string | null,
+): {
+  session_id: string | null;
+  session_resume_command: string | null;
+  session_export_command: string | null;
+} {
   if (!sessionId || !SESSION_ID_RE.test(sessionId)) {
     return {
       session_id: null,
@@ -787,7 +832,10 @@ export function buildSessionCommandFields(sessionId, projectDir) {
   };
 }
 
-export function writeProcessSummary(attemptDir, summary) {
+export function writeProcessSummary(
+  attemptDir: string,
+  summary: OpenCodeProcessSummary,
+): string {
   fs.mkdirSync(attemptDir, { recursive: true });
   const target = path.join(attemptDir, PROCESS_SUMMARY_FILENAME);
   fs.writeFileSync(target, JSON.stringify(summary, null, 2));

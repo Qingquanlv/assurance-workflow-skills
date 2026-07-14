@@ -1,10 +1,26 @@
-// @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import micromatch from 'micromatch';
 
-function mergeResets(parentResets, childResets) {
+export interface FixtureResets {
+  workflow_state?: Record<string, unknown>;
+  qa_yaml?: Record<string, unknown>;
+}
+
+export interface FixtureTierManifest {
+  name?: string;
+  extends?: string;
+  source_prefix?: string;
+  paths?: string[];
+  resets?: FixtureResets;
+  [key: string]: unknown;
+}
+
+function mergeResets(
+  parentResets?: FixtureResets,
+  childResets?: FixtureResets,
+): FixtureResets | undefined {
   if (!parentResets && !childResets) return undefined;
   if (!parentResets) return childResets ? { ...childResets } : undefined;
   if (!childResets) return { ...parentResets };
@@ -21,8 +37,11 @@ function mergeResets(parentResets, childResets) {
   };
 }
 
-export function loadTierManifest(tierFile, tiersDir) {
-  const raw = yaml.load(fs.readFileSync(tierFile, 'utf8'));
+export function loadTierManifest(tierFile: string, tiersDir: string): FixtureTierManifest {
+  const raw = yaml.load(fs.readFileSync(tierFile, 'utf8')) as FixtureTierManifest;
+  if (!raw || typeof raw !== 'object') {
+    throw new Error(`Invalid fixture tier manifest: ${tierFile}`);
+  }
   if (raw.extends) {
     const parent = loadTierManifest(path.join(tiersDir, `${raw.extends}.yaml`), tiersDir);
     return {
@@ -35,7 +54,7 @@ export function loadTierManifest(tierFile, tiersDir) {
   return raw;
 }
 
-function walkFiles(rootDir, currentDir = rootDir, files = []) {
+function walkFiles(rootDir: string, currentDir = rootDir, files: string[] = []): string[] {
   for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
     const abs = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
@@ -47,13 +66,13 @@ function walkFiles(rootDir, currentDir = rootDir, files = []) {
   return files;
 }
 
-function isGlobPattern(p) {
+function isGlobPattern(p: string): boolean {
   return /[*?[\]{}]/.test(p);
 }
 
-export function expandTierPaths(sampleRoot, paths) {
+export function expandTierPaths(sampleRoot: string, paths?: string[]): string[] {
   const allFiles = fs.existsSync(sampleRoot) ? walkFiles(sampleRoot) : [];
-  const expanded = new Set();
+  const expanded = new Set<string>();
 
   for (const pattern of paths ?? []) {
     if (isGlobPattern(pattern)) {
@@ -72,13 +91,13 @@ export function expandTierPaths(sampleRoot, paths) {
   return [...expanded].sort();
 }
 
-export function resolveTierPaths(tier, sampleRoot) {
+export function resolveTierPaths(tier: FixtureTierManifest, sampleRoot?: string): string[] {
   const paths = tier.paths ?? [];
   if (!sampleRoot) return [...paths];
   return expandTierPaths(sampleRoot, paths);
 }
 
-function setByDotPath(obj, dotPath, value) {
+function setByDotPath(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
   const parts = dotPath.split('.');
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -86,51 +105,60 @@ function setByDotPath(obj, dotPath, value) {
     if (cur[key] == null || typeof cur[key] !== 'object') {
       cur[key] = {};
     }
-    cur = cur[key];
+    cur = cur[key] as Record<string, unknown>;
   }
   cur[parts[parts.length - 1]] = value;
 }
 
-function applyWorkflowStateResets(changeDir, workflowStateResets) {
+function applyWorkflowStateResets(
+  changeDir: string,
+  workflowStateResets?: Record<string, unknown>,
+): void {
   if (!workflowStateResets || Object.keys(workflowStateResets).length === 0) return;
 
   const target = path.join(changeDir, 'workflow-state.yaml');
   if (!fs.existsSync(target)) return;
 
-  const doc = yaml.load(fs.readFileSync(target, 'utf8')) ?? {};
+  const doc = (yaml.load(fs.readFileSync(target, 'utf8')) ?? {}) as Record<string, unknown>;
   for (const [dotPath, value] of Object.entries(workflowStateResets)) {
     setByDotPath(doc, dotPath, value);
   }
   fs.writeFileSync(target, yaml.dump(doc, { lineWidth: -1 }));
 }
 
-function applyQaYamlResets(changeDir, qaYamlResets) {
+function applyQaYamlResets(
+  changeDir: string,
+  qaYamlResets?: Record<string, unknown>,
+): void {
   if (!qaYamlResets || Object.keys(qaYamlResets).length === 0) return;
 
   const target = path.join(changeDir, '.qa.yaml');
   if (!fs.existsSync(target)) return;
 
-  const doc = yaml.load(fs.readFileSync(target, 'utf8')) ?? {};
+  const doc = (yaml.load(fs.readFileSync(target, 'utf8')) ?? {}) as Record<string, unknown>;
   const { runtime_params: runtimeParamsPatch, ...rest } = qaYamlResets;
   Object.assign(doc, rest);
   if (runtimeParamsPatch && typeof runtimeParamsPatch === 'object') {
-    doc.runtime_params = { ...(doc.runtime_params ?? {}), ...runtimeParamsPatch };
+    const current = doc.runtime_params && typeof doc.runtime_params === 'object'
+      ? doc.runtime_params as Record<string, unknown>
+      : {};
+    doc.runtime_params = { ...current, ...runtimeParamsPatch };
   }
   fs.writeFileSync(target, yaml.dump(doc, { lineWidth: -1 }));
 }
 
 /** L2 *-codegen-seed tiers used by E2b/E2c/E2d eval suites. */
-export function inferCodegenTestType(tierName) {
+export function inferCodegenTestType(tierName: unknown): string | null {
   const match = String(tierName ?? '').match(/^L2-(api|e2e|fuzz|performance)-codegen-seed/);
   return match ? match[1] : null;
 }
 
-export function isL2CodegenTier(tierName) {
+export function isL2CodegenTier(tierName: unknown): boolean {
   return inferCodegenTestType(tierName) !== null;
 }
 
 /** Align workflow-state / .qa.yaml with eval codegen-only subprocess args. */
-export function applyCodegenOnlyRuntimeResets(changeDir, testType) {
+export function applyCodegenOnlyRuntimeResets(changeDir: string, testType: string): void {
   applyWorkflowStateResets(changeDir, {
     'runtime_parameters.run_mode': 'codegen-only',
     'runtime_parameters.test_types': testType,
@@ -147,7 +175,7 @@ export function applyCodegenOnlyRuntimeResets(changeDir, testType) {
   });
 }
 
-export function clearChangeDir(changeDir) {
+export function clearChangeDir(changeDir: string): void {
   if (!fs.existsSync(changeDir)) return;
 
   for (const entry of fs.readdirSync(changeDir)) {
@@ -156,7 +184,13 @@ export function clearChangeDir(changeDir) {
   }
 }
 
-export function copyTierToChangeDir({ sampleRoot, changeDir, tier, tiersDir, resets }) {
+export function copyTierToChangeDir({ sampleRoot, changeDir, tier, tiersDir: _tiersDir, resets }: {
+  sampleRoot: string;
+  changeDir: string;
+  tier: FixtureTierManifest;
+  tiersDir: string;
+  resets?: FixtureResets;
+}): string[] {
   const resolvedPaths = resolveTierPaths(tier, sampleRoot);
   fs.mkdirSync(changeDir, { recursive: true });
 

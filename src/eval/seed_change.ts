@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Seed a bench change directory from eval fixture tiers.
 // See eval/fixtures/README.md
 
@@ -13,19 +12,20 @@ import {
   copyTierToChangeDir,
   inferCodegenTestType,
   applyCodegenOnlyRuntimeResets,
+  type FixtureTierManifest,
 } from './fixture_utils';
 
 const DEFAULT_FIXTURES_ROOT = path.resolve(__dirname, '../../eval/fixtures');
 const DEFAULT_SAMPLE_ID = 'eval-sample-001';
 
-function resolveTierFile(fixtureTier, tiersDir) {
+function resolveTierFile(fixtureTier: string, tiersDir: string): string {
   const byFilename = path.join(tiersDir, `${fixtureTier}.yaml`);
   if (fs.existsSync(byFilename)) return byFilename;
 
   for (const entry of fs.readdirSync(tiersDir)) {
     if (!entry.endsWith('.yaml')) continue;
     const file = path.join(tiersDir, entry);
-    const raw = yaml.load(fs.readFileSync(file, 'utf8'));
+    const raw = yaml.load(fs.readFileSync(file, 'utf8')) as FixtureTierManifest | undefined;
     if (raw?.name === fixtureTier) return file;
   }
 
@@ -34,7 +34,7 @@ function resolveTierFile(fixtureTier, tiersDir) {
   );
 }
 
-function resolveSampleRoot(fixturesRoot, tier) {
+function resolveSampleRoot(fixturesRoot: string, tier: FixtureTierManifest): string {
   if (tier.source_prefix) {
     const sampleId = path.basename(tier.source_prefix);
     return path.join(fixturesRoot, 'samples', sampleId);
@@ -42,7 +42,7 @@ function resolveSampleRoot(fixturesRoot, tier) {
   return path.join(fixturesRoot, 'samples', DEFAULT_SAMPLE_ID);
 }
 
-function isL3Tier(tier, fixtureTierArg) {
+function isL3Tier(tier: FixtureTierManifest, fixtureTierArg: string): boolean {
   const name = tier.name ?? '';
   const arg = fixtureTierArg ?? '';
   return (
@@ -53,9 +53,9 @@ function isL3Tier(tier, fixtureTierArg) {
   );
 }
 
-function splitTestPaths(paths) {
-  const changePaths = [];
-  const testPaths = [];
+function splitTestPaths(paths: string[]): { changePaths: string[]; testPaths: string[] } {
+  const changePaths: string[] = [];
+  const testPaths: string[] = [];
   for (const relPath of paths) {
     if (relPath.startsWith('tests/')) {
       testPaths.push(relPath);
@@ -66,7 +66,11 @@ function splitTestPaths(paths) {
   return { changePaths, testPaths };
 }
 
-function copyTestPathsToBench({ sampleRoot, projectDir, testPaths }) {
+function copyTestPathsToBench({ sampleRoot, projectDir, testPaths }: {
+  sampleRoot: string;
+  projectDir: string;
+  testPaths: string[];
+}): void {
   for (const relPath of testPaths) {
     const src = path.join(sampleRoot, relPath);
     const dest = path.join(projectDir, relPath);
@@ -75,13 +79,13 @@ function copyTestPathsToBench({ sampleRoot, projectDir, testPaths }) {
   }
 }
 
-function copyIfExists(src, dest) {
+function copyIfExists(src: string, dest: string): void {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.cpSync(src, dest, { recursive: true });
 }
 
-function validateSeededFiles(changeDir) {
+function validateSeededFiles(changeDir: string): void {
   const required = ['proposal.md'];
   const missing = required.filter(
     (relPath) => !fs.existsSync(path.join(changeDir, relPath))
@@ -91,7 +95,12 @@ function validateSeededFiles(changeDir) {
   }
 }
 
-function printDryRun({ changeDir, projectDir, changePaths, testPaths }) {
+function printDryRun({ changeDir, projectDir, changePaths, testPaths }: {
+  changeDir: string;
+  projectDir: string;
+  changePaths: string[];
+  testPaths: string[];
+}): void {
   console.log(`changeDir: ${changeDir}`);
   for (const relPath of changePaths) {
     console.log(`  change: ${relPath}`);
@@ -104,13 +113,28 @@ function printDryRun({ changeDir, projectDir, changePaths, testPaths }) {
   }
 }
 
+export interface SeedChangeInput {
+  projectDir: string;
+  changeId: string;
+  fixtureTier: string;
+  fixturesRoot?: string;
+  dryRun?: boolean;
+}
+
+export interface SeedChangeResult {
+  changeDir: string;
+  changePaths: string[];
+  testPaths: string[];
+  sampleRoot: string;
+}
+
 export function seedChange({
   projectDir,
   changeId,
   fixtureTier,
   fixturesRoot = DEFAULT_FIXTURES_ROOT,
   dryRun = false,
-}) {
+}: SeedChangeInput): SeedChangeResult {
   const resolvedProjectDir = path.resolve(projectDir);
   const resolvedFixturesRoot = path.resolve(fixturesRoot);
   const tiersDir = path.join(resolvedFixturesRoot, 'tiers');

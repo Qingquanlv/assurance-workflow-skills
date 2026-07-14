@@ -4,7 +4,7 @@ version: "1.0.0"
 executor:
   type: workflow-run
   run_mode: codegen-only
-  test_types: fuzz
+  test_type: fuzz
   run_tests: false
   timeout_seconds: 7200
   expected_outputs:

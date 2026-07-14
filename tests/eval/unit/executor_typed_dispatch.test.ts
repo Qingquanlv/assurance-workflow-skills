@@ -21,6 +21,37 @@ describe('typed eval executor dispatch', () => {
     }).type).toBe('aws-run');
   });
 
+  it('validates the typed wrapper contract fail-closed', () => {
+    expect(() => ExecutorSchema.parse({
+      type: 'workflow-run',
+      run_mode: 'codegen-only',
+      timeout_seconds: 10,
+      expected_outputs: [],
+    })).toThrow('exactly one test_type');
+
+    expect(() => ExecutorSchema.parse({
+      type: 'workflow-run',
+      run_mode: 'codegen-only',
+      test_type: 'api,e2e',
+      timeout_seconds: 10,
+      expected_outputs: [],
+    })).toThrow();
+
+    expect(ExecutorSchema.parse({
+      type: 'workflow-run',
+      run_mode: 'codegen-only',
+      test_type: 'api',
+      timeout_seconds: 10,
+      expected_outputs: [],
+      workdir: '{{sut.dir}}',
+      sandbox: { copy_from: '{{sut.dir}}' },
+      allowed_writes: ['qa/**'],
+      opencode_bin: 'opencode',
+      aws_bin: 'aws',
+      agent_cmd: 'agent',
+    }).type).toBe('workflow-run');
+  });
+
   it('allows typed leaves but rejects nested mixed executors', () => {
     expect(ExecutorSchema.parse({
       type: 'mixed',
@@ -40,6 +71,41 @@ describe('typed eval executor dispatch', () => {
         invalid: { type: 'mixed', per_check_type: {} },
       },
     })).toThrow();
+  });
+
+  it('fails closed when harness-injected fixture context is missing', async () => {
+    const attemptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-missing-context-'));
+    try {
+      await expect(executeAttempt({
+        config: {
+          type: 'aws-run',
+          timeout_seconds: 10,
+          expected_outputs: [],
+          skip_seed: true,
+        },
+        sample: {
+          id: 'missing-fixture',
+          annotation_source: 'synthetic',
+          input: { change_id: 'typed-change' },
+          expected: {},
+        },
+        sampleDir: os.tmpdir(),
+        attemptDir,
+        projectRoot: path.resolve(__dirname, '../../..'),
+        runId: 'typed-run',
+        sutDir: os.tmpdir(),
+      })).rejects.toThrow('fixture_tier is required');
+    } finally {
+      fs.rmSync(attemptDir, { recursive: true, force: true });
+    }
+  });
+
+  it('contains no filename-based wrapper dispatch', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../src/eval/executor.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/eval-\(aws-run\|workflow-run\)|commandUsesExternalEvidenceWriter/);
   });
 
   it('dispatches aws-run directly and preserves wrapper-owned evidence', async () => {
@@ -62,11 +128,14 @@ describe('typed eval executor dispatch', () => {
           expected_outputs: [],
           skip_seed: true,
           env: { EVAL_USE_FAKE_AWS_RUN: '1' },
+          sandbox: { copy_from: '{{sut.dir}}' },
+          workdir: '{{sandbox.path}}',
+          allowed_writes: ['qa/**'],
         },
         sample: {
           id: 'typed-sample',
           annotation_source: 'synthetic',
-          input: { change_id: 'typed-change' },
+          input: { change_id: 'typed-change', fixture_tier: 'L3-run-seed' },
           expected: {},
         },
         sampleDir: path.dirname(attemptDir),
@@ -81,6 +150,8 @@ describe('typed eval executor dispatch', () => {
       ) as Record<string, unknown>;
       expect(execution.executor).toBe('eval-aws-run');
       expect(execution.archive_completed).toBe(true);
+      expect(fs.existsSync(path.join(attemptDir, 'sandbox/qa/changes/typed-change/proposal.md')))
+        .toBe(true);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

@@ -10,9 +10,7 @@ export interface InProcessExecutorConfig {
   target_export: string;
 }
 
-export interface SubprocessExecutorConfig {
-  type: 'subprocess';
-  command: string;
+export interface ExecutorPolicyConfig {
   timeout_seconds: number;
   expected_outputs: string[];
   workdir?: string;
@@ -24,25 +22,27 @@ export interface SubprocessExecutorConfig {
   env?: Record<string, string>;
 }
 
-interface CompiledWrapperExecutorConfig {
-  timeout_seconds: number;
-  expected_outputs: string[];
-  env?: Record<string, string>;
+export interface SubprocessExecutorConfig extends ExecutorPolicyConfig {
+  type: 'subprocess';
+  command: string;
 }
 
-export interface WorkflowRunExecutorConfig extends CompiledWrapperExecutorConfig {
+export interface WorkflowRunExecutorConfig extends ExecutorPolicyConfig {
   type: 'workflow-run';
   run_mode: string;
-  test_types?: string;
+  test_type?: 'api' | 'e2e' | 'fuzz' | 'performance';
   run_tests?: boolean;
   entry?: 'driver' | 'orchestrator' | 'phase-skill';
   skip_seed?: boolean;
+  opencode_bin?: string;
+  aws_bin?: string;
+  agent_cmd?: string;
 }
 
-export interface AwsRunExecutorConfig extends CompiledWrapperExecutorConfig {
+export interface AwsRunExecutorConfig extends ExecutorPolicyConfig {
   type: 'aws-run';
-  fixture_tier?: string;
   skip_seed?: boolean;
+  aws_bin?: string;
 }
 
 export type LeafExecutorConfig =

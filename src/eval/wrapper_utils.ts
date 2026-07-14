@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Shared helpers for eval-workflow-run.mjs and eval-aws-run.mjs
 
 import fs from 'node:fs';
@@ -8,28 +7,42 @@ import {
   buildSessionCommandFields,
   PROCESS_SUMMARY_FILENAME,
   writeProcessSummary,
+  type OpenCodeProcessSummary,
 } from './opencode_process_events';
 
-export function resolveRepoRoot(explicit, scriptDir) {
+type ExecutionPayload = Record<string, unknown>;
+
+interface WrapperCompletion {
+  infrastructureError?: boolean;
+  archiveCompleted?: boolean;
+  evidenceCompleted?: boolean;
+}
+
+export function resolveRepoRoot(explicit: string | undefined, scriptDir: string): string {
   if (explicit) return path.resolve(explicit);
   return path.resolve(scriptDir, '..');
 }
 
-export function resolveAttemptDir(values, archiveDir) {
-  if (values['attempt-dir']) return path.resolve(values['attempt-dir']);
+export function resolveAttemptDir(
+  values: Record<string, string | boolean | undefined>,
+  archiveDir: string | null,
+): string | null {
+  if (typeof values['attempt-dir'] === 'string') {
+    return path.resolve(values['attempt-dir']);
+  }
   if (archiveDir) return path.dirname(path.resolve(archiveDir));
   return null;
 }
 
 /** Write stdout/stderr immediately after inner command (spawn) completes. */
-export function writeAttemptLogs(attemptDir, stdout, stderr) {
+export function writeAttemptLogs(attemptDir: string, stdout: string, stderr: string): void {
   fs.mkdirSync(attemptDir, { recursive: true });
   fs.writeFileSync(path.join(attemptDir, 'stdout.log'), stdout ?? '');
   fs.writeFileSync(path.join(attemptDir, 'stderr.log'), stderr ?? '');
 }
 
 /** Write execution.json last — after write-scan and archive complete. */
-export function writeExecutionJson(attemptDir, execution) {
+export function writeExecutionJson(attemptDir: string, execution: ExecutionPayload): void {
   fs.mkdirSync(attemptDir, { recursive: true });
   fs.writeFileSync(
     path.join(attemptDir, 'execution.json'),
@@ -41,7 +54,12 @@ export function writeExecutionJson(attemptDir, execution) {
  * Parse OpenCode stdout into process-summary.json (before execution.json).
  * Never throws — parser failures become observability_available=false.
  */
-export function writeOpenCodeProcessSummary(opts) {
+export function writeOpenCodeProcessSummary(opts: {
+  attemptDir: string;
+  stdoutText: string;
+  safetyMode?: 'enabled' | 'disabled';
+  projectDir?: string | null;
+}): OpenCodeProcessSummary {
   const {
     attemptDir,
     stdoutText,
@@ -60,7 +78,10 @@ export function writeOpenCodeProcessSummary(opts) {
 }
 
 /** Session + process observability fields for eval-workflow-run execution.json. */
-export function buildOpenCodeProcessExecutionFields(summary, projectDir) {
+export function buildOpenCodeProcessExecutionFields(
+  summary: OpenCodeProcessSummary | null,
+  projectDir: string,
+): ExecutionPayload {
   const sessionFields = buildSessionCommandFields(summary?.session_id, projectDir);
   return {
     ...sessionFields,
@@ -78,13 +99,17 @@ export function resolveWrapperExitCode({
   infrastructureError,
   archiveCompleted,
   evidenceCompleted,
-}) {
+}: WrapperCompletion): number {
   if (infrastructureError) return 1;
   if (!archiveCompleted || !evidenceCompleted) return 1;
   return 0;
 }
 
-export function buildExecutionPayload(base, innerExitCode, opts = {}) {
+export function buildExecutionPayload(
+  base: ExecutionPayload,
+  innerExitCode: number,
+  opts: WrapperCompletion = {},
+): ExecutionPayload & { wrapper_exit_code: number } {
   const wrapperExit = resolveWrapperExitCode(opts);
   const innerExitKey =
     base.executor === 'eval-aws-run' ? 'aws_run_exit_code' : 'opencode_exit_code';
@@ -99,7 +124,14 @@ export function buildExecutionPayload(base, innerExitCode, opts = {}) {
 }
 
 /** @deprecated use writeAttemptLogs + writeExecutionJson */
-export function writeAttemptEvidence(attemptDir, { stdout, stderr, execution }) {
+export function writeAttemptEvidence(
+  attemptDir: string,
+  { stdout, stderr, execution }: {
+    stdout: string;
+    stderr: string;
+    execution: ExecutionPayload;
+  },
+): void {
   writeAttemptLogs(attemptDir, stdout, stderr);
   writeExecutionJson(attemptDir, execution);
 }

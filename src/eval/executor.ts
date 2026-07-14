@@ -114,10 +114,6 @@ const EXTERNAL_EVIDENCE_EXECUTORS = new Set([
   'aws-run-wrapper',
 ]);
 
-function commandUsesExternalEvidenceWriter(command: string): boolean {
-  return /eval-(aws-run|workflow-run)\.mjs\b/.test(command);
-}
-
 function attemptHasExternalEvidence(attemptDir: string): boolean {
   const execPath = path.join(attemptDir, 'execution.json');
   if (!fs.existsSync(execPath)) return false;
@@ -290,7 +286,6 @@ function runSubprocess(
 
   // Expand command
   const command = expandTemplate(config.command, templateVars);
-  const externalEvidence = commandUsesExternalEvidenceWriter(command);
   const [cmd, ...args] = command.split(/\s+/);
 
   // Build environment
@@ -321,7 +316,7 @@ function runSubprocess(
     }
   }
 
-  if (!externalEvidence && !attemptHasExternalEvidence(attemptDir)) {
+  if (!attemptHasExternalEvidence(attemptDir)) {
     fs.writeFileSync(path.join(attemptDir, 'stdout.log'), regularLines.join('\n'));
     fs.writeFileSync(path.join(attemptDir, 'stderr.log'), result.stderr ?? '');
   } else {
@@ -394,25 +389,59 @@ function runCompiledWrapper(
   if (!sutDir) throw new Error('sut.dir is required for typed eval executor');
   const changeId = requireSampleString(sample, 'change_id');
   const archiveDir = path.join(attemptDir, 'raw-output');
-  const fixtureTier = config.type === 'aws-run'
-    ? config.fixture_tier ?? (sample.input.fixture_tier as string | undefined)
-    : requireSampleString(sample, 'fixture_tier');
+  const fixtureTier = requireSampleString(sample, 'fixture_tier');
 
-  const exitCode = withExpandedEnv(config.env, templateVars, () => (
+  let sandboxPath: string | undefined;
+  if (config.sandbox) {
+    const copyFrom = config.sandbox.copy_from
+      ? expandTemplate(config.sandbox.copy_from, templateVars)
+      : undefined;
+    sandboxPath = prepareSandbox(
+      copyFrom,
+      config.sandbox.clean_before_run ?? true,
+      attemptDir,
+      projectRoot,
+    );
+  }
+  const policyTemplateVars = expandTemplateVars({
+    sample,
+    projectRoot,
+    runId: templateVars['run.id'],
+    attemptDir,
+    sandboxPath,
+    sutDir,
+  });
+  const workdir = config.workdir
+    ? expandTemplate(config.workdir, policyTemplateVars)
+    : sandboxPath ?? sutDir;
+  if (!fs.existsSync(workdir)) {
+    throw new Error(`executor workdir not found: ${workdir}`);
+  }
+
+  const exitCode = withExpandedEnv(config.env, policyTemplateVars, () => (
     config.type === 'workflow-run'
       ? runWorkflowEval({
         repoRoot: projectRoot,
         projectDir: sutDir,
         changeId,
         fixtureTier: fixtureTier!,
-        runMode: expandTemplate(config.run_mode, templateVars),
-        testTypes: config.test_types ? expandTemplate(config.test_types, templateVars) : undefined,
+        runMode: expandTemplate(config.run_mode, policyTemplateVars),
+        testTypes: config.test_type,
         runTests: String(config.run_tests ?? false),
         timeoutSeconds: config.timeout_seconds,
         entry: config.entry,
         archiveDir,
         attemptDir,
         skipSeed: config.skip_seed,
+        opencodeBin: config.opencode_bin
+          ? expandTemplate(config.opencode_bin, policyTemplateVars)
+          : undefined,
+        awsBin: config.aws_bin
+          ? expandTemplate(config.aws_bin, policyTemplateVars)
+          : undefined,
+        agentCmd: config.agent_cmd
+          ? expandTemplate(config.agent_cmd, policyTemplateVars)
+          : undefined,
       })
       : runAwsEval({
         repoRoot: projectRoot,
@@ -423,14 +452,17 @@ function runCompiledWrapper(
         archiveDir,
         attemptDir,
         skipSeed: config.skip_seed,
+        awsBin: config.aws_bin
+          ? expandTemplate(config.aws_bin, policyTemplateVars)
+          : undefined,
       })
   ));
   if (exitCode !== 0) throw new Error(`${config.type} executor failed with code ${exitCode}`);
   assertExternalEvidenceArtifacts(attemptDir);
   verifyAndCopyExpectedOutputs(
     config.expected_outputs,
-    templateVars,
-    sutDir,
+    policyTemplateVars,
+    workdir,
     attemptDir,
     archiveDir,
   );

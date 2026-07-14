@@ -120,9 +120,11 @@ executor:
 
 流程：seed（可选）→ write-scan before → `aws run` → write-scan after → archive → evidence 落盘。
 
-### eval-workflow-run.mjs CLI
+### Compiled `workflow-run` executor
 
-同上，额外必填 `--run-mode`（`case-only` | `codegen-only` | `full`）与 `--fixture-tier`。
+Harness 根据 suite 的 `executor.type: workflow-run` 直接调用
+`src/eval/executors/workflow_run.ts`，并从 attempt context 与 sample 注入 project、change、
+fixture 和 archive 路径。suite 只声明结构化的 `run_mode`、可选单值 `test_type` 及 policy。
 
 默认 `--entry driver`：调用 `aws workflow run --adapter headless`（可用 `--aws-bin` /
 `--agent-cmd` 覆盖）。`EVAL_USE_FAKE_OPENCODE=1` 仍走 one-shot golden stub（CI smoke）。
@@ -132,4 +134,5 @@ executor:
 
 - 缺任一 attempt 文件 → evidence_integrity = 0
 - gate 不得 pass
-- subprocess executor 检测到 `eval-*-run.mjs` 时**不得覆盖** wrapper 已写的 `stdout.log` / `stderr.log` / `execution.json`
+- `workflow-run` / `aws-run` 是显式 external-evidence writer；harness **不得覆盖**它们写入的
+  `stdout.log` / `stderr.log` / `execution.json`。普通 subprocess 不使用文件名推断。
