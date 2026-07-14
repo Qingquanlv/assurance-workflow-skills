@@ -1,9 +1,0 @@
-{
-  "sample_id": "FC-001",
-  "attempt": 0,
-  "executor_type": "in_process",
-  "started_at": "2026-07-10T16:48:30.527Z",
-  "completed_at": "2026-07-10T16:48:30.528Z",
-  "duration_ms": 2,
-  "status": "ok"
-}

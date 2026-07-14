@@ -1,8 +1,0 @@
-{
-  "forbidden_write_executed_count": 0,
-  "changed_paths": [
-    "tests/perf/locustfile_users.py"
-  ],
-  "violation_paths": [],
-  "policy_mode": "allowlist"
-}

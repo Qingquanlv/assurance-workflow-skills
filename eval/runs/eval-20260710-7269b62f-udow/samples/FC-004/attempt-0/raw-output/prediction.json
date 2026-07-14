@@ -1,7 +1,0 @@
-{
-  "ok": true,
-  "predicted_category": "environment_failure",
-  "fix_proposal_eligible": false,
-  "severity": "critical",
-  "needs_review": false
-}

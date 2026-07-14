@@ -1,7 +1,0 @@
-{
-  "ok": true,
-  "predicted_category": "assertion_failure",
-  "fix_proposal_eligible": false,
-  "severity": "high",
-  "needs_review": false
-}

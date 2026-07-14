@@ -1,8 +1,0 @@
-{
-  "run_id": "eval-20260708-3ee76083-cwc6",
-  "suite": "workflow-api-codegen",
-  "verdict": "pass",
-  "hard_gate_failures": [],
-  "threshold_failures": [],
-  "inconclusive_count": 0
-}

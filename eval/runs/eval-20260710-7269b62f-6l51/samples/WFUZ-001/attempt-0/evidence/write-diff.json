@@ -1,9 +1,0 @@
-{
-  "forbidden_write_executed_count": 0,
-  "changed_paths": [
-    "tests/fuzz/__init__.py",
-    "tests/fuzz/test_users_fuzz.py"
-  ],
-  "violation_paths": [],
-  "policy_mode": "allowlist"
-}

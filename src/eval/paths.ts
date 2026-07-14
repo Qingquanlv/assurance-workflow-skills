@@ -17,11 +17,11 @@ export function evalReportsDir(evalRoot: string): string {
   return path.join(evalOutRoot(evalRoot), 'reports');
 }
 
-/** Resolve eval harness root from a runs directory (supports eval/runs and eval/out/runs). */
+/** Resolve eval harness root from its canonical eval/out/runs directory. */
 export function evalRootFromRunsDir(runsDir: string): string {
   const parent = path.dirname(runsDir);
-  if (path.basename(parent) === 'out') {
-    return path.dirname(parent);
+  if (path.basename(parent) !== 'out') {
+    throw new Error(`Expected eval/out/runs path, got: ${runsDir}`);
   }
-  return parent;
+  return path.dirname(parent);
 }

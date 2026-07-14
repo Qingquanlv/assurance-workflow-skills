@@ -1,8 +1,0 @@
-{
-  "run_id": "eval-20260710-7269b62f-prlm",
-  "suite": "workflow-case",
-  "verdict": "pass",
-  "hard_gate_failures": [],
-  "threshold_failures": [],
-  "inconclusive_count": 0
-}

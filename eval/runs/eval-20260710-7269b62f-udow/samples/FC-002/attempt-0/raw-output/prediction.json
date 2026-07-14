@@ -1,7 +1,0 @@
-{
-  "ok": true,
-  "predicted_category": "wait_strategy_failure",
-  "fix_proposal_eligible": true,
-  "severity": "medium",
-  "needs_review": false
-}
