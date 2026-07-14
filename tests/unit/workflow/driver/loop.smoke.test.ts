@@ -20,7 +20,7 @@ import type { Action } from '../../../../src/workflow/orchestration/next_action'
 import { configureWorkflowParams } from '../../../../src/workflow/core/workflow_state';
 import { recordHumanDecision } from '../../../../src/workflow/core/decide';
 
-const REAL_SCHEMA = path.resolve(__dirname, '../../../../docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.resolve(__dirname, '../../../../schemas/workflow-schema.yaml');
 const changeId = 'REQ-LOOP-SMOKE-001';
 
 describe('workflow loop smoke (stub adapter + in-process runner)', () => {
@@ -33,8 +33,8 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     fs.mkdirSync(path.join(base, 'cases'), { recursive: true });
     fs.mkdirSync(path.join(base, 'explore'), { recursive: true });
     fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
-    fs.mkdirSync(path.join(projectRoot, 'docs', 'design'), { recursive: true });
-    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    fs.mkdirSync(path.join(projectRoot, 'schemas'), { recursive: true });
+    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
 
     for (const f of ['config.py', 'conftest.py', 'schema_validation.py']) {
       fs.writeFileSync(path.join(projectRoot, 'tests', f), '# stub\n');
@@ -103,7 +103,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
   });
 
   function makeRunner(): ProcessRunner {
-    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     return {
       runAws(args: string[]): ProcessResult {
         if (args[0] === 'state' && args[1] === 'configure') {
@@ -275,7 +275,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
     fs.writeFileSync(statePath, yaml.dump(state));
 
     let gateMode: 'human' | 'pass' = 'human';
-    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     const runner = makeRunner();
     const baseProgression = createWorkflowProgression({
       schema,
@@ -444,7 +444,7 @@ describe('workflow loop smoke (stub adapter + in-process runner)', () => {
 
   it('honors a stopped terminal before a simultaneous pending decision', async () => {
     const runner = makeRunner();
-    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     const baseProgression = createWorkflowProgression({ schema, projectRoot, changeId });
     const progression = {
       resume: () => progression.inspect(),

@@ -5,7 +5,7 @@
 Agents here are **permission floors (write sandboxes), not business roles**. Each agent is one
 equivalence class of *(writable paths × allowed bash commands)*. Workflow phases map **many-to-one**
 onto agents via the dispatch table in `skills/aws-workflow/FALLBACK-RUNBOOK.md` (and
-`docs/design/workflow-schema.yaml`). Primary entry is the TS driver / thin `SKILL.md`.
+`schemas/workflow-schema.yaml`). Primary entry is the TS driver / thin `SKILL.md`.
 
 Naming axis: **output artifact domain + action** — each name says what the agent is allowed to produce.
 

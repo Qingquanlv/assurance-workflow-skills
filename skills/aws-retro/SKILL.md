@@ -14,7 +14,7 @@ Use this skill when asked to analyze `qa/retro/<retro-id>/context.json` and prop
   - recent `qa/retro/*/promotions.json` files (for rejected / needs_rework history)
   - `qa/retro/<retro-id>/evidence/<change-id>/` snapshots for `evidence_source: "unarchived"`
   - `.aws/memory/**`
-  - `docs/design/workflow-schema.yaml`
+  - `schemas/workflow-schema.yaml`
   - relevant `skills/*/SKILL.md`
 
 ## Hard Rules

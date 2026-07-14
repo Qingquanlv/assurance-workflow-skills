@@ -506,7 +506,7 @@ M2 在 M0 证明 direct API session 确实获得该 Bash allowlist 后：
 | `skills/aws-intake/SKILL.md` | 尾部新增"确认后调用 `workflow_start`"的衔接段 |
 | `.opencode/agents/*.md`（5 个既有） | permission floor 保持；M2 仅更新 `aws-doc-author` 的 explore 文字约束 |
 | `.opencode/tools/workflow_start.ts` | 新增并纳入 init/sync assets（§7） |
-| `docs/design/workflow-schema.yaml` | 增加 `force_continue` param 并把允许绕过条件写进 review gate DSL；explore agent 不改 |
+| `schemas/workflow-schema.yaml` | 增加 `force_continue` param 并把允许绕过条件写进 review gate DSL；explore agent 不改 |
 | `src/commands/state.ts` / `src/workflow/core/workflow_state.ts` | 增加 configure、全 phase reducer registry、bootstrap override |
 | `src/workflow/core/events.ts` | 增加显式 driver event source/types，保持与现有 gate/status 事件职责互斥 |
 | 各 phase skill | **零改动** |

@@ -19,7 +19,7 @@
 | 层 | 产物 | 模板/契约现在放哪 | 谁生成 | 现在怎么校验 |
 |---|---|---|---|---|
 | A | `.aws/config.yaml`、`.aws/module-map.yaml` 等 init 文件 | TS 生成器 `src/templates/*.ts` | `aws init` | `src/core/checks.ts`（doctor） |
-| B | `workflow-schema.yaml` | `docs/design/workflow-schema.yaml`（随包发布） | 不生成，运行时按优先级解析覆盖 | `src/orchestration/schema.ts` loader |
+| B | `workflow-schema.yaml` | `schemas/workflow-schema.yaml`（随包发布） | 不生成，运行时按优先级解析覆盖 | `src/orchestration/schema.ts` loader |
 | C | per-change 产物（`case.yaml`/`.qa.yaml`/plan/review/execution/inspect/report/healing） | **内嵌在 skill 的 markdown 正文里**（如 `aws-case-design/SKILL.md` 约 1500 行、含数十个 ```yaml``` 模板块） | agent（跑 skill） | **无统一校验**，只有 gate 检查「文件是否存在」+ hash/mtime |
 
 C 层就是问题所在：

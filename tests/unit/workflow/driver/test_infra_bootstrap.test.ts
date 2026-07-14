@@ -18,7 +18,7 @@ import { configureWorkflowParams } from '../../../../src/workflow/core/workflow_
 import { computeStatus, resolveNextDispatch } from '../../../../src/workflow/orchestration/engine';
 import { loadSchemaFromFile } from '../../../../src/workflow/orchestration/schema';
 
-const REAL_SCHEMA = path.resolve(__dirname, '../../../../docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.resolve(__dirname, '../../../../schemas/workflow-schema.yaml');
 const changeId = 'REQ-M2-BOOT-001';
 
 describe('test_infra_bootstrap (M2)', () => {
@@ -85,8 +85,8 @@ describe('full-scope loop bootstrap pause (M2)', () => {
     projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-m2-full-'));
     const base = path.join(projectRoot, 'qa', 'changes', changeId);
     fs.mkdirSync(base, { recursive: true });
-    fs.mkdirSync(path.join(projectRoot, 'docs', 'design'), { recursive: true });
-    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    fs.mkdirSync(path.join(projectRoot, 'schemas'), { recursive: true });
+    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     fs.writeFileSync(path.join(base, 'workflow-state.yaml'), yaml.dump({
       params: { run_mode: 'full', test_types: ['api'], run_tests: false, max_healing_attempts: 0 },
       phases: { skill_registry_check: { status: 'pass' } },
@@ -98,7 +98,7 @@ describe('full-scope loop bootstrap pause (M2)', () => {
   });
 
   it('pauses full scope when test infra missing, resumes after bootstrap decision', async () => {
-    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     const runner: ProcessRunner = {
       runAws(args): ProcessResult {
         if (args[0] === 'state' && args[1] === 'configure') {

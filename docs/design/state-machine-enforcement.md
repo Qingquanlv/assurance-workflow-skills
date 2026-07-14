@@ -2,7 +2,7 @@
 
 - 状态：Draft / Proposal（实现-ready）
 - 目标读者：`aws-workflow` / `aws-intake` / `aws-execute` / fixer 系列 skill / CLI 维护者
-- 关联：`docs/design/two-stage-intake-execution.md`（反问模式；问题 1）、`docs/design/workflow-schema.yaml`；实现规格见 `docs/superpowers/specs/2026-07-04-three-problems-stability-spec.md`
+- 关联：`docs/design/two-stage-intake-execution.md`（反问模式；问题 1）、`schemas/workflow-schema.yaml`；实现规格见 `docs/superpowers/specs/2026-07-04-three-problems-stability-spec.md`
 - 定位：本文解决 **执行阶段的状态机被 orchestrator 绕过** 的两类问题——healing 状态从不流转（问题 2）、gate JSON 被手写伪造 + 人工批准后无合法恢复路径（问题 3）。反问/模式选择（问题 1）由 [two-stage-intake-execution.md](./two-stage-intake-execution.md) 覆盖，本文不重复。
 
 ---

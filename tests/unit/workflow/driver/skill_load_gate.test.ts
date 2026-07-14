@@ -22,7 +22,7 @@ import {
 } from '../../../../src/workflow/core/workflow_state';
 
 const PACKAGE_ROOT = path.resolve(__dirname, '../../../..');
-const REAL_SCHEMA = path.join(PACKAGE_ROOT, 'docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.join(PACKAGE_ROOT, 'schemas/workflow-schema.yaml');
 const changeId = 'REQ-SKILL-GATE-001';
 
 /**
@@ -40,8 +40,8 @@ describe('driver clears Skill Load Gate for dispatched agent phases', () => {
     const base = path.join(projectRoot, 'qa', 'changes', changeId);
     fs.mkdirSync(path.join(base, 'explore'), { recursive: true });
     fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
-    fs.mkdirSync(path.join(projectRoot, 'docs', 'design'), { recursive: true });
-    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    fs.mkdirSync(path.join(projectRoot, 'schemas'), { recursive: true });
+    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
 
     // Full-scope bootstrap gate is satisfied by present scaffold files.
     for (const f of ['config.py', 'conftest.py', 'schema_validation.py']) {
@@ -157,7 +157,7 @@ describe('driver clears Skill Load Gate for dispatched agent phases', () => {
   });
 
   it('stamps skill_loaded=true for explore and does not stop on the gate', async () => {
-    const schema = loadSchemaFromFile(path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    const schema = loadSchemaFromFile(path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
 
     const adapter = createStubAdapter({
       onPrompt: async (_sid, prompt) => {

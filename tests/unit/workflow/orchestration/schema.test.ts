@@ -11,7 +11,106 @@ import {
   SchemaError,
 } from '../../../../src/workflow/orchestration/schema';
 
-const REAL_SCHEMA = path.resolve(__dirname, '../../../../docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.resolve(__dirname, '../../../../schemas/workflow-schema.yaml');
+
+describe('findSchemaFile schema locations', () => {
+  function writeSchema(projectRoot: string, relativePath: string): string {
+    const file = path.join(projectRoot, relativePath);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'phases: []\ngates: {}\n');
+    return file;
+  }
+
+  it('uses an explicit override ahead of every implicit candidate', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-override-'));
+    try {
+      const override = writeSchema(projectRoot, 'custom/workflow.yaml');
+      writeSchema(projectRoot, '.aws/workflow-schema.yaml');
+      writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
+      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+
+      expect(findSchemaFile(projectRoot, 'custom/workflow.yaml')).toBe(override);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not fall through to implicit candidates when an override is missing', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-exclusive-'));
+    try {
+      writeSchema(projectRoot, '.aws/workflow-schema.yaml');
+      writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
+      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+
+      expect(() => findSchemaFile(projectRoot, 'missing.yaml')).toThrow(
+        `workflow-schema.yaml not found (looked in: ${path.join(projectRoot, 'missing.yaml')})`,
+      );
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the project .aws schema ahead of top-level and deprecated candidates', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-dotaws-'));
+    try {
+      const dotAwsSchema = writeSchema(projectRoot, '.aws/workflow-schema.yaml');
+      writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
+      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+
+      expect(findSchemaFile(projectRoot)).toBe(dotAwsSchema);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the project top-level schemas directory ahead of the deprecated candidate', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-project-'));
+    try {
+      const projectSchema = writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
+      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+
+      expect(findSchemaFile(projectRoot)).toBe(projectSchema);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the deprecated project docs/design fallback', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-legacy-'));
+    try {
+      const legacySchema = writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+
+      expect(findSchemaFile(projectRoot)).toBe(legacySchema);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the package top-level schema for fresh projects', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-fresh-'));
+    try {
+      expect(findSchemaFile(projectRoot)).toBe(REAL_SCHEMA);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not check the removed package-internal legacy path', () => {
+    const projectRoot = path.join(os.tmpdir(), 'aws-schema-missing-package');
+    const packageLegacySchema = path.resolve(
+      __dirname,
+      '../../../../docs/design/workflow-schema.yaml',
+    );
+    const nodeFs = require('fs') as typeof fs;
+    const existsSync = jest.spyOn(nodeFs, 'existsSync').mockReturnValue(false);
+    try {
+      expect(() => findSchemaFile(projectRoot)).toThrow(SchemaError);
+      expect(existsSync).not.toHaveBeenCalledWith(packageLegacySchema);
+    } finally {
+      existsSync.mockRestore();
+    }
+  });
+});
 
 describe('deriveAlias', () => {
   it('basename → drop ext → non-alnum to _', () => {
@@ -261,15 +360,6 @@ gates:
 });
 
 describe('real workflow-schema.yaml', () => {
-  it('findSchemaFile falls back to the package-shipped schema for fresh projects', () => {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-fresh-'));
-    try {
-      expect(findSchemaFile(projectRoot)).toBe(REAL_SCHEMA);
-    } finally {
-      fs.rmSync(projectRoot, { recursive: true, force: true });
-    }
-  });
-
   it('loads and passes static validation', () => {
     const s = loadSchemaFromFile(REAL_SCHEMA);
     expect(s.name).toBe('aws-full');

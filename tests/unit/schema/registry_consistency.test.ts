@@ -2,7 +2,7 @@ import * as path from 'path';
 import { resolveSpecs } from '../../../src/schema';
 import { loadSchemaFromFile } from '../../../src/workflow/orchestration/schema';
 
-const SHIPPED_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
+const SHIPPED_SCHEMA = path.resolve(__dirname, '../../../schemas/workflow-schema.yaml');
 
 // Artifacts intentionally without a schema: Markdown prose + directory/aggregate outputs.
 const EXEMPT = new Set<string>([

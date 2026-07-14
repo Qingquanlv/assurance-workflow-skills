@@ -261,16 +261,18 @@ export function loadSchemaFromFile(filePath: string): Schema {
 /**
  * Locate the workflow schema file for a project.
  * Precedence: explicit override → `.aws/workflow-schema.yaml` (project-local) →
- * project `docs/design/workflow-schema.yaml` → package-shipped
- * `docs/design/workflow-schema.yaml`.
+ * project `schemas/workflow-schema.yaml` → deprecated project
+ * `docs/design/workflow-schema.yaml` → package-shipped `schemas/workflow-schema.yaml`.
  */
 export function findSchemaFile(projectRoot: string, override?: string): string {
   const packageRoot = path.resolve(__dirname, '..', '..', '..');
-  const packageSchema = path.join(packageRoot, 'docs', 'design', 'workflow-schema.yaml');
+  const packageSchema = path.join(packageRoot, 'schemas', 'workflow-schema.yaml');
   const candidates = override
     ? [path.isAbsolute(override) ? override : path.join(projectRoot, override)]
     : [
         path.join(projectRoot, '.aws', 'workflow-schema.yaml'),
+        path.join(projectRoot, 'schemas', 'workflow-schema.yaml'),
+        // Deprecated project layout; retained for backward compatibility.
         path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'),
         packageSchema,
       ];

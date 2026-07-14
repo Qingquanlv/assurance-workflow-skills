@@ -46,4 +46,4 @@ Do **not** paste or re-derive the full runbook into the chat — open the fallba
 
 - Subagents / phase agents never run `aws gate` / `aws status` or edit `workflow-state.yaml`.
 - Producing artifacts on disk is **not** phase completion — state apply / hand-update + `aws status` required (see fallback runbook).
-- `force_continue` and review gates are schema/CLI-owned (`docs/design/workflow-schema.yaml`).
+- `force_continue` and review gates are schema/CLI-owned (`schemas/workflow-schema.yaml`).

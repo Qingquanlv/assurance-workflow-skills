@@ -8,7 +8,7 @@ import type { ProcessRunner, ProcessResult } from '../../../../src/workflow/driv
 import type { Action } from '../../../../src/workflow/orchestration/next_action';
 import type { ProgressSnapshot } from '../../../../src/workflow/orchestration/progression';
 
-const REAL_SCHEMA = path.resolve(__dirname, '../../../../docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.resolve(__dirname, '../../../../schemas/workflow-schema.yaml');
 const changeId = 'REQ-LOOP-APPLIED-RESUME';
 
 describe('workflow loop applied resume incident', () => {
@@ -18,8 +18,8 @@ describe('workflow loop applied resume incident', () => {
     projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-loop-applied-resume-'));
     const changeDir = path.join(projectRoot, 'qa', 'changes', changeId);
     fs.mkdirSync(changeDir, { recursive: true });
-    fs.mkdirSync(path.join(projectRoot, 'docs', 'design'), { recursive: true });
-    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'docs', 'design', 'workflow-schema.yaml'));
+    fs.mkdirSync(path.join(projectRoot, 'schemas'), { recursive: true });
+    fs.copyFileSync(REAL_SCHEMA, path.join(projectRoot, 'schemas', 'workflow-schema.yaml'));
     fs.mkdirSync(path.join(projectRoot, 'tests'), { recursive: true });
     for (const file of ['config.py', 'conftest.py', 'schema_validation.py']) {
       fs.writeFileSync(path.join(projectRoot, 'tests', file), '# fixture\n');

@@ -10,7 +10,7 @@ function read(relativePath: string): string {
 
 describe('review fixer contracts', () => {
   it('uses fixer-owned apply summaries as repair phase produces', () => {
-    const schema = yaml.load(read('docs/design/workflow-schema.yaml')) as {
+    const schema = yaml.load(read('schemas/workflow-schema.yaml')) as {
       phases: Array<{ id: string; produces: string[] }>;
     };
     const phases = new Map(schema.phases.map(phase => [phase.id, phase]));

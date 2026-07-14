@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Runtime structural validation for explore/advisory.json (aws validate registry).
- * Human/agent contract reference: docs/schemas/explore-advisory.schema.json
+ * Human/agent contract reference: schemas/explore-advisory.schema.json
  */
 export const advisorySchema = z.object({
   schema_version: z.string().min(1),

@@ -7,7 +7,7 @@ import { Engine, computeStatus, checkGate, resolveNextDispatch, PhaseDispatchEnt
 import { appendEvents } from '../../../../src/workflow/core/events';
 import { sha256File } from '../../../../src/utils/hash';
 
-const REAL_SCHEMA = path.resolve(__dirname, '../../../../docs/design/workflow-schema.yaml');
+const REAL_SCHEMA = path.resolve(__dirname, '../../../../schemas/workflow-schema.yaml');
 
 const MINI = `
 schema_version: "test-1"

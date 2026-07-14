@@ -52,7 +52,7 @@ function writeAnalysis(root: string, category = 'assertion_failure'): void {
 function schemaFile(root: string): string {
   const file = path.join(root, '.aws', 'workflow-schema.yaml');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.copyFileSync(path.join(__dirname, '../../../../docs/design/workflow-schema.yaml'), file);
+  fs.copyFileSync(path.join(__dirname, '../../../../schemas/workflow-schema.yaml'), file);
   return file;
 }
 

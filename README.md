@@ -230,7 +230,7 @@ Codegen 工程约束（`aws-api-codegen` 等）：
 | 13 | `aws-report-generator` | `aws-reporter` | 质量报告（非 gating） |
 | 14 | — | 编排器 | 归档资格建议（不自动归档） |
 
-正式 DAG 定义见 [`docs/design/workflow-schema.yaml`](docs/design/workflow-schema.yaml)。
+正式 DAG 定义见 [`schemas/workflow-schema.yaml`](schemas/workflow-schema.yaml)。
 
 ---
 
@@ -518,7 +518,8 @@ npm run lint         # tsc --noEmit
 | `src/risk/` | Explore context 聚合与 advisory 校验 |
 | `src/workflow/core/` | workflow-state、events、case ID 规范化 |
 | `skills/` | 全部 AWS Skill 定义 |
-| `docs/design/` | workflow schema 与设计方案 |
+| `schemas/` | runtime schemas 与 human/agent contract references |
+| `docs/design/` | 设计方案 |
 
 ---
 

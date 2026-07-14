@@ -2,7 +2,7 @@
 
 - 状态：Draft / Proposal
 - 目标读者：`aws-workflow` / `aws-explore` / `aws-case-design` / `aws-case-reviewer` 维护者
-- 关联：`docs/design/workflow-schema.yaml`（当前 phase DAG 与 gate 模型）；实现规格见 `docs/superpowers/specs/2026-07-04-three-problems-stability-spec.md`
+- 关联：`schemas/workflow-schema.yaml`（当前 phase DAG 与 gate 模型）；实现规格见 `docs/superpowers/specs/2026-07-04-three-problems-stability-spec.md`
 - 定位：本文把 **「反问（计划内人机对话）」定义为一个模式级开关**，而不是强制塞进所有执行的关卡。它只解决「反问该在什么时候发生、由谁触发、如何不被自主流碾压」（问题 1）。healing 状态机被绕过、gate JSON 被伪造（问题 2、3）属于 **执行阶段的状态机强制**，由另一份「state-machine enforcement」设计单独处理，本文不覆盖。
 
 > **设计立场（相对早期草案的两次修正）**：
@@ -297,7 +297,7 @@ preflight（aws-execute 启动时）:
 ## 9. Schema / 状态 / DAG 变更清单
 
 - **`workflow-state.yaml`**：新增 `run_context`（§6.5：`orchestrator_skill` / `interaction_mode` / `active_scope` / `stamped_at`）。这是 mode/scope 传播的载体，**必须由 CLI 的 `aws state` 写入，禁止手写**。
-- **`docs/design/workflow-schema.yaml`**：DAG 本体基本不变（phase / gate 定义复用）。为每个 phase 增加 `owned_by`（如 `owned_by: [aws-workflow, aws-intake]`），供 CLI 校验 scope。**不新增 `intake_mode` 用户参数、不新增 `intake-handoff-gate`。**
+- **`schemas/workflow-schema.yaml`**：DAG 本体基本不变（phase / gate 定义复用）。为每个 phase 增加 `owned_by`（如 `owned_by: [aws-workflow, aws-intake]`），供 CLI 校验 scope。**不新增 `intake_mode` 用户参数、不新增 `intake-handoff-gate`。**
 - **新增两个 skill 目录**：`skills/aws-intake/SKILL.md`、`skills/aws-execute/SKILL.md`（薄壳，引用 `aws-workflow`；启动时盖 `run_context`）。
 - **`aws-workflow/SKILL.md` 微调**：§6.2 声明 + 启动盖 `run_context(autonomous, full)`。
 - **`aws-explore/SKILL.md` 改造（mode-aware）**：§4.1 open_question 生成规则 + preflight 读 `interaction_mode` → §4.2 的"反问 / auto_default"分支。
