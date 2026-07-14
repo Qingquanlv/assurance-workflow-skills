@@ -11,6 +11,7 @@ import { generateRunReport, generateTrendReport, compareWithBaseline } from '../
 import { updateBaseline, readBaseline, getBaselineForSuite } from '../eval/baseline';
 import { generatePlan, writePlan, loadSuite, readPlan } from '../eval/plan';
 import { readMetrics } from '../eval/metrics';
+import { evalBatchesDir, evalRunsDir } from '../eval/paths';
 
 function getEvalRoot(projectRoot: string): string {
   return path.join(projectRoot, 'eval');
@@ -164,7 +165,7 @@ export function registerEvalCommand(program: Command): void {
 
       try {
         if (opts.run) {
-          const runDir = path.join(evalRoot, 'runs', opts.run);
+          const runDir = path.join(evalRunsDir(evalRoot), opts.run);
           const gateResult = readGateResult(runDir);
           console.log(`suite:   ${gateResult.suite}`);
           console.log(`verdict: ${verdictColor(gateResult.verdict)(gateResult.verdict)}`);
@@ -173,7 +174,7 @@ export function registerEvalCommand(program: Command): void {
           }
           exitWithGateVerdict(gateResult.verdict);
         } else {
-          const batchDir = path.join(evalRoot, 'batches', opts.batch);
+          const batchDir = path.join(evalBatchesDir(evalRoot), opts.batch);
           const gateResult = BatchGate.read(batchDir);
           console.log(`batch:   ${gateResult.batch_id}`);
           console.log(`verdict: ${verdictColor(gateResult.verdict)(gateResult.verdict)}`);
@@ -198,7 +199,7 @@ export function registerEvalCommand(program: Command): void {
     .option('--suite <name>', 'Filter trend by suite name')
     .option('--from <iso>', 'Trend filter: runs started on or after this ISO datetime')
     .option('--to <iso>', 'Trend filter: runs started on or before this ISO datetime')
-    .option('--html', 'Write HTML report (run: report.html; trend: eval/reports/trend-<suite>.html)')
+    .option('--html', 'Write HTML report (run: report.html; trend: eval/out/reports/trend-<suite>.html)')
     .option('--output <path>', 'Override HTML output path')
     .option('--json', 'Output structured JSON instead of markdown/text')
     .action((opts) => {
@@ -207,7 +208,7 @@ export function registerEvalCommand(program: Command): void {
 
       try {
         if (opts.trend) {
-          const runsDir = path.join(evalRoot, 'runs');
+          const runsDir = evalRunsDir(evalRoot);
           const { entries, htmlPath } = generateTrendReport(runsDir, {
             suite: opts.suite,
             from: opts.from,
@@ -227,7 +228,7 @@ export function registerEvalCommand(program: Command): void {
             console.error(chalk.green(`HTML report: ${htmlPath}`));
           }
         } else if (opts.run) {
-          const runDir = path.join(evalRoot, 'runs', opts.run);
+          const runDir = path.join(evalRunsDir(evalRoot), opts.run);
           const { markdown, data, htmlPath } = generateRunReport(runDir, {
             html: opts.html,
             htmlPath: opts.output,
@@ -273,7 +274,7 @@ export function registerEvalCommand(program: Command): void {
         const baseline = readBaseline(baselinePath);
 
         if (opts.run) {
-          const runDir = path.join(evalRoot, 'runs', opts.run);
+          const runDir = path.join(evalRunsDir(evalRoot), opts.run);
           const manifest = JSON.parse(
             fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf-8')
           );
@@ -293,11 +294,11 @@ export function registerEvalCommand(program: Command): void {
           }
         } else {
           // Batch compare: iterate suite runs
-          const batchDir = path.join(evalRoot, 'batches', opts.batch);
+          const batchDir = path.join(evalBatchesDir(evalRoot), opts.batch);
           const batchManifest = readBatchManifest(batchDir);
 
           for (const [suiteName, runId] of Object.entries(batchManifest.suite_runs)) {
-            const runDir = path.join(evalRoot, 'runs', runId);
+            const runDir = path.join(evalRunsDir(evalRoot), runId);
             const baselineEntry = baseline[suiteName];
             if (!baselineEntry) {
               console.log(chalk.yellow(`  ${suiteName}: no baseline`));
@@ -332,7 +333,7 @@ export function registerEvalCommand(program: Command): void {
       const projectRoot = process.cwd();
       const evalRoot = getEvalRoot(projectRoot);
       const baselinePath = path.join(evalRoot, 'baselines', 'main.json');
-      const runDir = path.join(evalRoot, 'runs', opts.run);
+      const runDir = path.join(evalRunsDir(evalRoot), opts.run);
 
       try {
         await updateBaseline({

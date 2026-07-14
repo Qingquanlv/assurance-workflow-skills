@@ -25,7 +25,7 @@ describe('test-data architecture skill contract', () => {
   });
 
   it('publishes domain factories and per-layer adapters as distinct capabilities', () => {
-    const template = read('src/templates/data-knowledge-yaml.ts');
+    const template = read('src/workflow/templates/data-knowledge-yaml.ts');
     expect(template).not.toContain('fixtures: {}');
     expect(template).toContain('domain_factories: {}');
     expect(template).toContain('adapters:');

@@ -2,10 +2,10 @@ import { Command } from 'commander';
 import {
   configureWorkflowParams,
   OrchestratorSkill,
-} from '../core/workflow_state';
-import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
-import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
-import { createWorkflowProgression } from '../orchestration/progression';
+} from '../workflow/core/workflow_state';
+import { transitionHealingStatus, HealingStatus } from '../workflow/core/healing_state';
+import { findSchemaFile, loadSchemaFromFile } from '../workflow/orchestration/schema';
+import { createWorkflowProgression } from '../workflow/orchestration/progression';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 const CONFIGURE_ORCHESTRATORS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);
@@ -37,12 +37,20 @@ export function registerStateCommand(program: Command): void {
 
       try {
         const schema = loadSchemaFromFile(findSchemaFile(projectRoot));
-        const progression = createWorkflowProgression({ schema, projectRoot, changeId });
-        progression.applyOutcome({
+        const progressionOptions = { schema, projectRoot, changeId };
+        const progression = createWorkflowProgression(progressionOptions);
+        const { action } = progression.inspect();
+        if (action.kind !== 'dispatch_phase' || action.phase !== phase) {
+          throw new Error(
+            `state apply: phase '${phase}' is not the current dispatch target ` +
+            `(inspect returned ${action.kind === 'dispatch_phase' ? action.phase : action.kind})`,
+          );
+        }
+        progression.advance({
+          attemptId: options.attemptId ? String(options.attemptId) : action.attemptId,
+          stateGuard: action.stateGuard,
+          kind: 'dispatch_phase',
           phase,
-          attemptId: options.attemptId
-            ? String(options.attemptId)
-            : `cli:${phase}:${Date.now()}`,
         });
         logOk(`workflow-state.yaml updated for phase "${phase}"`);
         logBlank();

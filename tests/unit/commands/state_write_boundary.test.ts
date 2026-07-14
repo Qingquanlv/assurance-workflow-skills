@@ -18,8 +18,11 @@ describe('workflow-state write boundary', () => {
     const gateSource = fs.readFileSync(path.join(repoRoot, 'src/commands/gate.ts'), 'utf-8');
 
     expect(stateSource).not.toContain('applyPhaseState');
+    expect(stateSource).not.toContain('applyPhaseOutcome');
     expect(stateSource).toContain('createWorkflowProgression');
+    expect(stateSource).toContain('.advance(');
     expect(gateSource).not.toContain("from '../orchestration/engine'");
-    expect(gateSource).toContain('createWorkflowProgression');
+    expect(gateSource).not.toContain('adjudicatePhaseGate');
+    expect(gateSource).toContain('inspectNamedGate');
   });
 });

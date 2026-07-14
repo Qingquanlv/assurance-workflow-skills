@@ -222,7 +222,18 @@ MCP is optional and must not replace the CLI execution chain.
 
 ## failure-analysis.json Schema
 
-Primary inspect output written by the CLI (skill verifies; does not fabricate). Minimal top-level structure.
+> **Schema source of truth:** the complete, enforced field contracts for inspect outputs
+> live in `src/schema/failure_analysis.ts` and `src/schema/quality_gate_result.ts`
+> (validated by `aws validate`). The examples below are illustrative only. After primary
+> inspect completes you MUST run:
+>
+> ```
+> aws validate --change <change-id> --phase inspect
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
+Primary inspect output written by the CLI (skill verifies; does not fabricate). Minimal top-level structure — see `src/schema/failure_analysis.ts` for the full contract.
 
 `inspect_mode` enum (JSON and `workflow-state.yaml`): `primary | partial`
 
@@ -232,44 +243,13 @@ Primary inspect output written by the CLI (skill verifies; does not fabricate). 
   "change_id": "<change-id>",
   "batch_id": "<batch-id>",
   "source_batch_id": "<batch-id>",
-  "source_manifest": "qa/changes/<change-id>/execution/execution-manifest.yaml",
   "inspect_mode": "primary",
   "classification_performed": true,
   "inspection_status": "completed",
   "final_status": "FAIL",
-  "failures": [
-    {
-      "id": "FAIL-001",
-      "target": "api",
-      "test": "test_menu_get_returns_200",
-      "category": "assertion_failure",
-      "severity": "medium",
-      "evidence": {
-        "log": "execution/runs/<batch-id>/raw/api.log",
-        "junit_xml": "execution/runs/<batch-id>/raw/pytest-report.xml"
-      },
-      "fix_proposal_eligible": false,
-      "recommended_next_action": "human_review"
-    },
-    {
-      "id": "FAIL-002",
-      "target": "e2e",
-      "test": "test_checkout_flow",
-      "category": "locator_failure",
-      "severity": "medium",
-      "evidence": {
-        "log": "execution/runs/<batch-id>/raw/e2e.log",
-        "trace": "execution/runs/<batch-id>/traces/...",
-        "screenshot": "execution/runs/<batch-id>/screenshots/..."
-      },
-      "fix_proposal_eligible": true,
-      "recommended_next_action": "run_fix_proposal"
-    }
-  ],
+  "failures": [],
   "known_product_issues": [],
-  "coverage_gaps": [
-    { "file": "app/api/v1/menu.py", "line_coverage": 41.0, "threshold": 70 }
-  ]
+  "coverage_gaps": []
 }
 ```
 
@@ -277,42 +257,16 @@ Primary inspect output written by the CLI (skill verifies; does not fabricate). 
 
 ## quality-gate-result.json Schema (M1)
 
-The unified, deterministic gate conclusion. CLI-written; the skill verifies and **must not** fabricate or alter `final_status`.
+The unified, deterministic gate conclusion. CLI-written; the skill verifies and **must not** fabricate or alter `final_status`. Field contract: `src/schema/quality_gate_result.ts`.
+
+**Minimal illustrative shape:**
 
 ```json
 {
   "schema_version": "1.0",
   "change_id": "<change-id>",
   "batch_id": "<batch-id>",
-  "dimensions": {
-    "functional": {
-      "status": "PASS",
-      "api": { "total": 36, "passed": 36, "failed": 0 },
-      "e2e": { "total": 8, "passed": 8, "failed": 0 },
-      "fuzz": { "total": 12, "passed": 12, "failed": 0 }
-    },
-    "coverage": {
-      "status": "PASS_WITH_WARNINGS",
-      "available": true,
-      "line_coverage": 76.2,
-      "branch_coverage": 58.0,
-      "threshold": { "line": 70, "branch": 60 }
-    },
-    "non_functional": {
-      "status": "PASS",
-      "performance": [
-        {
-          "capability": "checkout-throughput",
-          "endpoint": "POST /api/checkout",
-          "measured_p95_ms": 420,
-          "threshold_p95_ms": 800,
-          "measured_error_rate": 0.0,
-          "threshold_error_rate_max": 0.01,
-          "verdict": "PASS"
-        }
-      ]
-    }
-  },
+  "dimensions": {},
   "final_status": "PASS_WITH_WARNINGS"
 }
 ```
@@ -554,24 +508,7 @@ The repair pipeline is: `aws-fix-proposal` → `aws-api-codegen-fixer` / `aws-e2
 
 ## Extended failure-analysis Failure Fields
 
-Each failure in `failure-analysis.json.failures[]` written by the CLI (primary mode) should include — and the skill must verify these fields are present when reading for downstream healing:
-
-```json
-{
-  "failure_id": "FAIL-001",
-  "case_id": "CASE-001",
-  "target": "api|e2e",
-  "category": "<category>",
-  "severity": "low|medium|high|critical",
-  "summary": "Human-readable one-line description of the failure",
-  "evidence": [],
-  "in_current_change_scope": true,
-  "requires_test_code_change": false,
-  "requires_product_change": false,
-  "fix_proposal_eligible": false,
-  "recommended_next_action": "run_fix_proposal|human_review|fix_product|fix_environment|rerun"
-}
-```
+Each failure in `failure-analysis.json.failures[]` written by the CLI (primary mode) should include the fields defined in `src/schema/failure_analysis.ts` — and the skill must verify these fields are present when reading for downstream healing.
 
 If the CLI writes these fields, the skill must preserve them. If the CLI does not write them, the skill must **not** fabricate them — leave missing fields absent rather than guessing.
 

@@ -6,19 +6,13 @@ import { buildRetroContext } from '../retro/aggregator';
 import { validateRetroProposals } from '../retro/proposals';
 import { completeRetroStage, markConsumedChange } from '../retro/state';
 import type { RetroContext, RetroPromoteRecord, RetroProposal } from '../retro/types';
-
-function countSignals(context: RetroContext): number {
-  return (
-    context.signals.failure_distribution.length +
-    context.signals.gate_pushback.length +
-    (context.signals.healing_efficiency.proposal_created > 0 ||
-    context.signals.healing_efficiency.created_proposals > 0 ? 1 : 0) +
-    context.signals.human_decisions.length +
-    context.signals.reclassifications.length +
-    context.signals.skill_execution.length +
-    context.signals.eval_trend.length
-  );
-}
+import {
+  collectNightly,
+  reportNightly,
+  resumeNightly,
+} from '../retro/nightly/driver';
+import { countSignals } from '../retro/nightly/utils';
+import type { NightlyOptions } from '../retro/nightly/types';
 
 function defaultOutPath(projectRoot: string, retroId: string): string {
   return path.join(projectRoot, 'qa', 'retro', retroId, 'context.json');
@@ -94,6 +88,8 @@ export function registerRetroCommand(program: Command): void {
       console.log(`signal_count: ${summary.signal_count}`);
       console.log(`context: ${path.relative(projectRoot, outPath)}`);
     });
+
+  registerNightlyCommands(retroCmd);
 
   retroCmd
     .command('promote')
@@ -220,6 +216,83 @@ export function registerRetroCommand(program: Command): void {
         rolled_back: changed,
       }));
     });
+}
+
+function registerNightlyCommands(retroCmd: Command): void {
+  const nightly = retroCmd
+    .command('nightly')
+    .description('Run the compiled nightly retro pipeline');
+
+  nightly
+    .command('collect')
+    .description('Collect evidence, generate proposals, and prepare the review queue')
+    .requiredOption('--sut <path>', 'SUT project root')
+    .option('--retro-id <id>', 'Stable retro run id')
+    .option('--dry-run', 'Stop before invoking the proposal agent', false)
+    .option('--agent <cmd>', 'Proposal agent command', 'cursor-agent')
+    .option('--history <n>', 'Number of prior runs to include', parseInteger, 5)
+    .option('--min-evidence <n>', 'Minimum distinct evidence changes', parseInteger, 2)
+    .option('--rework-alert <n>', 'Repeated rework alert threshold', parseInteger, 3)
+    .action(async (opts, command) => runNightly(() => collectNightly(
+      nightlyOptions({ ...command.optsWithGlobals(), ...opts }),
+    )));
+
+  nightly
+    .command('resume')
+    .description('Resume a reviewed run through staged apply and eval')
+    .requiredOption('--sut <path>', 'SUT project root')
+    .option('--retro-id <id>', 'Retro run id (required)')
+    .option('--skip-eval', 'Render staged memory without running eval', false)
+    .action(async (opts, command) => {
+      const retroId = opts.retroId ?? command.optsWithGlobals().retroId;
+      if (!retroId) {
+        console.error('error: required option --retro-id <id> not specified');
+        process.exitCode = 2;
+        return;
+      }
+      await runNightly(() => resumeNightly(
+        nightlyOptions({ ...command.optsWithGlobals(), ...opts, retroId }),
+      ));
+    });
+
+  nightly
+    .command('report')
+    .description('Build the cross-run nightly report')
+    .requiredOption('--sut <path>', 'SUT project root')
+    .option('--last <n>', 'Number of recent runs', parseInteger, 10)
+    .option('--rework-alert <n>', 'Repeated rework alert threshold', parseInteger, 3)
+    .action(async (opts, command) => runNightly(async () => reportNightly(
+      nightlyOptions({ ...command.optsWithGlobals(), ...opts }),
+    )));
+}
+
+function parseInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) throw new Error(`Expected an integer, got: ${value}`);
+  return parsed;
+}
+
+function nightlyOptions(opts: Partial<NightlyOptions>): NightlyOptions {
+  return {
+    sut: opts.sut as string,
+    retroId: opts.retroId,
+    dryRun: opts.dryRun ?? false,
+    agent: opts.agent ?? 'cursor-agent',
+    history: opts.history ?? 5,
+    minEvidence: opts.minEvidence ?? 2,
+    reworkAlert: opts.reworkAlert ?? 3,
+    skipEval: opts.skipEval ?? false,
+    last: opts.last ?? 10,
+  };
+}
+
+async function runNightly(operation: () => Promise<number>): Promise<void> {
+  try {
+    process.exitCode = await operation();
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 40;
+  }
 }
 
 function collectChange(value: string, previous: string[]): string[] {

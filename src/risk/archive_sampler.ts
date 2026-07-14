@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiResult, E2eResult } from '../core/types';
-import { loadExecutionEvidence } from '../execution/evidence';
+import { ApiResult, E2eResult } from '../workflow/core/types';
+import { loadExecutionEvidence } from '../workflow/execution/evidence';
 import { ArchiveBatchSample, Layer } from './types';
 
 export interface SampledArchive {

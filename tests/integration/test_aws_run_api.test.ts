@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { run } from '../../src/execution/runner';
+import { run } from '../../src/workflow/execution/runner';
 
 function makeTmpProject(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-run-'));

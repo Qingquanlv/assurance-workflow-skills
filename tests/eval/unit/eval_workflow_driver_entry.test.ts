@@ -2,10 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { runWorkflowEval } from '../../../src/eval/executors/workflow_run';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const WRAPPER = path.join(REPO_ROOT, 'scripts/eval-workflow-run.mjs');
-const FAKE_AWS = path.join(REPO_ROOT, 'scripts/fake-aws-workflow-echo.mjs');
+const FAKE_AWS = path.join(REPO_ROOT, 'eval/fixtures/fakes/fake-aws-workflow-echo.mjs');
 
 describe('eval-workflow-run driver entry', () => {
   it('default entry invokes aws workflow run --adapter headless', () => {
@@ -40,35 +40,24 @@ describe('eval-workflow-run driver entry', () => {
     fs.mkdirSync(archiveDir, { recursive: true });
     const argvOut = path.join(tmp, 'aws-argv.json');
 
-    execFileSync(
-      process.execPath,
-      [
-        WRAPPER,
-        '--repo-root',
-        REPO_ROOT,
-        '--project-dir',
+    const previousArgvOut = process.env.FAKE_AWS_ARGV_OUT;
+    process.env.FAKE_AWS_ARGV_OUT = argvOut;
+    try {
+      expect(runWorkflowEval({
+        repoRoot: REPO_ROOT,
         projectDir,
-        '--change',
-        'eval-sample-001',
-        '--fixture-tier',
-        'L0',
-        '--run-mode',
-        'case-only',
-        '--archive-dir',
+        changeId: 'eval-sample-001',
+        fixtureTier: 'L0',
+        runMode: 'case-only',
         archiveDir,
-        '--attempt-dir',
         attemptDir,
-        '--skip-seed',
-        '--aws-bin',
-        FAKE_AWS,
-      ],
-      {
-        cwd: REPO_ROOT,
-        env: { ...process.env, FAKE_AWS_ARGV_OUT: argvOut },
-        stdio: 'pipe',
-        encoding: 'utf8',
-      },
-    );
+        skipSeed: true,
+        awsBin: FAKE_AWS,
+      })).toBe(0);
+    } finally {
+      if (previousArgvOut === undefined) delete process.env.FAKE_AWS_ARGV_OUT;
+      else process.env.FAKE_AWS_ARGV_OUT = previousArgvOut;
+    }
 
     const argv = JSON.parse(fs.readFileSync(argvOut, 'utf8')) as string[];
     expect(argv).toEqual(

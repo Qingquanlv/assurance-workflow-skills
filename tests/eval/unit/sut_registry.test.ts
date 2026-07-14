@@ -141,7 +141,7 @@ describe('executor_template sut.dir', () => {
       sample: { id: 'WC-001', input: { sut: 'fastapi-vue-admin' } },
       projectRoot: '/repo',
       runId: 'run-1',
-      attemptDir: '/repo/eval/runs/run-1/samples/WC-001/attempt-0',
+      attemptDir: '/repo/eval/out/runs/run-1/samples/WC-001/attempt-0',
       sutDir: '/repo/../aws-bench-fastapi-vue-admin',
     });
     expect(vars['sut.dir']).toBe('/repo/../aws-bench-fastapi-vue-admin');

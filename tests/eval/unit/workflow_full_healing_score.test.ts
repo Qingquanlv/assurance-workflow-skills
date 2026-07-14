@@ -3,8 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { scoreHealingTriggeredRate } from '../../../src/eval/scorers/workflow_full';
-import { appendEventsStrict } from '../../../src/core/events';
-import { sha256File } from '../../../src/core/hash';
+import { appendEventsStrict } from '../../../src/workflow/core/events';
+import { sha256File } from '../../../src/utils/hash';
 
 describe('scoreHealingTriggeredRate (derived healing)', () => {
   let rawOutputDir: string;

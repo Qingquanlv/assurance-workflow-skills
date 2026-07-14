@@ -607,13 +607,23 @@ Set `human_review_required = true` when:
 
 ## Required JSON Format
 
+> **Schema source of truth:** the complete, enforced field contract for review gate JSON
+> lives in `src/schema/review.ts` (validated by `aws validate`). The example below is
+> illustrative only. After writing review files you MUST run:
+>
+> ```
+> aws validate --change <change-id> --artifact review/case-review.json
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
 Write valid JSON to:
 
 ```text
 qa/changes/<change-id>/review/case-review.json
 ```
 
-Use this exact top-level structure:
+**Minimal top-level structure (illustrative — see `src/schema/review.ts` for the full contract):**
 
 ```json
 {
@@ -625,11 +635,7 @@ Use this exact top-level structure:
   "auto_fix_allowed": false,
   "human_review_required": false,
   "summary": "Short review summary.",
-  "reviewed_files": [
-    "qa/changes/<change-id>/proposal.md",
-    "qa/changes/<change-id>/.qa.yaml",
-    "qa/changes/<change-id>/cases/<module>/case.yaml"
-  ],
+  "reviewed_files": [],
   "blockers": [],
   "findings": [],
   "needs_review": [],
@@ -639,15 +645,6 @@ Use this exact top-level structure:
 }
 ```
 
-`next_action` mapping:
-
-| decision | next_action |
-|---|---|
-| `pass` | `continue` |
-| `needs_fix` | `run_case_fixer` |
-| `needs_human_review` | `human_review` |
-| `reject` | `stop` |
-
 `reviewed_files` MUST include:
 - `qa/changes/<change-id>/proposal.md`
 - `qa/changes/<change-id>/.qa.yaml`
@@ -655,38 +652,9 @@ Use this exact top-level structure:
 
 `reviewed_files` MUST NOT be empty.
 
-Each finding must use:
-
-```json
-{
-  "id": "CASE-FINDING-001",
-  "severity": "low|medium|high|critical",
-  "category": "coverage|schema|clarity|testability|data|assertion|traceability|scope|duplication|layering",
-  "file": "qa/changes/<change-id>/cases/...",
-  "message": "What is wrong.",
-  "suggestion": "How to fix it.",
-  "auto_fix_allowed": true,
-  "human_review_required": false
-}
-```
-
-`fix_scope` is REQUIRED when `category == "layering"` and `auto_fix_allowed == true`.
+`fix_scope` is REQUIRED when a finding has `category == "layering"` and `auto_fix_allowed == true`.
 It lists the exact case fields the fixer is permitted to touch.
 For all other categories, `fix_scope` is omitted.
-
-Each `needs_review` item must use:
-
-```json
-{
-  "id": "CASE-REVIEW-001",
-  "severity": "medium|high|critical",
-  "category": "scope|requirement|product_behavior|auth|role|data|risk",
-  "file": "qa/changes/<change-id>/cases/...",
-  "question": "What needs human clarification?",
-  "reason": "Why this cannot be decided from files.",
-  "blocking": true
-}
-```
 
 **`needs_review` hard rules:**
 
@@ -696,29 +664,6 @@ Each `needs_review` item must use:
   - `auto_fix_allowed` MUST be `false`.
   - `next_action` MUST be `human_review`.
 - If all items have `blocking == false`, a `pass` or `needs_fix` decision is still allowed, but the items must remain in `needs_review` so the reviewer record is transparent.
-
-Each blocker must use:
-
-```json
-{
-  "id": "CASE-BLOCKER-001",
-  "severity": "high|critical",
-  "file": "qa/changes/<change-id>/...",
-  "message": "Why the workflow cannot continue.",
-  "required_action": "What a human or previous step must do."
-}
-```
-
-Each `auto_fix_plan` item must use:
-
-```json
-{
-  "finding_id": "CASE-FINDING-001",
-  "target_file": "qa/changes/<change-id>/...",
-  "operation": "edit|append|normalize|rename",
-  "description": "What the fixer should do."
-}
-```
 
 ---
 

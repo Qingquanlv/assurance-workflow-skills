@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { InitAnswers } from '../core/types';
-import { generateProject, repairProject, registerOpenCode } from '../core/generator';
-import { copyOpencodeAssets, syncOpencodeAssets } from '../core/agents_assets';
+import { InitAnswers } from '../workflow/core/types';
+import { generateProject, repairProject, registerOpenCode } from '../workflow/core/generator';
+import { copyOpencodeAssets, syncOpencodeAssets } from '../workflow/core/agents_assets';
 import { logOk, logWarn, logError, logInfo, logBlank } from '../utils/logger';
 
 export function registerInitCommand(program: Command): void {

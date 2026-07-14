@@ -44,6 +44,9 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Check architecture boundaries
+        run: npm run arch:check
+
       - name: Build (required by integration tests)
         run: npm run build
 

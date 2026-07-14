@@ -2,19 +2,10 @@ name: workflow-e2e-codegen
 version: "1.0.0"
 
 executor:
-  type: subprocess
-  workdir: "{{workspace.root}}"
-  command: >-
-    node {{workspace.root}}/scripts/eval-workflow-run.mjs
-    --repo-root {{workspace.root}}
-    --project-dir {{sut.dir}}
-    --change {{sample.input.change_id}}
-    --fixture-tier {{sample.input.fixture_tier}}
-    --run-mode codegen-only
-    --test-types e2e
-    --run-tests false
-    --archive-dir {{attempt.dir}}/raw-output
-    --attempt-dir {{attempt.dir}}
+  type: workflow-run
+  run_mode: codegen-only
+  test_type: e2e
+  run_tests: false
   timeout_seconds: 7200
   expected_outputs:
     - "{{attempt.dir}}/raw-output/plans/e2e-plan.md"
@@ -45,4 +36,4 @@ ci:
     max_samples: 1
     trigger_paths:
       - "skills/aws-e2e-codegen/**"
-      - "scripts/eval-workflow-run.mjs"
+      - "src/eval/executors/workflow_run.ts"

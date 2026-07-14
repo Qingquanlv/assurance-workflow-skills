@@ -1,36 +1,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
 import {
   scoreOpenCodeProcessMetrics,
   OPENCODE_PROCESS_METRIC_KEYS,
 } from '../../../src/eval/scorers/_shared/opencode_process_metrics';
-import type { OpenCodeProcessSummary } from '../../../scripts/lib/opencode-process-events';
-
-const HARNESS = path.resolve(
-  __dirname,
-  '../../../scripts/lib/opencode-process-events-harness.mjs'
-);
-
-function callParser(fn: string, args: unknown[]): unknown {
-  const out = execFileSync(process.execPath, [HARNESS], {
-    input: JSON.stringify({ fn, args }),
-    encoding: 'utf8',
-  });
-  return JSON.parse(out);
-}
-
-function parseOpenCodeProcessLog(
-  stdoutText: string,
-  opts?: Record<string, unknown>
-): OpenCodeProcessSummary {
-  return callParser('parseOpenCodeProcessLog', opts ? [stdoutText, opts] : [stdoutText]) as OpenCodeProcessSummary;
-}
-
-function sanitizeSecrets(text: string): string {
-  return callParser('sanitizeSecrets', [text]) as string;
-}
+import {
+  parseOpenCodeProcessLog,
+} from '../../../src/eval/opencode_process_events';
+import { sanitizeSecrets } from '../../../src/utils/secret_sanitize';
 
 function line(obj: unknown): string {
   return JSON.stringify(obj);

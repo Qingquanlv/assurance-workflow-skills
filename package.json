@@ -15,7 +15,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "tsc --noEmit && npm run arch:check",
-    "arch:check": "depcruise src/eval --config .dependency-cruiser.cjs --output-type text",
+    "arch:check": "depcruise src --config .dependency-cruiser.cjs --output-type text",
     "link:skills": "bash scripts/link-skills.sh"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 import type { DatasetSample } from '../types';
-import { classifyFailure } from '../../report/failure_classifier';
+import { classifyFailure } from '../../workflow/report/failure_classifier';
 
 /** In-process executor for classification-unit: run classifier, emit prediction artifact. */
 export function run(sample: DatasetSample): Record<string, unknown> {

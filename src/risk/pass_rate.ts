@@ -1,5 +1,5 @@
-import { ApiCaseResult, E2eCaseResult } from '../core/types';
-import { canonicalizeCaseId } from '../core/case_id';
+import { ApiCaseResult, E2eCaseResult } from '../workflow/core/types';
+import { canonicalizeCaseId } from '../workflow/core/case_id';
 import {
   ArchiveBatchSample,
   ConfidenceLevel,

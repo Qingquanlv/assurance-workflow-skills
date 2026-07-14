@@ -9,6 +9,9 @@ import type {
   ExecutorConfig,
   InProcessExecutorConfig,
   SubprocessExecutorConfig,
+  WorkflowRunExecutorConfig,
+  AwsRunExecutorConfig,
+  LeafExecutorConfig,
   DatasetSample,
   ExecutionResult,
 } from './types';
@@ -16,6 +19,8 @@ import { requireRuntimeModule } from './module_resolver';
 import { expandTemplate, expandTemplateVars } from './executor_template';
 import { resolveSampleSut } from './sut_registry';
 import micromatch from 'micromatch';
+import { runWorkflowEval } from './executors/workflow_run';
+import { runAwsEval } from './executors/aws_run';
 
 // ── Sandbox management ────────────────────────────────────────────────────────
 
@@ -108,10 +113,6 @@ const EXTERNAL_EVIDENCE_EXECUTORS = new Set([
   'eval-workflow-run',
   'aws-run-wrapper',
 ]);
-
-function commandUsesExternalEvidenceWriter(command: string): boolean {
-  return /eval-(aws-run|workflow-run)\.mjs\b/.test(command);
-}
 
 function attemptHasExternalEvidence(attemptDir: string): boolean {
   const execPath = path.join(attemptDir, 'execution.json');
@@ -285,7 +286,6 @@ function runSubprocess(
 
   // Expand command
   const command = expandTemplate(config.command, templateVars);
-  const externalEvidence = commandUsesExternalEvidenceWriter(command);
   const [cmd, ...args] = command.split(/\s+/);
 
   // Build environment
@@ -316,7 +316,7 @@ function runSubprocess(
     }
   }
 
-  if (!externalEvidence && !attemptHasExternalEvidence(attemptDir)) {
+  if (!attemptHasExternalEvidence(attemptDir)) {
     fs.writeFileSync(path.join(attemptDir, 'stdout.log'), regularLines.join('\n'));
     fs.writeFileSync(path.join(attemptDir, 'stderr.log'), result.stderr ?? '');
   } else {
@@ -347,6 +347,151 @@ function runSubprocess(
     attemptDir,
     rawOutputDir
   );
+}
+
+function requireSampleString(sample: DatasetSample, key: string): string {
+  const value = sample.input[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${key} is required for typed eval executor`);
+  }
+  return value;
+}
+
+function withExpandedEnv<T>(
+  envConfig: Record<string, string> | undefined,
+  templateVars: Record<string, string>,
+  operation: () => T,
+): T {
+  if (!envConfig) return operation();
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(envConfig)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = expandTemplate(value, templateVars);
+  }
+  try {
+    return operation();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function runCompiledWrapper(
+  config: WorkflowRunExecutorConfig | AwsRunExecutorConfig,
+  sample: DatasetSample,
+  attemptDir: string,
+  projectRoot: string,
+  templateVars: Record<string, string>,
+  sutDir: string | undefined,
+): void {
+  if (!sutDir) throw new Error('sut.dir is required for typed eval executor');
+  const changeId = requireSampleString(sample, 'change_id');
+  const archiveDir = path.join(attemptDir, 'raw-output');
+  const fixtureTier = requireSampleString(sample, 'fixture_tier');
+
+  let sandboxPath: string | undefined;
+  if (config.sandbox) {
+    const copyFrom = config.sandbox.copy_from
+      ? expandTemplate(config.sandbox.copy_from, templateVars)
+      : undefined;
+    sandboxPath = prepareSandbox(
+      copyFrom,
+      config.sandbox.clean_before_run ?? true,
+      attemptDir,
+      projectRoot,
+    );
+  }
+  const policyTemplateVars = expandTemplateVars({
+    sample,
+    projectRoot,
+    runId: templateVars['run.id'],
+    attemptDir,
+    sandboxPath,
+    sutDir,
+  });
+  const workdir = config.workdir
+    ? expandTemplate(config.workdir, policyTemplateVars)
+    : sandboxPath ?? sutDir;
+  if (!fs.existsSync(workdir)) {
+    throw new Error(`executor workdir not found: ${workdir}`);
+  }
+  const executorProjectDir = sandboxPath ?? sutDir;
+  const allowedWrites = config.allowed_writes?.map((pattern) =>
+    expandTemplate(pattern, policyTemplateVars)
+  );
+
+  const exitCode = withExpandedEnv(config.env, policyTemplateVars, () => (
+    config.type === 'workflow-run'
+      ? runWorkflowEval({
+        repoRoot: projectRoot,
+        projectDir: executorProjectDir,
+        changeId,
+        fixtureTier,
+        runMode: expandTemplate(config.run_mode, policyTemplateVars),
+        testTypes: config.test_type,
+        runTests: config.run_tests ?? false,
+        timeoutSeconds: config.timeout_seconds,
+        entry: config.entry,
+        archiveDir,
+        attemptDir,
+        skipSeed: config.skip_seed,
+        opencodeBin: config.opencode_bin
+          ? expandTemplate(config.opencode_bin, policyTemplateVars)
+          : undefined,
+        awsBin: config.aws_bin
+          ? expandTemplate(config.aws_bin, policyTemplateVars)
+          : undefined,
+        agentCmd: config.agent_cmd
+          ? expandTemplate(config.agent_cmd, policyTemplateVars)
+          : undefined,
+        allowedWrites,
+      })
+      : runAwsEval({
+        repoRoot: projectRoot,
+        projectDir: executorProjectDir,
+        changeId,
+        fixtureTier,
+        timeoutSeconds: config.timeout_seconds,
+        archiveDir,
+        attemptDir,
+        skipSeed: config.skip_seed,
+        awsBin: config.aws_bin
+          ? expandTemplate(config.aws_bin, policyTemplateVars)
+          : undefined,
+        allowedWrites,
+      })
+  ));
+  if (exitCode !== 0) throw new Error(`${config.type} executor failed with code ${exitCode}`);
+  assertExternalEvidenceArtifacts(attemptDir);
+  verifyAndCopyExpectedOutputs(
+    config.expected_outputs,
+    policyTemplateVars,
+    workdir,
+    attemptDir,
+    archiveDir,
+  );
+}
+
+async function runLeafExecutor(
+  config: LeafExecutorConfig,
+  sample: DatasetSample,
+  attemptDir: string,
+  projectRoot: string,
+  templateVars: Record<string, string>,
+  sutDir: string | undefined,
+): Promise<number | undefined> {
+  if (config.type === 'in_process') {
+    await runInProcess(config, sample, attemptDir, projectRoot);
+    return undefined;
+  }
+  if (config.type === 'subprocess') {
+    runSubprocess(config, sample, attemptDir, projectRoot, templateVars);
+    return 0;
+  }
+  runCompiledWrapper(config, sample, attemptDir, projectRoot, templateVars, sutDir);
+  return 0;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -382,12 +527,16 @@ export async function executeAttempt(
   let exitCode: number | undefined;
 
   try {
-    if (config.type === 'in_process') {
-      await runInProcess(config, sample, attemptDir, projectRoot);
-    } else if (config.type === 'subprocess') {
-      runSubprocess(config, sample, attemptDir, projectRoot, baseTemplateVars);
-      exitCode = 0;
-    } else if (config.type === 'mixed') {
+    if (config.type !== 'mixed') {
+      exitCode = await runLeafExecutor(
+        config,
+        sample,
+        attemptDir,
+        projectRoot,
+        baseTemplateVars,
+        resolvedSutDir,
+      );
+    } else {
       const checkType = sample.check_type;
       if (!checkType) {
         throw new Error('mixed executor requires sample.check_type to be set');
@@ -398,12 +547,14 @@ export async function executeAttempt(
           `mixed executor has no entry for check_type '${checkType}'`
         );
       }
-      if (subConfig.type === 'in_process') {
-        await runInProcess(subConfig, sample, attemptDir, projectRoot);
-      } else {
-        runSubprocess(subConfig, sample, attemptDir, projectRoot, baseTemplateVars);
-        exitCode = 0;
-      }
+      exitCode = await runLeafExecutor(
+        subConfig,
+        sample,
+        attemptDir,
+        projectRoot,
+        baseTemplateVars,
+        resolvedSutDir,
+      );
     }
 
     const completedAt = new Date().toISOString();

@@ -2,7 +2,7 @@
 
 // ── Executor ──────────────────────────────────────────────────────────────────
 
-export type ExecutorType = 'in_process' | 'subprocess' | 'mixed';
+export type ExecutorType = 'in_process' | 'subprocess' | 'workflow-run' | 'aws-run' | 'mixed';
 
 export interface InProcessExecutorConfig {
   type: 'in_process';
@@ -10,9 +10,7 @@ export interface InProcessExecutorConfig {
   target_export: string;
 }
 
-export interface SubprocessExecutorConfig {
-  type: 'subprocess';
-  command: string;
+export interface ExecutorPolicyConfig {
   timeout_seconds: number;
   expected_outputs: string[];
   workdir?: string;
@@ -24,14 +22,45 @@ export interface SubprocessExecutorConfig {
   env?: Record<string, string>;
 }
 
+export interface SubprocessExecutorConfig extends ExecutorPolicyConfig {
+  type: 'subprocess';
+  command: string;
+}
+
+export interface WorkflowRunExecutorConfig extends ExecutorPolicyConfig {
+  type: 'workflow-run';
+  run_mode: string;
+  test_type?: 'api' | 'e2e' | 'fuzz' | 'performance';
+  run_tests?: boolean;
+  entry?: 'driver' | 'orchestrator' | 'phase-skill';
+  skip_seed?: boolean;
+  opencode_bin?: string;
+  aws_bin?: string;
+  agent_cmd?: string;
+}
+
+export interface AwsRunExecutorConfig extends ExecutorPolicyConfig {
+  type: 'aws-run';
+  skip_seed?: boolean;
+  aws_bin?: string;
+}
+
+export type LeafExecutorConfig =
+  | InProcessExecutorConfig
+  | SubprocessExecutorConfig
+  | WorkflowRunExecutorConfig
+  | AwsRunExecutorConfig;
+
 export interface MixedExecutorConfig {
   type: 'mixed';
-  per_check_type: Record<string, InProcessExecutorConfig | SubprocessExecutorConfig>;
+  per_check_type: Record<string, LeafExecutorConfig>;
 }
 
 export type ExecutorConfig =
   | InProcessExecutorConfig
   | SubprocessExecutorConfig
+  | WorkflowRunExecutorConfig
+  | AwsRunExecutorConfig
   | MixedExecutorConfig;
 
 // ── CI Config ─────────────────────────────────────────────────────────────────

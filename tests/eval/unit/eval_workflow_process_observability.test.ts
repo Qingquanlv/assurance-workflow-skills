@@ -2,12 +2,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { runWorkflowEval } from '../../../src/eval/executors/workflow_run';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const WRAPPER = path.join(REPO_ROOT, 'scripts/eval-workflow-run.mjs');
 const FAKE_NDJSON = path.join(
   REPO_ROOT,
-  'scripts/fake-opencode-process-ndjson.mjs'
+  'eval/fixtures/fakes/fake-opencode-process-ndjson.mjs'
 );
 
 describe('eval-workflow-run process observability', () => {
@@ -47,41 +47,26 @@ describe('eval-workflow-run process observability', () => {
       ...process.env,
     };
 
-    const args = [
-      WRAPPER,
-      '--repo-root',
-      REPO_ROOT,
-      '--project-dir',
-      projectDir,
-      '--change',
-      'eval-sample-001',
-      '--fixture-tier',
-      'L0',
-      '--run-mode',
-      'case-only',
-      '--archive-dir',
-      archiveDir,
-      '--attempt-dir',
-      attemptDir,
-      '--skip-seed',
-    ];
-
-    if (opts.ndjson) {
-      // Process observability is an OpenCode NDJSON concern — use legacy entry.
-      args.push('--entry', 'orchestrator', '--opencode-bin', FAKE_NDJSON);
-    } else {
-      env.EVAL_USE_FAKE_OPENCODE = '1';
-    }
+    const previousFake = process.env.EVAL_USE_FAKE_OPENCODE;
+    if (!opts.ndjson) process.env.EVAL_USE_FAKE_OPENCODE = '1';
 
     try {
-      execFileSync(process.execPath, args, {
-        cwd: REPO_ROOT,
-        env,
-        stdio: 'pipe',
-        encoding: 'utf8',
+      runWorkflowEval({
+        repoRoot: REPO_ROOT,
+        projectDir,
+        changeId: 'eval-sample-001',
+        fixtureTier: 'L0',
+        runMode: 'case-only',
+        archiveDir,
+        attemptDir,
+        skipSeed: true,
+        ...(opts.ndjson ? { entry: 'orchestrator', opencodeBin: FAKE_NDJSON } : {}),
       });
     } catch {
       // wrapper may exit non-zero on archive/infra issues; artifacts still matter
+    } finally {
+      if (previousFake === undefined) delete process.env.EVAL_USE_FAKE_OPENCODE;
+      else process.env.EVAL_USE_FAKE_OPENCODE = previousFake;
     }
 
     return { tmp, projectDir, attemptDir };

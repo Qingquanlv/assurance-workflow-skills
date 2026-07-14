@@ -6,10 +6,7 @@ on:
     paths:
       - "eval/**"
       - "src/eval/**"
-      - "scripts/eval-*.mjs"
-      - "scripts/lib/eval-*.mjs"
-      - "scripts/lib/write-scan.mjs"
-      - "scripts/fake-opencode-eval.mjs"
+      - "eval/fixtures/fakes/**"
       - "scripts/create-ci-sut.mjs"
       - "scripts/read-sut-pin.mjs"
       - "skills/aws-workflow/**"
@@ -39,6 +36,9 @@ jobs:
 
       - name: Build CLI
         run: npm run build
+
+      - name: Check architecture boundaries
+        run: npm run arch:check
 
       - name: Run deterministic eval batch
         id: run
@@ -85,6 +85,13 @@ jobs:
           EVAL_USE_FAKE_OPENCODE: "1"
         run: |
           run_id=$(node dist/cli.js eval run --suite workflow-case --sample WC-001 --output id)
+          node dist/cli.js eval gate --run "$run_id"
+
+      - name: Run workflow-full (fake OpenCode)
+        env:
+          EVAL_USE_FAKE_OPENCODE: "1"
+        run: |
+          run_id=$(node dist/cli.js eval run --suite workflow-full --sample WF-001 --output id)
           node dist/cli.js eval gate --run "$run_id"
 
       - name: Run workflow-api-codegen (fake OpenCode)

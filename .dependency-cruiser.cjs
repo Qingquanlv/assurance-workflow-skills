@@ -22,6 +22,31 @@ module.exports = {
       from: { path: 'src/eval/batch\\.ts$' },
       to: { path: 'src/eval/executor\\.ts$' },
     },
+    {
+      name: 'no-package-cycles',
+      severity: 'error',
+      comment: 'Feature packages must not form cycles; workflow implementation cycles are temporarily exempt',
+      from: { path: '^src/(workflow|eval|retro|risk|schema|utils)/' },
+      to: {
+        circular: true,
+        path: '^src/(workflow|eval|retro|risk|schema|utils)/',
+        pathNot: '^src/workflow/',
+      },
+    },
+    {
+      name: 'schema-not-to-workflow',
+      severity: 'error',
+      comment: 'Schema owns shared artifact contracts and must not depend on workflow implementation',
+      from: { path: '^src/schema/' },
+      to: { path: '^src/workflow/' },
+    },
+    {
+      name: 'src-not-to-scripts',
+      severity: 'error',
+      comment: 'Compiled source must not depend on uncompiled scripts',
+      from: { path: '^src/' },
+      to: { path: '^scripts/' },
+    },
   ],
   options: {
     doNotFollow: {

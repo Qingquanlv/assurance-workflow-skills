@@ -6,13 +6,14 @@ import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
-} from '../orchestration/schema';
+} from '../workflow/orchestration/schema';
 import {
   PhaseStatusKind,
   RunContextReport,
   OpenQuestionSummary,
-} from '../orchestration/engine';
-import { inspectProgression, ProgressSnapshot } from '../orchestration/progression';
+} from '../workflow/orchestration/engine';
+import { inspectProgression, ProgressSnapshot } from '../workflow/orchestration/progression';
+import { exitCodeForTerminal } from '../workflow/core/exit_codes';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {
@@ -74,13 +75,13 @@ export function registerStatusCommand(program: Command): void {
         } else {
           console.log(report.next.length ? report.next.join('\n') : '(none)');
         }
-        process.exit(exitCodeFor(report.terminal));
+        process.exit(exitCodeForTerminal(report.terminal));
         return;
       }
 
       if (options.json) {
         console.log(JSON.stringify({ ...report, audit_issues: auditIssues }, null, 2));
-        process.exit(exitCodeFor(report.terminal));
+        process.exit(exitCodeForTerminal(report.terminal));
         return;
       }
 
@@ -117,7 +118,7 @@ export function registerStatusCommand(program: Command): void {
         console.log(`  ${chalk.bold('Audit')}    : ${chalk.red(issue.message)}`);
       }
       logBlank();
-      process.exit(exitCodeFor(report.terminal));
+      process.exit(exitCodeForTerminal(report.terminal));
     });
 }
 
@@ -130,11 +131,4 @@ export function formatRunContext(runContext: RunContextReport): string {
 
 export function formatOpenQuestions(summary: OpenQuestionSummary): string {
   return `${summary.total} total, ${summary.answered} answered, ${summary.deferred} deferred, ${summary.unanswered} unanswered`;
-}
-
-function exitCodeFor(terminal: { kind: string } | null): number {
-  if (!terminal) return 0;
-  if (terminal.kind === 'completed') return 10;
-  if (terminal.kind === 'stopped') return 20;
-  return 0;
 }

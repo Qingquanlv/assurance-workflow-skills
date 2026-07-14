@@ -1,6 +1,6 @@
 # Eval Fixture Tiers
 
-Golden seed content and tier manifests for phase-scoped AI eval. Used by `scripts/eval-seed-change.mjs` (Task 3) to populate a bench change directory before each eval attempt.
+Golden seed content and tier manifests for phase-scoped AI eval. Used by the compiled `src/eval/seed_change.ts` module to populate a bench change directory before each eval attempt.
 
 ## Tier cumulative model
 
@@ -27,7 +27,7 @@ L0-case-seed
 
 Optional `resets` blocks patch `workflow-state.yaml` and `.qa.yaml` after copy (e.g. L2 sets `phases.api_codegen.status: pending` so codegen eval does not inherit archive `done` state).
 
-For **L2 *-codegen-seed** tiers (E2b/E2c/E2d), `eval-seed-change.mjs` also applies `applyCodegenOnlyRuntimeResets()` so `workflow-state.yaml` → `runtime_parameters.test_types` matches the eval subprocess prompt (e.g. `fuzz` not stale `api,e2e` from the trimmed golden workflow-state). Without this, OpenCode may run the wrong layer and overwrite seeded plan files before archive.
+For **L2 *-codegen-seed** tiers (E2b/E2c/E2d), `src/eval/seed_change.ts` also applies `applyCodegenOnlyRuntimeResets()` so `workflow-state.yaml` → `runtime_parameters.test_types` matches the eval subprocess prompt (e.g. `fuzz` not stale `api,e2e` from the trimmed golden workflow-state). Without this, OpenCode may run the wrong layer and overwrite seeded plan files before archive.
 
 ## Change-id token
 
@@ -37,7 +37,7 @@ The canonical eval change id is **`eval-sample-001`**. Golden sample files use t
 - `.qa.yaml` → `change_id`
 - `review/*.json` → `change_id`
 
-At seed time, `eval-seed-change.mjs` may substitute `<change-id>` from the `--change` CLI arg so the same fixture tier can target `qa/changes/eval-sample-001/` or a dataset-specific id (e.g. `WC-001` mapped to the bench path).
+At seed time, `src/eval/seed_change.ts` may substitute `<change-id>` from the `--change` CLI arg so the same fixture tier can target `qa/changes/eval-sample-001/` or a dataset-specific id (e.g. `WC-001` mapped to the bench path).
 
 ## Direct SUT usage
 
@@ -50,12 +50,12 @@ Eval does **not** copy the whole SUT repo. It seeds directly into the registered
   opencode.json                  ← assurance-workflow-skills plugin reference
 ```
 
-Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
+Typical flow (see `src/eval/executors/workflow_run.ts` / `aws_run.ts`):
 
 1. **Seed** — apply fixture tier → `qa/changes/<change-id>/` (+ `tests/` for L3)
 2. **Reset state** — apply tier `resets` (align `test_types`, phase status)
-3. **Run** — OpenCode (`eval-workflow-run.mjs`) or `aws run` (`eval-aws-run.mjs`)
-4. **Archive** — copy change dir (+ execution artifacts) → `eval/runs/<run-id>/.../raw-output/`
+3. **Run** — compiled `workflow-run` (OpenCode/driver) or `aws-run` executor
+4. **Archive** — copy change dir (+ execution artifacts) → `eval/out/runs/<run-id>/.../raw-output/`
 
 ## Golden sample
 
@@ -81,7 +81,7 @@ Users module (`eval-sample-001`) also has `L2-e2e-codegen-seed` / `L2-fuzz-codeg
 
 `eval-sample-001` is trimmed from `<sut.dir>/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
 
-Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
+Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `eval/fixtures/fakes/fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
 
 **E4 (`workflow-full`)** datasets WF-001 … WF-004 map to `eval-sample-001` … `004` with module-specific `L3-run-seed*` tiers (same as E3 `WR-*`).
 

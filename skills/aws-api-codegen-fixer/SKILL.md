@@ -204,7 +204,17 @@ aws heal record-apply --change <change-id> --target api --proposal FIX-001,FIX-0
 
 The CLI derives `files_modified` from the current test-tree diff, validates the files against `fix-proposal.json`, and writes:
 
-**`qa/changes/<change-id>/healing/api-apply-summary.json`:**
+> **Schema source of truth:** the complete, enforced field contract for apply summaries
+> lives in `src/schema/apply_summary.ts` (validated by `aws validate`). After
+> `aws heal record-apply` completes you MUST run:
+>
+> ```
+> aws validate --change <change-id> --artifact healing/api-apply-summary.json
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
+**`qa/changes/<change-id>/healing/api-apply-summary.json`** (CLI-written — minimal illustrative shape):
 
 ```json
 {
@@ -212,21 +222,9 @@ The CLI derives `files_modified` from the current test-tree diff, validates the 
   "change_id": "<change-id>",
   "target": "api",
   "applied": true,
-  "applied_proposals": [
-    {
-      "proposal_id": "FIX-001",
-      "files_modified": ["tests/api/test_menu_api.py"],
-      "operations_applied": ["fix_request_payload"],
-      "notes": ""
-    }
-  ],
-  "modified_files": ["tests/api/test_menu_api.py"],
-  "skipped_proposals": [
-    {
-      "proposal_id": "FIX-002",
-      "reason": "target is e2e, not api"
-    }
-  ],
+  "applied_proposals": [],
+  "modified_files": [],
+  "skipped_proposals": [],
   "forbidden_attempts": [],
   "rerun_required": true,
   "next_action": "run_aws_run"

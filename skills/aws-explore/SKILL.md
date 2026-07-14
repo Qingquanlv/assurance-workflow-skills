@@ -213,7 +213,7 @@ If a scenario would only restate the PH's wording in different words (no new inp
 |---|---|
 | "update_authorized 传入不存在的 menu_id，应返回 400/404 而非 500" | "PUT /role/authorized body `{menu_ids:[99999]}`（99999 不存在）→ 断言 400，`detail` 含 'menu not found'，且角色原有 menus 不被清空" |
 
-See `schemas/explore-advisory.schema.json` for the MVP advisory shape.
+See `docs/schemas/explore-advisory.schema.json` for the MVP advisory shape.
 
 ### test_strategy — derivation rules (新增)
 

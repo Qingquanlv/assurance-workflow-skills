@@ -1,9 +1,7 @@
 node_modules/
 dist/
 coverage/
-/eval/runs/
-/eval/batches/
-/eval/reports/
+/eval/out/
 *.js.map
 .aws/cache/
 .DS_Store
@@ -11,6 +9,11 @@ coverage/
 docs/superpowers/
 docs/design/*
 !docs/design/workflow-driver.md
+!docs/design/structure-cleanup-candidates.md
 docs/superpowers/**
 .history
 bin/
+banchmark/
+.superpowers/
+.scratch/
+engineering/

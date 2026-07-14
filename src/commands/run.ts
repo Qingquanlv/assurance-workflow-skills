@@ -1,23 +1,23 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { resolveSelectedTargets, run, RunnerResult } from '../execution/runner';
-import { appendEvents } from '../core/events';
+import { resolveSelectedTargets, run, RunnerResult } from '../workflow/execution/runner';
+import { appendEvents } from '../workflow/core/events';
 import {
   assertHealingRunAllowed,
   assertProductTreeUnchangedInHealing,
   assertRerunReasonIfNeeded,
   assertTestTreeUnchangedOrHealing,
   loadProductCodeRoots,
-} from '../core/healing_state';
-import type { TestTreeIntegrityResult } from '../core/healing_state';
-import { writeTestChangesOverrideEvidence } from '../core/override_evidence';
+} from '../workflow/core/healing_state';
+import type { TestTreeIntegrityResult } from '../workflow/core/healing_state';
+import { writeTestChangesOverrideEvidence } from '../workflow/core/override_evidence';
 import {
   assertTestChangesOverridePolicyAllows,
   consumeExecutionTestChangesOverrideToken,
   loadTestChangesOverridePolicy,
   readExecutionTestChangesOverrideTokenForCurrentTree,
   type ExecutionTestChangesOverrideToken,
-} from '../core/test_changes_override';
+} from '../workflow/core/test_changes_override';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerRunCommand(program: Command): void {

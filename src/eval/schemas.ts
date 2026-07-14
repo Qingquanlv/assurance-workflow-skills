@@ -10,9 +10,7 @@ export const InProcessExecutorSchema = z.object({
   target_export: z.string().min(1),
 });
 
-export const SubprocessExecutorSchema = z.object({
-  type: z.literal('subprocess'),
-  command: z.string().min(1),
+const ExecutorPolicyFields = {
   timeout_seconds: z.number().positive(),
   expected_outputs: z.array(z.string()),
   workdir: z.string().optional(),
@@ -24,19 +22,62 @@ export const SubprocessExecutorSchema = z.object({
     .optional(),
   allowed_writes: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+};
+
+export const SubprocessExecutorSchema = z.object({
+  type: z.literal('subprocess'),
+  command: z.string().min(1),
+  ...ExecutorPolicyFields,
 });
+
+export const WorkflowRunExecutorSchema = z.object({
+  type: z.literal('workflow-run'),
+  run_mode: z.string().min(1),
+  test_type: z.enum(['api', 'e2e', 'fuzz', 'performance']).optional(),
+  run_tests: z.boolean().optional(),
+  entry: z.enum(['driver', 'orchestrator', 'phase-skill']).optional(),
+  skip_seed: z.boolean().optional(),
+  opencode_bin: z.string().min(1).optional(),
+  aws_bin: z.string().min(1).optional(),
+  agent_cmd: z.string().min(1).optional(),
+  ...ExecutorPolicyFields,
+}).superRefine((config, ctx) => {
+  if (config.run_mode === 'codegen-only' && config.test_type === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['test_type'],
+      message: 'codegen-only requires exactly one test_type',
+    });
+  }
+});
+
+export const AwsRunExecutorSchema = z.object({
+  type: z.literal('aws-run'),
+  skip_seed: z.boolean().optional(),
+  aws_bin: z.string().min(1).optional(),
+  ...ExecutorPolicyFields,
+});
+
+const LeafExecutorSchema = z.discriminatedUnion('type', [
+  InProcessExecutorSchema,
+  SubprocessExecutorSchema,
+  WorkflowRunExecutorSchema,
+  AwsRunExecutorSchema,
+]);
 
 export const MixedExecutorSchema = z.object({
   type: z.literal('mixed'),
   per_check_type: z.record(
     z.string(),
-    z.union([InProcessExecutorSchema, SubprocessExecutorSchema])
+    LeafExecutorSchema
   ),
 });
 
 export const ExecutorSchema = z.discriminatedUnion('type', [
   InProcessExecutorSchema,
   SubprocessExecutorSchema,
+  WorkflowRunExecutorSchema,
+  AwsRunExecutorSchema,
   MixedExecutorSchema,
 ]);
 

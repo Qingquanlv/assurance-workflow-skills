@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { DatasetSample, SampleScore } from '../types';
-import { deriveHealingState } from '../../core/healing_state';
+import { deriveHealingState } from '../../workflow/core/healing_state';
 import { scoreOpenCodeProcessMetrics } from './_shared/opencode_process_metrics';
 import {
   resolveRawOutputDir,

@@ -1,4 +1,4 @@
-import type { QaEvent } from '../core/events';
+import type { QaEvent } from '../workflow/core/events';
 
 export type EvidenceId = `${string}#${string}`;
 

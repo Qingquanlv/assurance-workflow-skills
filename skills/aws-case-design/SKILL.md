@@ -791,6 +791,16 @@ workflow:   # informational only — not a gate source
 
 ## Case YAML Output Contract
 
+> **Schema source of truth:** the complete, enforced field contract for `case.yaml`
+> lives in `src/schema/case_yaml.ts` (validated by `aws validate`). The example below is
+> illustrative only. After writing case files you MUST run:
+>
+> ```
+> aws validate --change <change-id> --phase case-design
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
 The generated case delta MUST be YAML. It contains natural language QA cases.
 
 `change` metadata lives in `.qa.yaml`. `proposal` (coverage approach) lives in `proposal.md`. The case file itself contains only cases.
@@ -817,91 +827,7 @@ modified: []
 removed: []
 ```
 
-**Every case under `added` or `modified` MUST include all of these fields:**
-
-```yaml
-case_id: <stable-case-id>            # underscore-only, e.g. TC_USER_AUTH_001, TC_MENU_FUZZ_001, TC_MENU_PERF_001 (hyphens NOT allowed)
-title: <human-readable-title>
-status: draft | active | deprecated
-priority: P0 | P1 | P2 | P3
-severity: blocker | critical | major | minor
-type: API | E2E | Fuzz | Performance    # single source of truth for the test target (one case, one target)
-module: <module-id>
-requirement_id: <requirement-id>
-feature_name: <feature-name>
-test_condition_id: <condition-id>    # from proposal.md Test Conditions table
-design_technique: use_case | equivalence_partitioning | boundary_value_analysis | decision_table | state_transition | exploratory | negative | checklist
-tags: []
-
-objective: <为什么需要这个 case，测试目标>
-summary: >
-  <用一句话说明这个 case 测什么，用于 Web 展示>
-
-risk:
-  likelihood: 1 | 2 | 3 | 4 | 5     # 1=rare, 5=almost certain
-  impact: 1 | 2 | 3 | 4 | 5         # 1=negligible, 5=catastrophic
-  level: low | medium | high | critical
-  rationale: <为什么这样评估风险>
-
-preconditions:
-  - <自然语言前置条件>
-
-test_data:
-  - <自然语言测试数据准备说明，或 fixture 名称>
-
-steps:
-  - <自然语言步骤，不写 locator，不写代码>
-
-assertions:
-  - <自然语言断言，可包含 HTTP 状态码等可观察结果>
-
-postconditions:
-  - <执行后状态、清理要求、不需要验证的后置状态>
-
-edge_cases:
-  - <相关边界或变体场景，不一定在本 case 覆盖>
-
-related_cases:
-  - <关联 case_id，用于 Web 页面联动展示>
-
-automation:
-  required: true | false
-  # NOTE: there is NO `target` field. The top-level `type` is the single source of
-  # truth for the test target (one case, one target). `automation` only says HOW.
-  framework: pytest | pytest-playwright | schemathesis | locust | null
-  suggested_file: <optional-test-file-path>
-  status: not_automated | planned | automated | flaky | deprecated
-
-  # Selection lock: written when the user confirms the target selection. Downstream
-  # Plan/Codegen/Run skills read these as read-only and MUST NOT override the choice.
-  confirmed_by: user | null
-  confirmed_at: <ISO-8601 | null>
-
-  # Target-specific config — present ONLY when `type` matches.
-  fuzz:                          # only when type: Fuzz
-    endpoints: ["/api/v1/menu/create"]
-    expectations: ["no 5xx", "schema-valid input not rejected with 400"]
-  performance:                   # only when type: Performance
-    scenario:
-      capability: "menu-list-query"
-      endpoint: "/api/v1/menu/list"
-      thresholds: { p95_ms: 200, error_rate_max: 0.01 }   # absolute, user-confirmed (no defaults)
-      load: { users: 50, spawn_rate: 10, run_time_s: 60 }
-
-regression:
-  candidate: true | false
-  tier: smoke | sanity | regression | full | none
-  selection_reason: []              # e.g. [critical_user_journey, security_related]
-  maintenance_rule: <when to keep/update/remove this case>
-  rationale: <为什么归入这个 tier>
-
-trace:
-  supersedes: []              # optional — prior requirement/case ids this case replaces
-  related_requirements: []    # optional — related requirement ids
-  minimum_required_coverage: [] # MRC-* ids from advisory.minimum_required_coverage covered by this case
-  advisory_refs: []           # PH-* / WL-* / SS-* refs consumed by this case
-  change_reason: ""           # optional — why this case changed; may be filled during design
-```
+Every case under `added` or `modified` must satisfy the field contract in `src/schema/case_yaml.ts`. There is no `automation.target` field — top-level `type` is the single source of truth for the test target.
 
 `trace` is required on every case. When `risk-advisory/advisory.json` or `explore/advisory.json` contains `minimum_required_coverage`, every required MRC item must be mapped to at least one case via `trace.minimum_required_coverage`; do not rely on title/name inference. Downstream archive / execution may enrich other trace fields.
 
@@ -927,7 +853,7 @@ Also write `qa/changes/<change-id>/trace/minimum-coverage-matrix.yaml`:
 
 One case has exactly one `type`. Fuzz and Performance are **independent cases** (`type: Fuzz` / `type: Performance`) that link the functional case they harden via `related_cases`. They do **not** replace the functional API/E2E coverage of that endpoint.
 
-**Example case (natural language + ISTQB fields):**
+**Minimal example (illustrative — see `src/schema/case_yaml.ts` for the full contract):**
 
 ```yaml
 modified:
@@ -940,73 +866,7 @@ modified:
     module: user.auth
     requirement_id: REQ-002
     feature_name: user-logout
-    test_condition_id: COND-USER-AUTH-001
-    design_technique: use_case
-    tags:
-      - logout
-      - happy-path
-
-    objective: 验证已登录用户调用登出接口时，系统返回登出成功。
-    summary: >
-      已登录用户携带有效 access_token 调用登出接口时，系统应返回登出成功。
-
-    risk:
-      likelihood: 3
-      impact: 5
-      level: high
-      rationale: 登出是认证模块核心链路，失败会影响认证安全和用户会话控制。
-
-    preconditions:
-      - 系统中存在一个已激活用户
-      - 用户已经登录并获得有效 access_token
-
-    test_data:
-      - 使用 active_user_fixture 创建或获取已激活用户
-      - 登录后获得 access_token
-
-    steps:
-      - 创建或获取已激活用户
-      - 使用该用户完成登录
-      - 携带有效 access_token 调用登出接口
-      - 查看接口响应结果
-
-    assertions:
-      - 接口返回 HTTP 200
-      - 响应业务码为 200
-      - 响应消息为"登出成功"
-
-    postconditions:
-      - 本 case 不验证 token 吊销状态
-      - 测试完成后清理或复用测试用户
-
-    edge_cases:
-      - 未携带 Token 调用登出接口
-      - 携带无效 Token 调用登出接口
-
-    related_cases:
-      - TC_USER_AUTH_003
-      - TC_USER_AUTH_004
-
-    automation:
-      required: true
-      framework: pytest
-      suggested_file: tests/api/test_auth_api.py
-      status: planned
-      confirmed_by: user
-      confirmed_at: "2026-06-15T08:00:00Z"
-
-    regression:
-      candidate: true
-      tier: smoke
-      selection_reason:
-        - critical_user_journey
-        - security_related
-      maintenance_rule: keep_until_feature_deprecated
-      rationale: 登出是认证模块核心链路，P0 且安全相关。
-
-    trace:
-      supersedes: REQ-001-auth-login-logout
-      change_reason: 聚焦登出最小响应级断言，对齐当前 API 实现
+    # remaining fields: src/schema/case_yaml.ts
 ```
 
 **Every case under `removed` MUST include:**
@@ -1169,18 +1029,7 @@ If uncertain, choose the lower priority and explain the assumption in `proposal.
 
 ## Risk-based Regression Rules
 
-Every case under `added` or `modified` MUST include a `regression` block.
-
-```yaml
-regression:
-  candidate: true | false
-  tier: smoke | sanity | regression | full | none
-  selection_reason:
-    - critical_user_journey
-    - security_related
-  maintenance_rule: keep_until_feature_deprecated
-  rationale: <为什么归入这个 tier>
-```
+Every case under `added` or `modified` MUST include a `regression` block (field contract: `src/schema/case_yaml.ts`).
 
 **Tier definitions:**
 
@@ -1258,11 +1107,7 @@ Example:
 
 ## Test Design Technique Rule
 
-Every generated case MUST include a `design_technique` field.
-
-```yaml
-design_technique: use_case | equivalence_partitioning | boundary_value_analysis | decision_table | state_transition | exploratory | negative | checklist
-```
+Every generated case MUST include a `design_technique` field (enum values: `src/schema/case_yaml.ts`).
 
 **Technique selection guide:**
 
@@ -1288,15 +1133,7 @@ design_technique: use_case | equivalence_partitioning | boundary_value_analysis 
 
 ## Risk-based Testing Rule
 
-Every generated case MUST include a `risk` block.
-
-```yaml
-risk:
-  likelihood: 1 | 2 | 3 | 4 | 5   # 1=rare, 5=almost certain
-  impact: 1 | 2 | 3 | 4 | 5       # 1=negligible, 5=catastrophic
-  level: low | medium | high | critical
-  rationale: <why this risk score>
-```
+Every generated case MUST include a `risk` block (field contract: `src/schema/case_yaml.ts`).
 
 **Risk level mapping:**
 

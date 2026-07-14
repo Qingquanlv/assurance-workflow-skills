@@ -83,6 +83,24 @@ Return one of: `pass` / `needs_fix` / `needs_human_review` / `reject`.
 
 ## Required JSON Format
 
+> **Schema source of truth:** the complete, enforced field contract for review gate JSON
+> lives in `src/schema/review.ts` (validated by `aws validate`). The example below is
+> illustrative only. After writing review files you MUST run:
+>
+> ```
+> aws validate --change <change-id> --artifact review/fuzz-plan-review.json
+> ```
+>
+> and resolve every reported error. Do not rely on this document for the full field list.
+
+Write valid JSON to:
+
+```text
+qa/changes/<change-id>/review/fuzz-plan-review.json
+```
+
+**Minimal top-level structure (illustrative — see `src/schema/review.ts` for the full contract):**
+
 ```json
 {
   "schema_version": "1.0",

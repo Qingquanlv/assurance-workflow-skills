@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { inspect } from '../../src/report/inspector';
-import { ApiResult, E2eResult } from '../../src/core/types';
+import { inspect } from '../../src/workflow/report/inspector';
+import { ApiResult, E2eResult } from '../../src/workflow/core/types';
 
 function makeTmpProject(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aws-inspect-'));
