@@ -1,4 +1,4 @@
-// Shared helpers for eval-workflow-run.mjs and eval-aws-run.mjs
+// Shared helpers for the compiled workflow-run and aws-run executors.
 
 import fs from 'node:fs';
 import path from 'node:path';

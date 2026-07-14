@@ -43,6 +43,7 @@ export interface WorkflowEvalInput {
   opencodeBin?: string;
   awsBin?: string;
   agentCmd?: string;
+  allowedWrites?: string[];
 }
 
 function mapScope(runMode: string): 'execute' | 'full' {
@@ -72,6 +73,7 @@ function resolveAwsInvocation(
 }
 
 export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
+  const allowedWrites = Array.isArray(input) ? undefined : input.allowedWrites;
   const values = Array.isArray(input) ? parseArgs({
     args: input,
     options: {
@@ -120,7 +122,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
 
   if (!projectDir || !changeId || !archiveDir || !attemptDir || !values['fixture-tier']) {
     console.error(
-      'Usage: eval-workflow-run.mjs --project-dir <bench> --change <id> --fixture-tier <tier> --run-mode <mode> --archive-dir <attempt>/raw-output'
+      'workflow-run requires projectDir, changeId, fixtureTier, runMode, archiveDir, and attemptDir'
     );
     return 2;
   }
@@ -146,7 +148,9 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     console.error(errorMessage(err));
     return 2;
   }
-  const writePolicy = resolveWritePolicy(runMode, values['test-types']);
+  const writePolicy = allowedWrites
+    ? { mode: 'allowlist' as const, patterns: allowedWrites }
+    : resolveWritePolicy(runMode, values['test-types']);
 
   const fakeScript = path.join(repoRoot, 'eval/fixtures/fakes/fake-opencode-eval.mjs');
   let runBin;

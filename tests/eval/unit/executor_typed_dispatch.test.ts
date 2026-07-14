@@ -152,6 +152,43 @@ describe('typed eval executor dispatch', () => {
       expect(execution.archive_completed).toBe(true);
       expect(fs.existsSync(path.join(attemptDir, 'sandbox/qa/changes/typed-change/proposal.md')))
         .toBe(true);
+      expect(fs.existsSync(path.join(
+        attemptDir,
+        'sandbox/qa/changes/typed-change/execution/execution-manifest.yaml',
+      ))).toBe(true);
+      expect(fs.existsSync(path.join(
+        sutDir,
+        'qa/changes/typed-change/execution/execution-manifest.yaml',
+      ))).toBe(false);
+      const policy = JSON.parse(fs.readFileSync(
+        path.join(attemptDir, 'evidence/write-policy.json'),
+        'utf8',
+      )) as { mode: string; patterns: string[] };
+      expect(policy).toEqual({ mode: 'allowlist', patterns: ['qa/**'] });
+
+      const missingOutputAttempt = path.join(tmp, 'attempt-missing-output');
+      await expect(executeAttempt({
+        config: {
+          type: 'aws-run',
+          timeout_seconds: 10,
+          expected_outputs: ['does-not-exist.json'],
+          skip_seed: true,
+          env: { EVAL_USE_FAKE_AWS_RUN: '1' },
+          sandbox: { copy_from: '{{sut.dir}}' },
+          allowed_writes: ['qa/**'],
+        },
+        sample: {
+          id: 'typed-missing-output',
+          annotation_source: 'synthetic',
+          input: { change_id: 'typed-change', fixture_tier: 'L3-run-seed' },
+          expected: {},
+        },
+        sampleDir: tmp,
+        attemptDir: missingOutputAttempt,
+        projectRoot: path.resolve(__dirname, '../../..'),
+        runId: 'typed-run',
+        sutDir,
+      })).rejects.toThrow('Expected output not found');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

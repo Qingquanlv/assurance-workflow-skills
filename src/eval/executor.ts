@@ -417,12 +417,16 @@ function runCompiledWrapper(
   if (!fs.existsSync(workdir)) {
     throw new Error(`executor workdir not found: ${workdir}`);
   }
+  const executorProjectDir = sandboxPath ?? sutDir;
+  const allowedWrites = config.allowed_writes?.map((pattern) =>
+    expandTemplate(pattern, policyTemplateVars)
+  );
 
   const exitCode = withExpandedEnv(config.env, policyTemplateVars, () => (
     config.type === 'workflow-run'
       ? runWorkflowEval({
         repoRoot: projectRoot,
-        projectDir: sutDir,
+        projectDir: executorProjectDir,
         changeId,
         fixtureTier: fixtureTier!,
         runMode: expandTemplate(config.run_mode, policyTemplateVars),
@@ -442,10 +446,11 @@ function runCompiledWrapper(
         agentCmd: config.agent_cmd
           ? expandTemplate(config.agent_cmd, policyTemplateVars)
           : undefined,
+        allowedWrites,
       })
       : runAwsEval({
         repoRoot: projectRoot,
-        projectDir: sutDir,
+        projectDir: executorProjectDir,
         changeId,
         fixtureTier,
         timeoutSeconds: config.timeout_seconds,
@@ -455,6 +460,7 @@ function runCompiledWrapper(
         awsBin: config.aws_bin
           ? expandTemplate(config.aws_bin, policyTemplateVars)
           : undefined,
+        allowedWrites,
       })
   ));
   if (exitCode !== 0) throw new Error(`${config.type} executor failed with code ${exitCode}`);

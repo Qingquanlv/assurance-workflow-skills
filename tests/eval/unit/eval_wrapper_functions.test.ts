@@ -59,4 +59,64 @@ describe('compiled eval wrapper functions', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it('records inner nonzero exits without losing wrapper evidence', () => {
+    const { tmp, projectDir } = makeProject();
+    const attemptDir = path.join(tmp, 'attempt-nonzero');
+    try {
+      expect(runWorkflowEval({
+        repoRoot,
+        projectDir,
+        changeId: 'eval-sample-001',
+        fixtureTier: 'L2-api-codegen-seed',
+        runMode: 'full',
+        entry: 'orchestrator',
+        opencodeBin: process.execPath,
+        archiveDir: path.join(attemptDir, 'raw-output'),
+        attemptDir,
+        skipSeed: true,
+        timeoutSeconds: 5,
+      })).toBe(0);
+      const execution = JSON.parse(
+        fs.readFileSync(path.join(attemptDir, 'execution.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(execution.opencode_exit_code).not.toBe(0);
+      expect(execution.wrapper_exit_code).toBe(0);
+      expect(execution.archive_completed).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('records timeout evidence and still completes archive handling', () => {
+    const { tmp, projectDir } = makeProject();
+    const attemptDir = path.join(tmp, 'attempt-timeout');
+    const slowBin = path.join(tmp, 'slow-opencode');
+    fs.writeFileSync(slowBin, '#!/bin/sh\nsleep 2\n');
+    fs.chmodSync(slowBin, 0o755);
+    try {
+      expect(runWorkflowEval({
+        repoRoot,
+        projectDir,
+        changeId: 'eval-sample-001',
+        fixtureTier: 'L2-api-codegen-seed',
+        runMode: 'full',
+        entry: 'orchestrator',
+        opencodeBin: slowBin,
+        archiveDir: path.join(attemptDir, 'raw-output'),
+        attemptDir,
+        skipSeed: true,
+        timeoutSeconds: 0.01,
+      })).toBe(0);
+      const execution = JSON.parse(
+        fs.readFileSync(path.join(attemptDir, 'execution.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(execution.timed_out).toBe(true);
+      expect(execution.archive_completed).toBe(true);
+      expect(fs.existsSync(path.join(attemptDir, 'stdout.log'))).toBe(true);
+      expect(fs.existsSync(path.join(attemptDir, 'stderr.log'))).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

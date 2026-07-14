@@ -31,9 +31,11 @@ export interface AwsEvalInput {
   skipSeed?: boolean;
   awsBin?: string;
   timeoutSeconds?: number;
+  allowedWrites?: string[];
 }
 
 export function runAwsEval(input: AwsEvalInput | string[]): number {
+  const allowedWrites = Array.isArray(input) ? undefined : input.allowedWrites;
   const values = Array.isArray(input) ? parseArgs({
     args: input,
     options: {
@@ -68,7 +70,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
 
   if (!projectDir || !changeId || !archiveDir || !attemptDir) {
     console.error(
-      'Usage: eval-aws-run.mjs --project-dir <bench> --change <id> --archive-dir <attempt>/raw-output [--repo-root <repo>]'
+      'aws-run requires projectDir, changeId, archiveDir, and attemptDir'
     );
     return 2;
   }
@@ -83,7 +85,9 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
   let awsSignal = null;
   let timedOut = false;
   let beforePorcelain = '';
-  const policy = { mode: 'denylist' as const, patterns: DEFAULT_RUN_DENYLIST };
+  const policy = allowedWrites
+    ? { mode: 'allowlist' as const, patterns: allowedWrites }
+    : { mode: 'denylist' as const, patterns: DEFAULT_RUN_DENYLIST };
   const useFake = process.env.EVAL_USE_FAKE_AWS_RUN === '1';
 
   const awsCliPath = path.join(repoRoot, 'dist/cli.js');

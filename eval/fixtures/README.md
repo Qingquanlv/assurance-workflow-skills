@@ -50,11 +50,11 @@ Eval does **not** copy the whole SUT repo. It seeds directly into the registered
   opencode.json                  ← assurance-workflow-skills plugin reference
 ```
 
-Typical flow (see `eval-workflow-run.mjs` / `eval-aws-run.mjs`):
+Typical flow (see `src/eval/executors/workflow_run.ts` / `aws_run.ts`):
 
 1. **Seed** — apply fixture tier → `qa/changes/<change-id>/` (+ `tests/` for L3)
 2. **Reset state** — apply tier `resets` (align `test_types`, phase status)
-3. **Run** — OpenCode (`eval-workflow-run.mjs`) or `aws run` (`eval-aws-run.mjs`)
+3. **Run** — compiled `workflow-run` (OpenCode/driver) or `aws-run` executor
 4. **Archive** — copy change dir (+ execution artifacts) → `eval/out/runs/<run-id>/.../raw-output/`
 
 ## Golden sample

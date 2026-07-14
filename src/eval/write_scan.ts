@@ -1,5 +1,5 @@
 // P0 forbidden_write_executed_count — git porcelain + micromatch (eval/contracts/safety-scope.md)
-// Shared by eval-workflow-run.mjs and eval-aws-run.mjs
+// Shared by the compiled workflow-run and aws-run executors.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
