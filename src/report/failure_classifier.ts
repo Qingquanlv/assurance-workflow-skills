@@ -2,7 +2,7 @@
  * Classifies a test failure into one of the defined categories
  * based on error message, log excerpt, and test type.
  */
-import { FailureCategory } from '../core/types';
+import type { FailureCategory } from '../schema/contracts';
 
 interface ClassifyInput {
   message: string;

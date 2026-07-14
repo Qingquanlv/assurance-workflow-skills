@@ -1,7 +1,13 @@
 /**
  * Writes execution/summary.md from the selected execution targets and gate.
  */
-import { ApiResult, CoverageResult, E2eResult, FuzzResult, PerformanceResult, QualityGateResult, SelectedTargets } from '../core/types';
+import type { ApiResult, E2eResult, FuzzResult } from '../core/types';
+import type {
+  CoverageResult,
+  PerformanceResult,
+  QualityGateResult,
+  SelectedTargets,
+} from '../schema/contracts';
 
 export interface SummaryResults {
   api: ApiResult | null;

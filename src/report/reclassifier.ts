@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { appendEvents } from '../core/events';
-import type { FailureAnalysis, FailureCategory, FailureEntry } from '../core/types';
+import type { FailureAnalysis, FailureCategory, FailureEntry } from '../schema/contracts';
 
 export interface ReclassifyOptions {
   projectRoot: string;

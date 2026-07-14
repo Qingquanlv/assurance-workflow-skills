@@ -1,7 +1,7 @@
 /**
  * Writes failure-analysis.json and failure-summary.md.
  */
-import { FailureAnalysis, FailureEntry } from '../core/types';
+import type { FailureAnalysis, FailureEntry } from '../schema/contracts';
 
 export function buildFailureSummaryMd(
   changeId: string,

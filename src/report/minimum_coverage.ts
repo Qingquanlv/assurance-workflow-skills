@@ -6,10 +6,12 @@ import {
   ApiResult,
   E2eCaseResult,
   E2eResult,
+} from '../core/types';
+import type {
   MinimumCoverageItemResult,
   MinimumCoverageResult,
   MinimumCoverageStatus,
-} from '../core/types';
+} from '../schema/contracts';
 
 interface MrcEntry {
   id: string;

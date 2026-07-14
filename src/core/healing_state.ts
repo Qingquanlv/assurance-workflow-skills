@@ -12,7 +12,7 @@ import {
 } from './events';
 import { hashProductTree, hashTestTree, sha256File, TestTreeHash } from './hash';
 import { getWorkflowStateFile } from './workflow_state';
-import type { ExecutionManifest } from './types';
+import type { ExecutionManifest } from '../schema/contracts';
 import { loadExecutionEvidence } from '../execution/evidence';
 
 export type HealingStatus =

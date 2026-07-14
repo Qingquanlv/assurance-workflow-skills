@@ -8,7 +8,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { CoverageConfig, CoverageResult, CoverageScopeResult, CoverageThreshold, UncoveredFile } from '../core/types';
+import { CoverageConfig } from '../core/types';
+import type {
+  CoverageResult,
+  CoverageScopeResult,
+  CoverageThreshold,
+  UncoveredFile,
+} from '../schema/contracts';
 
 const DEFAULT_COVERAGE_CONFIG: CoverageConfig = {
   enabled: true,

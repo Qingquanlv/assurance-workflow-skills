@@ -14,8 +14,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   ApiResult,
-  CoverageResult,
   E2eResult,
+} from '../core/types';
+import type {
+  CoverageResult,
   FailureAnalysis,
   FailureEntry,
   GateStatus,
@@ -23,7 +25,7 @@ import {
   QualityReport,
   ReportDefect,
   RiskLevel,
-} from '../core/types';
+} from '../schema/contracts';
 import { computeQualityScore, ScoreDimension, ScoreDimensionKey } from './quality_score';
 import { loadExecutionEvidence } from '../execution/evidence';
 import { buildMinimumCoverageResult } from './minimum_coverage';

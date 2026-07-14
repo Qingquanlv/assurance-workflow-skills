@@ -4,7 +4,13 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { CoverageGapEntry, CoverageResult, FailureAnalysis, FailureEntry, QualityGateResult } from '../core/types';
+import type {
+  CoverageGapEntry,
+  CoverageResult,
+  FailureAnalysis,
+  FailureEntry,
+  QualityGateResult,
+} from '../schema/contracts';
 import { classifyFailure } from './failure_classifier';
 import { buildFailureSummaryMd } from './failure_writer';
 import { buildQualityGate } from './quality_gate';

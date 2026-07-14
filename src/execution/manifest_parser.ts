@@ -7,7 +7,7 @@
  *   optional layer_results / warnings / final_status (ignored for inspect routing)
  */
 import * as path from 'path';
-import type { ExecutionManifest, SelectedTargets } from '../core/types';
+import type { ExecutionManifest, SelectedTargets } from '../schema/contracts';
 
 const BASENAME_TO_KEY: Record<string, keyof ExecutionManifest['result_files']> = {
   'api-result.json': 'api',

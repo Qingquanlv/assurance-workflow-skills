@@ -5,7 +5,7 @@ import { minimatch } from 'minimatch';
 import { readEvents } from './events';
 import { hashTestTree } from './hash';
 import { sha256File } from './hash';
-import type { GateStatus, ExecutionManifest } from './types';
+import type { GateStatus, ExecutionManifest } from '../schema/contracts';
 import type { TestTreeIntegrityResult } from './healing_state';
 import { loadExecutionEvidence } from '../execution/evidence';
 

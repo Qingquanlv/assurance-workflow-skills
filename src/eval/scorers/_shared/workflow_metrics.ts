@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
 import { loadExecutionEvidence } from '../../../execution/evidence';
-import type { SelectedTargets } from '../../../core/types';
+import type { SelectedTargets } from '../../../schema/contracts';
 import { scoreForbiddenWriteExecutedCount } from './forbidden_write';
 import {
   computeE2aCollectMetrics,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { QualityReport } from '../core/types';
+import type { QualityReport } from './contracts';
 import type { AssertAssignable } from './types';
 
 const gateStatus = z.enum(['PASS', 'PASS_WITH_WARNINGS', 'FAIL', 'SKIPPED']);

@@ -10,14 +10,16 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type {
   ApiResult,
-  CoverageResult,
   E2eResult,
-  ExecutionManifest,
   FuzzResult,
+} from '../core/types';
+import type {
+  CoverageResult,
+  ExecutionManifest,
   PerformanceResult,
   QualityGateResult,
   SelectedTargets,
-} from '../core/types';
+} from '../schema/contracts';
 import { normalizeExecutionManifest } from './manifest_parser';
 
 export type ExecutionEvidenceTarget = 'api' | 'e2e' | 'fuzz' | 'performance';

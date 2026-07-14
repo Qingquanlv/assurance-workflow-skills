@@ -19,7 +19,14 @@ import { buildSummaryMd } from './summary_writer';
 import { loadCoverageConfig, parseCoverage } from './coverage_parser';
 import { runPerformance } from './locust_runner';
 import { buildQualityGate } from '../report/quality_gate';
-import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FuzzResult, PerformanceResult, QualityGateResult, SelectedTargets } from '../core/types';
+import type { ApiResult, E2eResult, FuzzResult } from '../core/types';
+import type {
+  CoverageResult,
+  ExecutionManifest,
+  PerformanceResult,
+  QualityGateResult,
+  SelectedTargets,
+} from '../schema/contracts';
 import { hashProductTree, hashTestTree } from '../core/hash';
 import { loadProductCodeRoots } from '../core/healing_state';
 import { publishExecutionEvidence } from './evidence';

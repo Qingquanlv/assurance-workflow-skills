@@ -11,7 +11,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import * as yaml from 'js-yaml';
 import { ensureDir } from '../utils/fs';
-import { PerformanceResult, PerformanceScenarioVerdict } from '../core/types';
+import type { PerformanceResult, PerformanceScenarioVerdict } from '../schema/contracts';
 
 export interface PerfScenario {
   capability: string;

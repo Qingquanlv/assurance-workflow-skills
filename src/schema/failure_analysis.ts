@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FailureAnalysis } from '../core/types';
+import type { FailureAnalysis } from './contracts';
 import type { AssertAssignable } from './types';
 
 const failureCategory = z.enum([

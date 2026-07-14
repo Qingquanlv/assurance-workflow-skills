@@ -7,15 +7,17 @@
  */
 import {
   ApiResult,
-  CoverageResult,
   E2eResult,
   FuzzResult,
+} from '../core/types';
+import type {
+  CoverageResult,
   FunctionalCounts,
   GateStatus,
   NonFunctionalDimension,
   PerformanceResult,
   QualityGateResult,
-} from '../core/types';
+} from '../schema/contracts';
 
 export interface BuildQualityGateOptions {
   changeId: string;
