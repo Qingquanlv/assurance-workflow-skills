@@ -39,6 +39,23 @@ export interface OpenCodeProcessSummary {
   parser_warnings: string[];
 }
 
+interface NormalizedProcessEvent {
+  sequence: number;
+  timestamp_ms: number | null;
+  session_id: string | null;
+  kind: 'permission_notice' | 'tool_result' | 'session_error';
+  call_id: string | null;
+  tool: string | null;
+  status: 'completed' | 'error' | 'unknown';
+  input_paths: string[];
+  command: string | null;
+  output_paths: string[];
+  error_name: string | null;
+  error_message: string | null;
+  line_number: number;
+  is_permission: boolean;
+}
+
 const WRITE_TOOLS = new Set(['edit', 'write', 'patch']);
 const BYPASS_TOOLS = new Set(['bash', 'task']);
 const PERMISSION_RE =
@@ -73,7 +90,7 @@ export function truncateDetail(text: unknown): string {
   return chars.slice(0, MAX_DETAIL_CODEPOINTS).join('') + '…';
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -86,11 +103,12 @@ function extractErrorFields(errorValue: unknown): { name: string | null; message
     return { name: null, message: errorValue };
   }
   if (isPlainObject(errorValue)) {
+    const data = isPlainObject(errorValue.data) ? errorValue.data : undefined;
     return {
       name: asString(errorValue.name) ?? asString(errorValue.code),
       message:
         asString(errorValue.message) ??
-        asString(errorValue.data?.message) ??
+        asString(data?.message) ??
         (typeof errorValue.data === 'string' ? errorValue.data : null),
     };
   }
@@ -132,11 +150,12 @@ function collectPathsFromValue(value: unknown, acc: string[] = []): string[] {
   return acc;
 }
 
-function extractToolInput(state: Record<string, any>): {
+function extractToolInput(state: Record<string, unknown>): {
   paths: string[];
   command: string | null;
 } {
-  const input = state?.input ?? state?.args ?? {};
+  const candidate = state.input ?? state.args;
+  const input = isPlainObject(candidate) ? candidate : {};
   const paths = collectPathsFromValue(input);
   const command =
     asString(input.command) ??
@@ -146,7 +165,7 @@ function extractToolInput(state: Record<string, any>): {
   return { paths: [...new Set(paths)], command };
 }
 
-function extractToolOutputPaths(state: Record<string, any>): string[] {
+function extractToolOutputPaths(state: Record<string, unknown>): string[] {
   const output = state?.output ?? state?.result ?? null;
   if (typeof output === 'string') {
     // Prefer structured path declarations over free-form text.
@@ -323,7 +342,7 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts: {
   if (!text) return summary;
 
   const lines = text.split(/\r?\n/);
-  const events: any[] = [];
+  const events: NormalizedProcessEvent[] = [];
   const parserWarnings: string[] = [];
   let sequence = 0;
   let canonicalSession: string | null = null;
@@ -432,9 +451,10 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts: {
       const top = extractErrorFields(parsed.error ?? part.error ?? parsed);
       errorName = top.name;
       errorMessage = top.message;
-      if (isPlainObject(parsed.error?.data)) {
+      const parsedError = isPlainObject(parsed.error) ? parsed.error : undefined;
+      if (parsedError && isPlainObject(parsedError.data)) {
         errorMessage =
-          asString(parsed.error.data.message) ?? errorMessage;
+          asString(parsedError.data.message) ?? errorMessage;
       }
     } else if (status === 'error') {
       const fromState = extractErrorFields(state.error ?? part.error);
@@ -493,7 +513,7 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts: {
   const toolErrorKeys = new Set<string>();
   const permissionKeys = new Set<string>();
   const findings: ProcessFinding[] = [];
-  const permissionEvents: any[] = [];
+  const permissionEvents: NormalizedProcessEvent[] = [];
 
   for (const event of events) {
     if (event.kind === 'tool_result') {
@@ -551,7 +571,7 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts: {
   }
 
   // Permission denial dedupe (§9).
-  const acceptedPermissions: any[] = [];
+  const acceptedPermissions: NormalizedProcessEvent[] = [];
   for (const event of permissionEvents) {
     let dedupeKey: string;
     if (event.call_id) {
@@ -665,7 +685,7 @@ export function parseOpenCodeProcessLog(stdoutText: string, opts: {
 
       let bypassEvent = null;
       for (const candidate of later) {
-        const tool = candidate.tool.toLowerCase();
+        const tool = candidate.tool!.toLowerCase();
         if (tool === 'bash') {
           if (commandReferencesPath(candidate.command, targetAbs, projectDir)) {
             bypassEvent = candidate;
