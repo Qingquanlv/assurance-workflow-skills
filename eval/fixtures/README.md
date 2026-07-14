@@ -27,7 +27,7 @@ L0-case-seed
 
 Optional `resets` blocks patch `workflow-state.yaml` and `.qa.yaml` after copy (e.g. L2 sets `phases.api_codegen.status: pending` so codegen eval does not inherit archive `done` state).
 
-For **L2 *-codegen-seed** tiers (E2b/E2c/E2d), `eval-seed-change.mjs` also applies `applyCodegenOnlyRuntimeResets()` so `workflow-state.yaml` → `runtime_parameters.test_types` matches the eval subprocess prompt (e.g. `fuzz` not stale `api,e2e` from the trimmed golden workflow-state). Without this, OpenCode may run the wrong layer and overwrite seeded plan files before archive.
+For **L2 *-codegen-seed** tiers (E2b/E2c/E2d), `src/eval/seed_change.ts` also applies `applyCodegenOnlyRuntimeResets()` so `workflow-state.yaml` → `runtime_parameters.test_types` matches the eval subprocess prompt (e.g. `fuzz` not stale `api,e2e` from the trimmed golden workflow-state). Without this, OpenCode may run the wrong layer and overwrite seeded plan files before archive.
 
 ## Change-id token
 
@@ -37,7 +37,7 @@ The canonical eval change id is **`eval-sample-001`**. Golden sample files use t
 - `.qa.yaml` → `change_id`
 - `review/*.json` → `change_id`
 
-At seed time, `eval-seed-change.mjs` may substitute `<change-id>` from the `--change` CLI arg so the same fixture tier can target `qa/changes/eval-sample-001/` or a dataset-specific id (e.g. `WC-001` mapped to the bench path).
+At seed time, `src/eval/seed_change.ts` may substitute `<change-id>` from the `--change` CLI arg so the same fixture tier can target `qa/changes/eval-sample-001/` or a dataset-specific id (e.g. `WC-001` mapped to the bench path).
 
 ## Direct SUT usage
 

@@ -136,7 +136,7 @@ S1/S3 在 `tests/unit/core/decide.test.ts`,S2/S5 在
 
 ### 5.4 端到端验收
 
-- `scripts/eval-workflow-run.mjs` 全量五 change 基准跑通:终态分布不劣于本次(≥3 completed);人工干预点全部 ≤ 1 条命令。
+- `aws eval run`（编译后的 `workflow-run` executor）全量五 change 基准跑通:终态分布不劣于本次(≥3 completed);人工干预点全部 ≤ 1 条命令。
 - 现有全量单测/集成测试通过;driver `loop.ts` 与 `healing_state.ts` 行数**净减少**(在 PR 描述中记录 before/after)。
 
 ## 6. 复杂度预算(防复发)

@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { sanitizeSecrets } from '../utils/secret_sanitize';
 
 export const PROCESS_SUMMARY_SCHEMA = '1.0';
 export const PROCESS_SUMMARY_FILENAME = 'process-summary.json';
@@ -63,25 +64,6 @@ const PERMISSION_RE =
 const PERMISSION_NOTICE_RE =
   /^!\s*permission\s+requested:\s*.+;\s*auto-rejecting/i;
 const SESSION_ID_RE = /^ses_[A-Za-z0-9_-]+$/;
-
-// Mirror src/utils/secret_sanitize.ts — keep in sync for wrapper-side redaction.
-const JWT_PATTERN =
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
-const BEARER_PATTERN = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}\b/gi;
-const API_KEY_PATTERN =
-  /\b(api[_-]?key|access[_-]?token|secret[_-]?key|authorization)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?/gi;
-const AWS_KEY_PATTERN = /\b(AKIA[0-9A-Z]{16})\b/g;
-
-export function sanitizeSecrets(text: string): string {
-  if (!text) return text;
-  return String(text)
-    .replace(JWT_PATTERN, '[REDACTED_JWT]')
-    .replace(BEARER_PATTERN, '$1[REDACTED]')
-    .replace(API_KEY_PATTERN, (match) =>
-      match.replace(/[:=]\s*['"]?[^\s'"]+['"]?/, '=[REDACTED]')
-    )
-    .replace(AWS_KEY_PATTERN, '[REDACTED_AWS_KEY]');
-}
 
 export function truncateDetail(text: unknown): string {
   const sanitized = sanitizeSecrets(String(text ?? ''));

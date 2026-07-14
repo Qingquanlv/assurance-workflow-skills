@@ -8,7 +8,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
 import { archiveArtifacts } from '../archive_artifacts';
 import { seedChange } from '../seed_change';
 import {
@@ -34,7 +33,7 @@ export interface WorkflowEvalInput {
   fixtureTier: string;
   runMode?: string;
   testTypes?: string;
-  runTests?: string;
+  runTests?: boolean;
   timeoutSeconds?: number;
   entry?: string;
   archiveDir: string;
@@ -72,55 +71,23 @@ function resolveAwsInvocation(
   return { command: 'aws', prefixArgs: [] };
 }
 
-export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
-  const allowedWrites = Array.isArray(input) ? undefined : input.allowedWrites;
-  const values = Array.isArray(input) ? parseArgs({
-    args: input,
-    options: {
-      'repo-root': { type: 'string' },
-      'project-dir': { type: 'string' },
-      change: { type: 'string' },
-      'fixture-tier': { type: 'string' },
-      'run-mode': { type: 'string' },
-      'test-types': { type: 'string', default: 'api' },
-      'run-tests': { type: 'string', default: 'false' },
-      'timeout-seconds': { type: 'string', default: '7200' },
-      entry: { type: 'string', default: 'driver' },
-      'archive-dir': { type: 'string' },
-      'attempt-dir': { type: 'string' },
-      'skip-seed': { type: 'boolean', default: false },
-      'opencode-bin': { type: 'string', default: process.env.OPENCODE_BIN ?? 'opencode' },
-      'aws-bin': { type: 'string' },
-      'agent-cmd': { type: 'string' },
-    },
-  }).values : {
-    'repo-root': input.repoRoot,
-    'project-dir': input.projectDir,
-    change: input.changeId,
-    'fixture-tier': input.fixtureTier,
-    'run-mode': input.runMode ?? 'full',
-    'test-types': input.testTypes ?? 'api',
-    'run-tests': input.runTests ?? 'false',
-    'timeout-seconds': String(input.timeoutSeconds ?? 7200),
-    entry: input.entry ?? 'driver',
-    'archive-dir': input.archiveDir,
-    'attempt-dir': input.attemptDir,
-    'skip-seed': input.skipSeed ?? false,
-    'opencode-bin': input.opencodeBin ?? process.env.OPENCODE_BIN ?? 'opencode',
-    'aws-bin': input.awsBin,
-    'agent-cmd': input.agentCmd,
-  };
+export function runWorkflowEval(input: WorkflowEvalInput): number {
+  const repoRoot = resolveRepoRoot(input.repoRoot, __dirname);
+  const projectDir = path.resolve(input.projectDir);
+  const changeId = input.changeId;
+  const archiveDir = path.resolve(input.archiveDir);
+  const attemptDir = resolveAttemptDir(
+    { 'attempt-dir': input.attemptDir },
+    archiveDir,
+  );
+  const runMode = input.runMode ?? 'full';
+  const testTypes = input.testTypes ?? 'api';
+  const runTests = input.runTests ?? false;
+  const timeoutMs = (input.timeoutSeconds ?? 7200) * 1000;
+  const entry = input.entry ?? 'driver';
+  const opencodeBin = input.opencodeBin ?? process.env.OPENCODE_BIN ?? 'opencode';
 
-  const repoRoot = resolveRepoRoot(values['repo-root'], __dirname);
-  const projectDir = path.resolve(values['project-dir'] ?? '');
-  const changeId = values.change;
-  const archiveDir = values['archive-dir'] ? path.resolve(values['archive-dir']) : null;
-  const attemptDir = resolveAttemptDir(values, archiveDir);
-  const runMode = values['run-mode'] ?? 'full';
-  const timeoutMs = Number(values['timeout-seconds']) * 1000;
-  const entry = values.entry ?? 'driver';
-
-  if (!projectDir || !changeId || !archiveDir || !attemptDir || !values['fixture-tier']) {
+  if (!projectDir || !changeId || !archiveDir || !attemptDir || !input.fixtureTier) {
     console.error(
       'workflow-run requires projectDir, changeId, fixtureTier, runMode, archiveDir, and attemptDir'
     );
@@ -143,14 +110,14 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
   let beforePorcelain = '';
   let testType = 'api';
   try {
-    testType = runMode === 'codegen-only' ? parseSingleTestType(values['test-types']) : 'api';
+    testType = runMode === 'codegen-only' ? parseSingleTestType(testTypes) : 'api';
   } catch (err) {
     console.error(errorMessage(err));
     return 2;
   }
-  const writePolicy = allowedWrites
-    ? { mode: 'allowlist' as const, patterns: allowedWrites }
-    : resolveWritePolicy(runMode, values['test-types']);
+  const writePolicy = input.allowedWrites
+    ? { mode: 'allowlist' as const, patterns: input.allowedWrites }
+    : resolveWritePolicy(runMode, testTypes);
 
   const fakeScript = path.join(repoRoot, 'eval/fixtures/fakes/fake-opencode-eval.mjs');
   let runBin;
@@ -169,15 +136,15 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
     const scope = mapScope(runMode);
     const params = {
       run_mode: runMode,
-      test_types: values['test-types'],
-      run_tests: values['run-tests'] === 'true',
+      test_types: testTypes,
+      run_tests: runTests,
       auto_archive: false,
       max_healing_attempts: 0,
     };
     const agentCmd =
-      values['agent-cmd'] ??
-      `${values['opencode-bin']} run --dir ${projectDir} --format json`;
-    const aws = resolveAwsInvocation(repoRoot, values['aws-bin']);
+      input.agentCmd ??
+      `${opencodeBin} run --dir ${projectDir} --format json`;
+    const aws = resolveAwsInvocation(repoRoot, input.awsBin);
     runBin = aws.command;
     runArgs = [
       ...aws.prefixArgs,
@@ -198,7 +165,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
   } else {
     // Legacy: OpenCode + orchestrator / phase skill prompt
     executorMode = entry === 'phase-skill' ? 'opencode-phase-skill' : 'opencode-orchestrator';
-    runBin = values['opencode-bin'];
+    runBin = opencodeBin;
     const CODEGEN_SKILLS = {
       api: 'aws-api-codegen',
       e2e: 'aws-e2e-codegen',
@@ -214,8 +181,8 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
       '',
       `Change id: ${changeId}`,
       `Run mode: ${runMode}`,
-      `Test types: ${values['test-types']}`,
-      `Run tests: ${values['run-tests']}`,
+      `Test types: ${testTypes}`,
+      `Run tests: ${runTests}`,
       'Auto archive: false',
       'Max healing attempts: 0',
     ].join('\n');
@@ -227,8 +194,8 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
   }
 
   try {
-    if (!values['skip-seed']) {
-      seedChange({ projectDir, changeId, fixtureTier: values['fixture-tier'] });
+    if (!input.skipSeed) {
+      seedChange({ projectDir, changeId, fixtureTier: input.fixtureTier });
     }
 
     beforePorcelain = captureWriteScanBefore(attemptDir, projectDir, writePolicy);
@@ -277,7 +244,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
           timed_out: timedOut,
           safety_mode: safetyMode,
           change_id: changeId,
-          fixture_tier: values['fixture-tier'],
+          fixture_tier: input.fixtureTier,
           run_mode: runMode,
           error: errorMessage(err),
           ...buildOpenCodeProcessExecutionFields(processSummary, projectDir),
@@ -345,7 +312,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
       timed_out: timedOut,
       safety_mode: safetyMode,
       change_id: changeId,
-      fixture_tier: values['fixture-tier'],
+      fixture_tier: input.fixtureTier,
       run_mode: runMode,
       ...(postError ? { error: postError } : {}),
       ...buildOpenCodeProcessExecutionFields(processSummary, projectDir),

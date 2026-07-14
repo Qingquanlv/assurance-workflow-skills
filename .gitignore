@@ -13,3 +13,7 @@ docs/design/*
 docs/superpowers/**
 .history
 bin/
+banchmark/
+.superpowers/
+.scratch/
+engineering/

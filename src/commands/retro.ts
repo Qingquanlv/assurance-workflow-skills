@@ -11,20 +11,8 @@ import {
   reportNightly,
   resumeNightly,
 } from '../retro/nightly/driver';
+import { countSignals } from '../retro/nightly/utils';
 import type { NightlyOptions } from '../retro/nightly/types';
-
-function countSignals(context: RetroContext): number {
-  return (
-    context.signals.failure_distribution.length +
-    context.signals.gate_pushback.length +
-    (context.signals.healing_efficiency.proposal_created > 0 ||
-    context.signals.healing_efficiency.created_proposals > 0 ? 1 : 0) +
-    context.signals.human_decisions.length +
-    context.signals.reclassifications.length +
-    context.signals.skill_execution.length +
-    context.signals.eval_trend.length
-  );
-}
 
 function defaultOutPath(projectRoot: string, retroId: string): string {
   return path.join(projectRoot, 'qa', 'retro', retroId, 'context.json');

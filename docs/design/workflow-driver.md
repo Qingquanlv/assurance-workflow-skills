@@ -153,7 +153,7 @@ aws workflow status --change <id>
     透传 aws status --next --json 并附加 driver 侧运行元数据（driver.json，见 §7）。
 ```
 
-退出码（对齐 `retro-nightly.mjs` 约定）：
+退出码（对齐 `aws retro nightly` 约定）：
 
 | 码 | 含义 | 后续动作 |
 |---|---|---|

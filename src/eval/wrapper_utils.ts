@@ -122,16 +122,3 @@ export function buildExecutionPayload(
     [innerExitKey]: innerExitCode,
   };
 }
-
-/** @deprecated use writeAttemptLogs + writeExecutionJson */
-export function writeAttemptEvidence(
-  attemptDir: string,
-  { stdout, stderr, execution }: {
-    stdout: string;
-    stderr: string;
-    execution: ExecutionPayload;
-  },
-): void {
-  writeAttemptLogs(attemptDir, stdout, stderr);
-  writeExecutionJson(attemptDir, execution);
-}

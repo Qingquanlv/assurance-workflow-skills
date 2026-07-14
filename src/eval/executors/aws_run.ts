@@ -4,7 +4,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
 import { archiveArtifacts } from '../archive_artifacts';
 import { seedChange } from '../seed_change';
 import {
@@ -34,39 +33,17 @@ export interface AwsEvalInput {
   allowedWrites?: string[];
 }
 
-export function runAwsEval(input: AwsEvalInput | string[]): number {
-  const allowedWrites = Array.isArray(input) ? undefined : input.allowedWrites;
-  const values = Array.isArray(input) ? parseArgs({
-    args: input,
-    options: {
-      'repo-root': { type: 'string' },
-      'project-dir': { type: 'string' },
-      change: { type: 'string' },
-      'fixture-tier': { type: 'string', default: 'L3-run-seed' },
-      'archive-dir': { type: 'string' },
-      'attempt-dir': { type: 'string' },
-      'skip-seed': { type: 'boolean', default: false },
-      'aws-bin': { type: 'string' },
-      'timeout-seconds': { type: 'string', default: '900' },
-    },
-  }).values : {
-    'repo-root': input.repoRoot,
-    'project-dir': input.projectDir,
-    change: input.changeId,
-    'fixture-tier': input.fixtureTier ?? 'L3-run-seed',
-    'archive-dir': input.archiveDir,
-    'attempt-dir': input.attemptDir,
-    'skip-seed': input.skipSeed ?? false,
-    'aws-bin': input.awsBin,
-    'timeout-seconds': String(input.timeoutSeconds ?? 900),
-  };
-
-  const repoRoot = resolveRepoRoot(values['repo-root'], __dirname);
-  const projectDir = path.resolve(values['project-dir'] ?? '');
-  const changeId = values.change;
-  const archiveDir = values['archive-dir'] ? path.resolve(values['archive-dir']) : null;
-  const attemptDir = resolveAttemptDir(values, archiveDir);
-  const timeoutMs = Number(values['timeout-seconds']) * 1000;
+export function runAwsEval(input: AwsEvalInput): number {
+  const repoRoot = resolveRepoRoot(input.repoRoot, __dirname);
+  const projectDir = path.resolve(input.projectDir);
+  const changeId = input.changeId;
+  const archiveDir = path.resolve(input.archiveDir);
+  const attemptDir = resolveAttemptDir(
+    { 'attempt-dir': input.attemptDir },
+    archiveDir,
+  );
+  const fixtureTier = input.fixtureTier ?? 'L3-run-seed';
+  const timeoutMs = (input.timeoutSeconds ?? 900) * 1000;
 
   if (!projectDir || !changeId || !archiveDir || !attemptDir) {
     console.error(
@@ -85,21 +62,21 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
   let awsSignal = null;
   let timedOut = false;
   let beforePorcelain = '';
-  const policy = allowedWrites
-    ? { mode: 'allowlist' as const, patterns: allowedWrites }
+  const policy = input.allowedWrites
+    ? { mode: 'allowlist' as const, patterns: input.allowedWrites }
     : { mode: 'denylist' as const, patterns: DEFAULT_RUN_DENYLIST };
   const useFake = process.env.EVAL_USE_FAKE_AWS_RUN === '1';
 
   const awsCliPath = path.join(repoRoot, 'dist/cli.js');
-  const awsBin = values['aws-bin'] ?? process.execPath;
+  const awsBin = input.awsBin ?? process.execPath;
   const awsArgs =
-    values['aws-bin'] != null
+    input.awsBin != null
       ? ['run', '--change', changeId]
       : [awsCliPath, 'run', '--change', changeId];
 
   try {
-    if (!values['skip-seed']) {
-      seedChange({ projectDir, changeId, fixtureTier: values['fixture-tier'] });
+    if (!input.skipSeed) {
+      seedChange({ projectDir, changeId, fixtureTier });
     }
 
     beforePorcelain = captureWriteScanBefore(attemptDir, projectDir, policy);
@@ -147,7 +124,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
           timed_out: timedOut,
           safety_mode: 'enabled',
           change_id: changeId,
-          fixture_tier: values['fixture-tier'],
+          fixture_tier: fixtureTier,
           error: errorMessage(err),
         },
         awsExit,
@@ -187,7 +164,7 @@ export function runAwsEval(input: AwsEvalInput | string[]): number {
       timed_out: timedOut,
       safety_mode: 'enabled',
       change_id: changeId,
-      fixture_tier: values['fixture-tier'],
+      fixture_tier: fixtureTier,
       ...(postError ? { error: postError } : {}),
     },
     awsExit,

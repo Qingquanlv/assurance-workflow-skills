@@ -1,7 +1,9 @@
 # 目录结构收编候选清单（第 2 步）
 
+> **状态：已完成（2026-07-14）** — 候选 A/B 已落地；下文「迁移前现状」仅作历史记录。
+>
 > 背景：2026-07-13 架构评审 + 目录结构盘点。第 1 步（纯搬运）已完成：
-> `scripts/lib/retro-nightly/` → `src/retro/nightly/`；顶级 `schemas/` → `docs/schemas/`
+> legacy eval/retro 脚本库 → `src/retro/nightly/`；顶级 `schemas/` → `docs/schemas/`
 > 且 advisory 结构校验收敛到 `src/schema/advisory.ts`；eval 输出隔离到 `eval/out/{runs,batches,reports}`。
 >
 > 本清单的共同病根：**模块真身长在 `scripts/` 里**——以不编译、不受 `src` 测试覆盖的
@@ -21,8 +23,8 @@
   `node <legacy-workflow-run-entry> ...`。
 - `src/eval/executor.ts` 靠正则 `/eval-(aws-run|workflow-run)\.mjs\b/` 识别
   「外部证据 executor」——接缝泄漏。
-- 共享逻辑散在 `scripts/lib/`：`write-scan.mjs`、`eval-wrapper-utils.mjs`、
-  `eval-fixture-utils.mjs`、`opencode-process-events.mjs`（+ 手写 `.d.ts`）。
+- 共享逻辑曾散在 legacy eval lib（现已迁入 `src/eval/`：`write_scan.ts`、`wrapper_utils.ts`、
+  `fixture_utils.ts`、`opencode_process_events.ts`）。
 
 ### 目标终态
 
@@ -35,7 +37,7 @@
 
 ### 涉及改动
 
-`src/eval/executor.ts`、新建 executor 模块、7 个 suite YAML、`scripts/lib/*` 迁移、
+`src/eval/executor.ts`、新建 executor 模块、7 个 suite YAML、legacy eval lib 迁入 `src/eval/`、
 `eval/contracts/evidence-spec.md`。
 
 ### 成本 / 风险

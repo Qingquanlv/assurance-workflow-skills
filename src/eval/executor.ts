@@ -428,10 +428,10 @@ function runCompiledWrapper(
         repoRoot: projectRoot,
         projectDir: executorProjectDir,
         changeId,
-        fixtureTier: fixtureTier!,
+        fixtureTier,
         runMode: expandTemplate(config.run_mode, policyTemplateVars),
         testTypes: config.test_type,
-        runTests: String(config.run_tests ?? false),
+        runTests: config.run_tests ?? false,
         timeoutSeconds: config.timeout_seconds,
         entry: config.entry,
         archiveDir,
@@ -536,7 +536,7 @@ export async function executeAttempt(
         baseTemplateVars,
         resolvedSutDir,
       );
-    } else if (config.type === 'mixed') {
+    } else {
       const checkType = sample.check_type;
       if (!checkType) {
         throw new Error('mixed executor requires sample.check_type to be set');

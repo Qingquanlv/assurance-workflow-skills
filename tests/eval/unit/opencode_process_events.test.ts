@@ -7,8 +7,8 @@ import {
 } from '../../../src/eval/scorers/_shared/opencode_process_metrics';
 import {
   parseOpenCodeProcessLog,
-  sanitizeSecrets,
 } from '../../../src/eval/opencode_process_events';
+import { sanitizeSecrets } from '../../../src/utils/secret_sanitize';
 
 function line(obj: unknown): string {
   return JSON.stringify(obj);
