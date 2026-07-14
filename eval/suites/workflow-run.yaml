@@ -2,16 +2,7 @@ name: workflow-run
 version: "1.0.0"
 
 executor:
-  type: subprocess
-  workdir: "{{workspace.root}}"
-  command: >-
-    node {{workspace.root}}/scripts/eval-aws-run.mjs
-    --repo-root {{workspace.root}}
-    --project-dir {{sut.dir}}
-    --change {{sample.input.change_id}}
-    --fixture-tier {{sample.input.fixture_tier}}
-    --archive-dir {{attempt.dir}}/raw-output
-    --attempt-dir {{attempt.dir}}
+  type: aws-run
   timeout_seconds: 900
   expected_outputs:
     - "{{attempt.dir}}/raw-output/archive-manifest.json"

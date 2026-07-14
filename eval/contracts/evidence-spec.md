@@ -83,12 +83,12 @@ archive 失败时：`evidence_completed: true`、`archive_completed: false`、`w
 
 ## Executors
 
-| Suite | Script | `executor` 值 | 说明 |
+| Suite | Compiled implementation | `execution.json.executor` | 说明 |
 |-------|--------|---------------|------|
-| E0 / E2a / E4 | `scripts/eval-workflow-run.mjs` | `eval-workflow-run` | 默认 `aws workflow run --adapter headless`；fake 模式 one-shot golden；`--entry orchestrator` 遗留 OpenCode |
-| **E3 Run** | **`scripts/eval-aws-run.mjs`** | **`eval-aws-run`** | **直接 `aws run`**；不走 OpenCode |
+| E0 / E2a / E4 | `src/eval/executors/workflow_run.ts`（suite `type: workflow-run`） | `eval-workflow-run` | 默认 `aws workflow run --adapter headless`；fake 模式 one-shot golden；`entry: orchestrator` 遗留 OpenCode |
+| **E3 Run** | **`src/eval/executors/aws_run.ts`（suite `type: aws-run`）** | **`eval-aws-run`** | **直接 `aws run`**；不走 OpenCode |
 
-两个 wrapper **共用** `scripts/lib/write-scan.mjs`，统一 write-scan 布局。
+两个编译 executor **共用** `src/eval/write_scan.ts`，统一 write-scan 布局。
 
 ### Write-scan evidence（E0 / E2a / E3 共用）
 
@@ -100,7 +100,7 @@ archive 失败时：`evidence_completed: true`、`archive_completed: false`、`w
 | `git-status-before.bin` | run 前 `git status --porcelain` |
 | `git-status-after.bin` | run 后 snapshot |
 | `write-diff.json` | `forbidden_write_executed_count` + changed/violation paths |
-| `../raw-output/**` | `eval-archive-artifacts.mjs` 归档的 `qa/changes/{change}/` |
+| `../raw-output/**` | `src/eval/archive_artifacts.ts` 归档的 `qa/changes/{change}/` |
 
 Policy 按 suite：
 
@@ -108,19 +108,14 @@ Policy 按 suite：
 - **E2a codegen-only** → allowlist `workflow_api_codegen`
 - **E3 run** → denylist `backend/**`, `frontend/**`, `src/**`
 
-### eval-aws-run.mjs CLI
+### aws-run suite 配置
 
-```bash
-node scripts/eval-aws-run.mjs \
-  --repo-root . \
-  --project-dir <sut.dir> \
-  --change eval-sample-001 \
-  --fixture-tier L3-run-seed \
-  --archive-dir eval/out/runs/RUN/samples/WR-001/attempt-0/raw-output \
-  [--attempt-dir eval/out/runs/.../attempt-0] \
-  [--skip-seed] \
-  [--aws-bin /path/to/fake-aws] \
-  [--timeout-seconds 900]
+```yaml
+executor:
+  type: aws-run
+  timeout_seconds: 900
+  expected_outputs:
+    - "{{attempt.dir}}/raw-output/archive-manifest.json"
 ```
 
 流程：seed（可选）→ write-scan before → `aws run` → write-scan after → archive → evidence 落盘。

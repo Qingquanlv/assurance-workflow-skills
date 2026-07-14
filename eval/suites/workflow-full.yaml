@@ -2,18 +2,9 @@ name: workflow-full
 version: "1.0.0"
 
 executor:
-  type: subprocess
-  workdir: "{{workspace.root}}"
-  command: >-
-    node {{workspace.root}}/scripts/eval-workflow-run.mjs
-    --repo-root {{workspace.root}}
-    --project-dir {{sut.dir}}
-    --change {{sample.input.change_id}}
-    --fixture-tier {{sample.input.fixture_tier}}
-    --run-mode full
-    --run-tests true
-    --archive-dir {{attempt.dir}}/raw-output
-    --attempt-dir {{attempt.dir}}
+  type: workflow-run
+  run_mode: full
+  run_tests: true
   timeout_seconds: 14400
   expected_outputs:
     - "{{attempt.dir}}/raw-output/workflow-state.yaml"

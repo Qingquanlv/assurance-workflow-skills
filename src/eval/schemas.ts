@@ -26,17 +26,49 @@ export const SubprocessExecutorSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
+const CompiledWrapperFields = {
+  timeout_seconds: z.number().positive(),
+  expected_outputs: z.array(z.string()),
+  env: z.record(z.string(), z.string()).optional(),
+};
+
+export const WorkflowRunExecutorSchema = z.object({
+  type: z.literal('workflow-run'),
+  run_mode: z.string().min(1),
+  test_types: z.string().optional(),
+  run_tests: z.boolean().optional(),
+  entry: z.enum(['driver', 'orchestrator', 'phase-skill']).optional(),
+  skip_seed: z.boolean().optional(),
+  ...CompiledWrapperFields,
+});
+
+export const AwsRunExecutorSchema = z.object({
+  type: z.literal('aws-run'),
+  fixture_tier: z.string().optional(),
+  skip_seed: z.boolean().optional(),
+  ...CompiledWrapperFields,
+});
+
+const LeafExecutorSchema = z.discriminatedUnion('type', [
+  InProcessExecutorSchema,
+  SubprocessExecutorSchema,
+  WorkflowRunExecutorSchema,
+  AwsRunExecutorSchema,
+]);
+
 export const MixedExecutorSchema = z.object({
   type: z.literal('mixed'),
   per_check_type: z.record(
     z.string(),
-    z.union([InProcessExecutorSchema, SubprocessExecutorSchema])
+    LeafExecutorSchema
   ),
 });
 
 export const ExecutorSchema = z.discriminatedUnion('type', [
   InProcessExecutorSchema,
   SubprocessExecutorSchema,
+  WorkflowRunExecutorSchema,
+  AwsRunExecutorSchema,
   MixedExecutorSchema,
 ]);
 

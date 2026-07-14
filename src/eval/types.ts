@@ -2,7 +2,7 @@
 
 // ── Executor ──────────────────────────────────────────────────────────────────
 
-export type ExecutorType = 'in_process' | 'subprocess' | 'mixed';
+export type ExecutorType = 'in_process' | 'subprocess' | 'workflow-run' | 'aws-run' | 'mixed';
 
 export interface InProcessExecutorConfig {
   type: 'in_process';
@@ -24,14 +24,43 @@ export interface SubprocessExecutorConfig {
   env?: Record<string, string>;
 }
 
+interface CompiledWrapperExecutorConfig {
+  timeout_seconds: number;
+  expected_outputs: string[];
+  env?: Record<string, string>;
+}
+
+export interface WorkflowRunExecutorConfig extends CompiledWrapperExecutorConfig {
+  type: 'workflow-run';
+  run_mode: string;
+  test_types?: string;
+  run_tests?: boolean;
+  entry?: 'driver' | 'orchestrator' | 'phase-skill';
+  skip_seed?: boolean;
+}
+
+export interface AwsRunExecutorConfig extends CompiledWrapperExecutorConfig {
+  type: 'aws-run';
+  fixture_tier?: string;
+  skip_seed?: boolean;
+}
+
+export type LeafExecutorConfig =
+  | InProcessExecutorConfig
+  | SubprocessExecutorConfig
+  | WorkflowRunExecutorConfig
+  | AwsRunExecutorConfig;
+
 export interface MixedExecutorConfig {
   type: 'mixed';
-  per_check_type: Record<string, InProcessExecutorConfig | SubprocessExecutorConfig>;
+  per_check_type: Record<string, LeafExecutorConfig>;
 }
 
 export type ExecutorConfig =
   | InProcessExecutorConfig
   | SubprocessExecutorConfig
+  | WorkflowRunExecutorConfig
+  | AwsRunExecutorConfig
   | MixedExecutorConfig;
 
 // ── CI Config ─────────────────────────────────────────────────────────────────

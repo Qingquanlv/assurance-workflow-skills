@@ -1,6 +1,6 @@
 # Eval Fixture Tiers
 
-Golden seed content and tier manifests for phase-scoped AI eval. Used by `scripts/eval-seed-change.mjs` (Task 3) to populate a bench change directory before each eval attempt.
+Golden seed content and tier manifests for phase-scoped AI eval. Used by the compiled `src/eval/seed_change.ts` module to populate a bench change directory before each eval attempt.
 
 ## Tier cumulative model
 

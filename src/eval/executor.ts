@@ -9,6 +9,9 @@ import type {
   ExecutorConfig,
   InProcessExecutorConfig,
   SubprocessExecutorConfig,
+  WorkflowRunExecutorConfig,
+  AwsRunExecutorConfig,
+  LeafExecutorConfig,
   DatasetSample,
   ExecutionResult,
 } from './types';
@@ -16,6 +19,8 @@ import { requireRuntimeModule } from './module_resolver';
 import { expandTemplate, expandTemplateVars } from './executor_template';
 import { resolveSampleSut } from './sut_registry';
 import micromatch from 'micromatch';
+import { runWorkflowEval } from './executors/workflow_run';
+import { runAwsEval } from './executors/aws_run';
 
 // ── Sandbox management ────────────────────────────────────────────────────────
 
@@ -349,6 +354,108 @@ function runSubprocess(
   );
 }
 
+function requireSampleString(sample: DatasetSample, key: string): string {
+  const value = sample.input[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${key} is required for typed eval executor`);
+  }
+  return value;
+}
+
+function withExpandedEnv<T>(
+  envConfig: Record<string, string> | undefined,
+  templateVars: Record<string, string>,
+  operation: () => T,
+): T {
+  if (!envConfig) return operation();
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(envConfig)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = expandTemplate(value, templateVars);
+  }
+  try {
+    return operation();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function runCompiledWrapper(
+  config: WorkflowRunExecutorConfig | AwsRunExecutorConfig,
+  sample: DatasetSample,
+  attemptDir: string,
+  projectRoot: string,
+  templateVars: Record<string, string>,
+  sutDir: string | undefined,
+): void {
+  if (!sutDir) throw new Error('sut.dir is required for typed eval executor');
+  const changeId = requireSampleString(sample, 'change_id');
+  const archiveDir = path.join(attemptDir, 'raw-output');
+  const fixtureTier = config.type === 'aws-run'
+    ? config.fixture_tier ?? (sample.input.fixture_tier as string | undefined)
+    : requireSampleString(sample, 'fixture_tier');
+
+  const exitCode = withExpandedEnv(config.env, templateVars, () => (
+    config.type === 'workflow-run'
+      ? runWorkflowEval({
+        repoRoot: projectRoot,
+        projectDir: sutDir,
+        changeId,
+        fixtureTier: fixtureTier!,
+        runMode: expandTemplate(config.run_mode, templateVars),
+        testTypes: config.test_types ? expandTemplate(config.test_types, templateVars) : undefined,
+        runTests: String(config.run_tests ?? false),
+        timeoutSeconds: config.timeout_seconds,
+        entry: config.entry,
+        archiveDir,
+        attemptDir,
+        skipSeed: config.skip_seed,
+      })
+      : runAwsEval({
+        repoRoot: projectRoot,
+        projectDir: sutDir,
+        changeId,
+        fixtureTier,
+        timeoutSeconds: config.timeout_seconds,
+        archiveDir,
+        attemptDir,
+        skipSeed: config.skip_seed,
+      })
+  ));
+  if (exitCode !== 0) throw new Error(`${config.type} executor failed with code ${exitCode}`);
+  assertExternalEvidenceArtifacts(attemptDir);
+  verifyAndCopyExpectedOutputs(
+    config.expected_outputs,
+    templateVars,
+    sutDir,
+    attemptDir,
+    archiveDir,
+  );
+}
+
+async function runLeafExecutor(
+  config: LeafExecutorConfig,
+  sample: DatasetSample,
+  attemptDir: string,
+  projectRoot: string,
+  templateVars: Record<string, string>,
+  sutDir: string | undefined,
+): Promise<number | undefined> {
+  if (config.type === 'in_process') {
+    await runInProcess(config, sample, attemptDir, projectRoot);
+    return undefined;
+  }
+  if (config.type === 'subprocess') {
+    runSubprocess(config, sample, attemptDir, projectRoot, templateVars);
+    return 0;
+  }
+  runCompiledWrapper(config, sample, attemptDir, projectRoot, templateVars, sutDir);
+  return 0;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export interface ExecutorRunInput {
@@ -382,11 +489,15 @@ export async function executeAttempt(
   let exitCode: number | undefined;
 
   try {
-    if (config.type === 'in_process') {
-      await runInProcess(config, sample, attemptDir, projectRoot);
-    } else if (config.type === 'subprocess') {
-      runSubprocess(config, sample, attemptDir, projectRoot, baseTemplateVars);
-      exitCode = 0;
+    if (config.type !== 'mixed') {
+      exitCode = await runLeafExecutor(
+        config,
+        sample,
+        attemptDir,
+        projectRoot,
+        baseTemplateVars,
+        resolvedSutDir,
+      );
     } else if (config.type === 'mixed') {
       const checkType = sample.check_type;
       if (!checkType) {
@@ -398,12 +509,14 @@ export async function executeAttempt(
           `mixed executor has no entry for check_type '${checkType}'`
         );
       }
-      if (subConfig.type === 'in_process') {
-        await runInProcess(subConfig, sample, attemptDir, projectRoot);
-      } else {
-        runSubprocess(subConfig, sample, attemptDir, projectRoot, baseTemplateVars);
-        exitCode = 0;
-      }
+      exitCode = await runLeafExecutor(
+        subConfig,
+        sample,
+        attemptDir,
+        projectRoot,
+        baseTemplateVars,
+        resolvedSutDir,
+      );
     }
 
     const completedAt = new Date().toISOString();
