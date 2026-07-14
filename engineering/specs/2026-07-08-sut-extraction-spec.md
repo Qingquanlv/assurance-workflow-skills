@@ -6,10 +6,10 @@
 **日期**: 2026-07-08
 **版本**: v0.1（Draft / Proposal，实现-ready）
 **状态**: Implemented (2026-07-08)
-**涉及面（规划）**: `bench/`（移出）、`eval/suts.yaml`（新增）、`eval/datasets/**/*.yaml`（40 个样本）、`eval/suites/*.yaml`（7 个 suite）、`src/eval/executor_template.ts`、`src/eval/runner.ts`、`scripts/eval-workflow-run.mjs` / `eval-seed-change.mjs`（不改，仅确认参数化）、`.github/workflows/eval-smoke.yml` / `eval-full.yml`、`.gitignore`、`README-EVAL.md`
+**涉及面（规划）**: `bench/`（移出）、`eval/suts.yaml`（新增）、`eval/datasets/**/*.yaml`（40 个样本）、`eval/suites/*.yaml`（7 个 suite）、`src/eval/executor_template.ts`、`src/eval/runner.ts`、`scripts/eval-workflow-run.mjs` / `eval-seed-change.mjs`（不改，仅确认参数化）、`.github/workflows/eval-smoke.yml` / `eval-full.yml`、`.gitignore`、`eval/README.md`
 **关联设计**:
 - [2026-07-08-meta-team-retro-loop-spec.md](2026-07-08-meta-team-retro-loop-spec.md)（retro/演化闭环依赖 eval 作为 fitness 函数——本 spec 的仓库拓扑决策服务于该闭环）
-- `README-EVAL.md`（fixture tier 模型与 bench seed 机制）
+- `eval/README.md`（fixture tier 模型与 bench seed 机制）
 
 ---
 

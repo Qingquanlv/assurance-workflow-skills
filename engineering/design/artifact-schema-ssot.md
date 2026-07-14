@@ -18,8 +18,8 @@
 
 | 层 | 产物 | 模板/契约现在放哪 | 谁生成 | 现在怎么校验 |
 |---|---|---|---|---|
-| A | `.aws/config.yaml`、`.aws/module-map.yaml` 等 init 文件 | TS 生成器 `src/templates/*.ts` | `aws init` | `src/core/checks.ts`（doctor） |
-| B | `workflow-schema.yaml` | `schemas/workflow-schema.yaml`（随包发布） | 不生成，运行时按优先级解析覆盖 | `src/orchestration/schema.ts` loader |
+| A | `.aws/config.yaml`、`.aws/module-map.yaml` 等 init 文件 | TS 生成器 `src/workflow/templates/*.ts` | `aws init` | `src/workflow/core/checks.ts`（doctor） |
+| B | `workflow-schema.yaml` | `schemas/workflow-schema.yaml`（随包发布） | 不生成，运行时按优先级解析覆盖 | `src/workflow/orchestration/schema.ts` loader |
 | C | per-change 产物（`case.yaml`/`.qa.yaml`/plan/review/execution/inspect/report/healing） | **内嵌在 skill 的 markdown 正文里**（如 `aws-case-design/SKILL.md` 约 1500 行、含数十个 ```yaml``` 模板块） | agent（跑 skill） | **无统一校验**，只有 gate 检查「文件是否存在」+ hash/mtime |
 
 C 层就是问题所在：
@@ -69,14 +69,14 @@ C 层就是问题所在：
 
 | 层 | 判据 | 模板/schema 归属 | 生成方式 | 实例落位 |
 |---|---|---|---|---|
-| **A · 项目级配置** | 每个 SUT 一份、init 时创建、之后人工维护 | TS 生成器 `src/templates/` | **CLI 生成**（`aws init`） | SUT `.aws/` |
+| **A · 项目级配置** | 每个 SUT 一份、init 时创建、之后人工维护 | TS 生成器 `src/workflow/templates/` | **CLI 生成**（`aws init`） | SUT `.aws/` |
 | **B · 引擎级 schema** | 全局一份、定义工作流拓扑本身 | `schemas/*.yaml`（随包发布，可被 `.aws/` 覆盖） | **不生成**，运行时解析 | 随包 / SUT 覆盖 |
 | **C · per-change 产物** | 每个 change 每相位一份、由 agent 创造性生成 | **`src/schema/`（本文新增，单一真相源）** | **agent 生成、CLI 校验** | SUT `qa/changes/<id>/`（运行时，**不进 docs**） |
 
 一句话回答你最初的问题：
 
 - **YAML 模板要不要定义？** 要，但定义的是 **schema（形状约束）**，不是「填空模板文件」。
-- **放 docs 还是 CLI 生成？** C 层产物的 **schema 放代码**（`src/schema/`，随代码测试与版本演进）；**实例由 agent 生成**、由 **CLI 校验**；**docs 只放人读的索引**（`artifact-schemas.md`，从 schema 生成或手护），**不放运行时实例**。
+- **放 docs 还是 CLI 生成？** C 层产物的 **schema 放代码**（`src/schema/`，随代码测试与版本演进）；**实例由 agent 生成**、由 **CLI 校验**；**docs 只放人读的索引**（`docs/schemas.md`），**不放运行时实例**。
 
 ---
 
@@ -130,18 +130,10 @@ export function validateCaseYaml(raw: unknown): ValidationResult;
 
 ## 4. `aws validate` 命令接口设计
 
-新增确定性、无 LLM 的校验命令（与 `status`/`gate check` 同类，纯函数）：
-
-```
-aws validate --change <id> [--phase <phase>] [--artifact <relpath>] [--json]
-```
-
-- **默认**：校验该 change 目录下**所有已存在**的 C 层产物（按 `src/schema/index.ts` 注册表匹配 glob）。
-- `--phase <phase>`：只校验某相位 `produces` 列出的产物。
-- `--artifact <relpath>`：只校验单个文件。
-- `--json`：输出机器可读结果（供 driver/eval 消费）。
-
-**输出契约**：每个产物给 `{ path, artifact_type, ok, errors[] }`；进程退出码 `0`=全过、`1`=有校验失败、`2`=用法错误。
+新增确定性、无 LLM 的校验命令（与 `status`/`gate check` 同类），让 driver、eval
+与人工操作共享同一校验入口。当前命令参数、选择规则、输出与退出码的用户契约以
+[`docs/schemas.md`](../../docs/schemas.md#validate-change-artifacts) 为准；本设计文档不复制
+该规范性说明。
 
 **与 gate 的关系**：`aws gate check` 的 codegen/plan/case 相关硬门，从「文件存在 + hash」升级为「文件存在 + **schema 校验通过**」，二者都调用 `src/schema` 的同一 validator，不各写一套。driver 主循环的「产物校验」步（`workflow-driver.md` §「产物校验 → H0 → reducer → gate」）由此有了统一实现，取代当前「目录/YAML/Markdown 各自 validator」的模糊说法（Markdown 仍走存在性检查）。
 
@@ -190,7 +182,7 @@ aws validate --change <id> [--phase <phase>] [--artifact <relpath>] [--json]
 4. 加注册表 vs `produces` 一致性测试。
 5. gate check 接入 schema 校验（替换存在性/hash 单点）。
 6. skill markdown 去副本迁移（一个 skill 一个 PR，配 rg 回归）。
-7. 可选：validator 导出 JSON-Schema → `schemas/` + 更新 `schemas/README.md` 索引。
+7. 可选：validator 导出 JSON-Schema → `schemas/` + 更新 `docs/schemas.md` 的人类索引。
 
 ---
 

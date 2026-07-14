@@ -319,9 +319,9 @@ review_sha256: <当时 review JSON 的 hash>
 ## 6. Schema / CLI / SKILL 变更清单
 
 **CLI（`src/`）**
-1. `aws gate check`：gate_verdict 事件增加 `reads_sha256`（`src/core/events.ts` 事件类型扩展 + `src/commands/gate.ts`）。
+1. `aws gate check`：gate_verdict 事件增加 `reads_sha256`（`src/workflow/core/events.ts` 事件类型扩展 + `src/commands/gate.ts`）。
 2. `aws status`：新增审计器（篡改检测 §3.2、verdict 迁移审计 §3.3、healing 一致性 §4.2.3）；`PhaseStatusKind` 增加 `tampered`；terminal 规则扩展。
-3. 新命令 `aws state heal`（`src/commands/state.ts` + `src/core/workflow_state.ts` 迁移矩阵）。
+3. 新命令 `aws state heal`（`src/commands/state.ts` + `src/workflow/core/workflow_state.ts` 迁移矩阵）。
 4. `aws run`：healing-rerun 前置 `healing.status == applied` 检查；重复 execution 需 `--rerun-reason`。
 5. `aws decide`（写 `human_decision` 事件；拒绝无消费者或 codegen 硬门类裁决）。
 

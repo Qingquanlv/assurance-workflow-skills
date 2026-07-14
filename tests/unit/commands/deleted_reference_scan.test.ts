@@ -7,17 +7,19 @@ const SCAN_ROOTS = [
   'tests',
   'skills',
   '.opencode',
+  '.github',
   'scripts',
   'docs',
   'engineering',
   'eval',
 ];
-const ROOT_FILES = ['README.md', 'README-EVAL.md', 'AGENTS.md', '.dependency-cruiser.cjs'];
+const ROOT_FILES = ['README.md', 'AGENTS.md', '.dependency-cruiser.cjs'];
 const EXCLUDED = new Set([
   'engineering/design/boundary-inventory.md',
   'engineering/design/structure-cleanup-candidates.md',
 ]);
-const DELETED_DOCUMENTATION_PATH = /docs\/(?:design|superpowers)\//g;
+const DELETED_DOCUMENTATION_PATH = /docs\/(?:design|superpowers|schemas)\//g;
+const DELETED_EVAL_README = /README-EVAL\.md/;
 const SCHEMA_COMPATIBILITY_OCCURRENCES = [
   [
     'src/workflow/orchestration/schema.ts',
@@ -85,6 +87,8 @@ describe('repository deletion reference contract', () => {
     expect(activeRepositoryFiles()).toEqual(
       expect.arrayContaining([
         '.dependency-cruiser.cjs',
+        '.github/workflows/eval-smoke.yml',
+        'eval/README.md',
         'skills/aws-dashboard/scripts/case-center.html',
         'skills/aws-dashboard/scripts/server.cjs',
         'skills/writing-skills/render-graphs.js',
@@ -138,5 +142,15 @@ describe('repository deletion reference contract', () => {
       ([relative, line]) => `${relative}\n${line}`,
     );
     expect(occurrences.sort()).toEqual(expected.sort());
+  });
+
+  it('contains no references to the deleted root eval README', () => {
+    const occurrences: string[] = [];
+    for (const relative of activeRepositoryFiles()) {
+      if (relative === 'tests/unit/commands/deleted_reference_scan.test.ts') continue;
+      const body = fs.readFileSync(path.join(ROOT, relative), 'utf-8');
+      if (DELETED_EVAL_README.test(body)) occurrences.push(relative);
+    }
+    expect(occurrences).toEqual([]);
   });
 });

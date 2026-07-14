@@ -152,7 +152,7 @@ git commit -m "refactor(workflow)!: consolidate workflow package"
 - Modify: `src/commands/retro.ts`
 - Delete: `scripts/retro-nightly.mjs`
 - Move: `tests/unit/retro-nightly/` → `tests/unit/retro/nightly/`
-- Modify: `README-EVAL.md`
+- Modify: `eval/README.md`
 - Modify: `engineering/design/nightly-driver.md`
 
 **Interfaces:**
@@ -184,7 +184,7 @@ Commander options must preserve `--sut`, `--retro-id`, `--dry-run`, and `--last`
 ```bash
 npm run build
 npm test -- --runInBand tests/unit/retro tests/integration/retro_loop.test.ts
-git add src/retro src/commands/retro.ts tests/unit/retro README-EVAL.md engineering/design/nightly-driver.md scripts/retro-nightly.mjs
+git add src/retro src/commands/retro.ts tests/unit/retro eval/README.md engineering/design/nightly-driver.md scripts/retro-nightly.mjs
 git commit -m "refactor(retro)!: compile nightly driver into cli"
 ```
 
@@ -308,7 +308,7 @@ npm test -- --runInBand tests/unit/commands/deleted_reference_scan.test.ts
 - [ ] **Step 3: Move fakes, update all consumers, remove compiled replacements, and scan for stale paths**
 
 ```bash
-rg -n 'scripts/(eval-|fake-|retro-nightly)|scripts/lib/' src tests eval .github README.md README-EVAL.md .opencode docs/design skills
+rg -n 'scripts/(eval-|fake-|retro-nightly)|scripts/lib/' src tests eval .github README.md eval/README.md .opencode docs/design skills
 ```
 
 - [ ] **Step 4: Verify and commit**
@@ -316,7 +316,7 @@ rg -n 'scripts/(eval-|fake-|retro-nightly)|scripts/lib/' src tests eval .github 
 ```bash
 npm run build
 npm test -- --runInBand tests/unit/commands/deleted_reference_scan.test.ts tests/eval/unit tests/unit/retro
-git add scripts eval/fixtures src tests .github README.md README-EVAL.md .opencode docs/design skills
+git add scripts eval/fixtures src tests .github README.md eval/README.md .opencode docs/design skills
 git commit -m "chore(scripts): retain only ci and linking glue"
 ```
 
@@ -366,14 +366,14 @@ git commit -m "chore(eval): move generated outputs under ignored out"
 
 **Files:**
 - Modify: `README.md`
-- Modify: `README-EVAL.md`
+- Modify: `eval/README.md`
 - Modify: `.opencode/agents/README.md`
 - Modify: tracked operational design docs and CI path filters
 
 - [ ] **Step 1: Scan all operational sources for old paths**
 
 ```bash
-rg -n 'src/(core|orchestration|driver|execution|report|templates)|scripts/(eval-|retro-nightly|fake-)|eval/(runs|batches|reports)' README.md README-EVAL.md src tests eval .github .opencode skills docs/design
+rg -n 'src/(core|orchestration|driver|execution|report|templates)|scripts/(eval-|retro-nightly|fake-)|eval/(runs|batches|reports)' README.md eval/README.md src tests eval .github .opencode skills docs/design
 ```
 
 Update operational references; historical documents may retain paths only when explicitly labeled as historical.
@@ -393,6 +393,6 @@ Check standards, spec coverage, evidence parity, architecture output, and tracke
 - [ ] **Step 4: Commit final documentation or fixes**
 
 ```bash
-git add README.md README-EVAL.md .opencode .github docs/design src tests eval package.json .dependency-cruiser.cjs
+git add README.md eval/README.md .opencode .github docs/design src tests eval package.json .dependency-cruiser.cjs
 git commit -m "docs: align references with src restructure"
 ```

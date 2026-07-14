@@ -297,7 +297,7 @@ aws retro apply --retro <id> [--proposal <pid>]
 PHASE F 按当前描述有一个致命断层：**`aws retro apply` 写的是活的 SUT 工作区，而 eval 跑 suite 时测的不是它。**
 
 - eval harness 按 `eval/suts.yaml` 的 pinned SHA 克隆 SUT 到独立工作区；
-- `.aws/memory/**` 的内容是通过 fixture tier 机制**另行 seed** 进 eval 工作区的，不会从活 SUT 读取，也不提交进 pinned SUT 仓库（见 `README-EVAL.md` "eval runs with an external SUT" 一节）。
+- `.aws/memory/**` 的内容是通过 fixture tier 机制**另行 seed** 进 eval 工作区的，不会从活 SUT 读取，也不提交进 pinned SUT 仓库（见 `docs/eval.md` 的 `--extra-memory-dir` 说明）。
 
 因此如果 driver 只是"apply 到活 SUT → 跑 `eval_suite`"，suite 全绿**不代表刚 apply 的 memory 规则有效**——eval 工作区里根本没有这条规则。PHASE F 的"防回归"承诺就成了假信心。
 

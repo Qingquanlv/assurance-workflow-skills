@@ -1973,7 +1973,7 @@ EOF
 
 **Files:**
 - Test: `tests/integration/retro_loop.test.ts`
-- Modify docs: `README-EVAL.md`
+- Modify docs: `eval/README.md`
 - Modify docs: `engineering/specs/2026-07-08-meta-team-retro-loop-spec.md` only if implementation details diverge
 
 **Interfaces:**
@@ -2037,7 +2037,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Update README-EVAL**
 
-Add a concise section to `README-EVAL.md` after the eval run/compare section:
+Add a concise section to `eval/README.md` after the eval run/compare section:
 
 ```markdown
 ## Retro Loop
@@ -2072,7 +2072,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/integration/retro_loop.test.ts README-EVAL.md
+git add tests/integration/retro_loop.test.ts eval/README.md
 git commit -m "$(cat <<'EOF'
 Document and verify retro loop smoke path
 

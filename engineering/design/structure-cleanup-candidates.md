@@ -3,7 +3,7 @@
 > **状态：已完成（2026-07-14）** — 候选 A/B 已落地；下文「迁移前现状」仅作历史记录。
 >
 > 背景：2026-07-13 架构评审 + 目录结构盘点。第 1 步（纯搬运）已完成：
-> legacy eval/retro 脚本库 → `src/retro/nightly/`；顶级 `schemas/` → `docs/schemas/`
+> legacy eval/retro 脚本库 → `src/retro/nightly/`；机器契约 → 顶级 `schemas/`，人类说明 → `docs/schemas.md`
 > 且 advisory 结构校验收敛到 `src/schema/advisory.ts`；eval 输出隔离到 `eval/out/{runs,batches,reports}`。
 >
 > 本清单的共同病根：**模块真身长在 `scripts/` 里**——以不编译、不受 `src` 测试覆盖的
@@ -73,7 +73,7 @@
 ### 涉及改动
 
 `src/retro/nightly/*.cjs` → TS、`src/commands/retro.ts`、`src/cli.ts`、
-`tests/unit/retro-nightly/*`、`README-EVAL.md`、`engineering/design/nightly-driver.md`。
+`tests/unit/retro-nightly/*`、`eval/README.md`、`engineering/design/nightly-driver.md`。
 
 ### 成本 / 风险
 

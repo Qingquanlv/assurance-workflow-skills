@@ -324,7 +324,7 @@ preflight（aws-execute 启动时）:
 
 ### 11.1 `active_scope` 必须进入 status/dispatch 决策层，而非只在 `state apply` 末端兜底
 
-**风险**：`computeStatus()` 产出的 `next`（= `ready` 状态的 phase）是 orchestrator 与 `resolveNextDispatch()` 的**唯一依据**（`src/orchestration/engine.ts`）。若 scope 只在 `aws state apply --phase` 末端校验，`computeStatus` 仍会把越界 phase 放进 `next` → orchestrator dispatch → 跑到一半才在 apply 被拒（浪费一次执行、状态半污染）。
+**风险**：`computeStatus()` 产出的 `next`（= `ready` 状态的 phase）是 orchestrator 与 `resolveNextDispatch()` 的**唯一依据**（`src/workflow/orchestration/engine.ts`）。若 scope 只在 `aws state apply --phase` 末端校验，`computeStatus` 仍会把越界 phase 放进 `next` → orchestrator dispatch → 跑到一半才在 apply 被拒（浪费一次执行、状态半污染）。
 
 **落点**：把 `active_scope` 作为 `computeStatus` 的一等输入，像 `when` 一样在**决策层剪枝**。
 - 每个 phase 在 `workflow-schema.yaml` 标 `owned_by: [<scope>...]`（`full` 覆盖全部；`intake` = explore / case-design / case-review / case-fix；`execute` = fact-baseline→archive-eligibility）。

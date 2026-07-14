@@ -134,7 +134,7 @@ eval/                        # 配置与数据；输出统一进 eval/out/（见
 - `exec.cjs` 的 `resolveSkillsRoot` 依赖 `scripts/retro-nightly.mjs` 存在性定位仓库根，
   改为 `package.json` 锚点探测
 - `tests/unit/retro-nightly/` 并入 `tests/unit/retro/`
-- 同步更新：`README-EVAL.md`、`engineering/design/nightly-driver.md`
+- 同步更新：`eval/README.md`、`engineering/design/nightly-driver.md`
 
 ## 5. fake 脚本与 scripts/ 终态
 

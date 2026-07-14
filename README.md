@@ -4,6 +4,8 @@
 
 AWS 是一套面向 AI 驱动 QA 工作流的 **CLI 工具 + Skill 套件**。它将测试基础设施脚手架、Explore 研判、Case 设计、Fact Baseline、测试规划、代码生成、执行、质量门禁、失败归因、Healing 和质量报告串联成一条**可审计、可追踪、可重放**的完整流水线。
 
+AI Eval 的权威使用文档见 [`docs/eval.md`](docs/eval.md)。
+
 编排层采用 **Scheme E（subagent-dispatch）**：主 Agent 只做确定性调度，各阶段由有界 Subagent 执行；CLI 负责 gate、状态机与 Quality Score，Skill 负责阶段内推理与产物写入。
 
 ---
@@ -518,7 +520,7 @@ npm run lint         # tsc --noEmit
 | `src/risk/` | Explore context 聚合与 advisory 校验 |
 | `src/workflow/core/` | workflow-state、events、case ID 规范化 |
 | `skills/` | 全部 AWS Skill 定义 |
-| `schemas/` | runtime schemas 与 human/agent contract references |
+| `schemas/` | 机器可读契约；人类使用说明见 [`docs/schemas.md`](docs/schemas.md) |
 | `engineering/design/` | 设计方案 |
 
 ---

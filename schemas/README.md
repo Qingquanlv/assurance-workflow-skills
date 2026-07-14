@@ -1,10 +1,10 @@
-# Explore artifact JSON Schemas
+# Packaged schemas
 
-Human- and agent-facing contract references for explore-phase artifacts. Runtime validation lives in `src/schema/` (Zod, consumed by `aws validate` and risk semantic checks).
+Machine-readable schema files shipped with the package:
 
-Runtime orchestration is driven by `workflow-schema.yaml`, which defines workflow phases, gates, loops, and parameters.
+- [`workflow-schema.yaml`](workflow-schema.yaml)
+- [`explore-advisory.schema.json`](explore-advisory.schema.json)
+- [`explore-context.schema.json`](explore-context.schema.json)
 
-| File | Artifact |
-|------|----------|
-| `explore-advisory.schema.json` | `explore/advisory.json` |
-| `explore-context.schema.json` | `explore/context.json` |
+The authoritative human-facing explanation and artifact mappings are in
+[`docs/schemas.md`](../docs/schemas.md). Keep this file as a package index only.
