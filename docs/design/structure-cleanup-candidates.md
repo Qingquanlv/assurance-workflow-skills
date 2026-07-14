@@ -11,14 +11,14 @@
 
 ## 候选 A — eval executor 收编
 
-### 现状
+### 迁移前现状（现已完成）
 
-- `scripts/eval-workflow-run.mjs`（359 行）+ `scripts/eval-aws-run.mjs`（~200 行）是
+- 两个 legacy eval `.mjs` 入口（workflow-run 359 行、aws-run 约 200 行）曾是
   eval harness 的真正 executor：编排 seed → write-scan → `aws workflow run` → write-scan
   → archive → evidence。
 - 7 个 suite YAML（`workflow-{case,api,e2e,fuzz,performance}-codegen`、`workflow-full`、
   `workflow-run`）把它当 `executor.command` 硬编码为
-  `node {{workspace.root}}/scripts/eval-workflow-run.mjs ...`。
+  `node <legacy-workflow-run-entry> ...`。
 - `src/eval/executor.ts` 靠正则 `/eval-(aws-run|workflow-run)\.mjs\b/` 识别
   「外部证据 executor」——接缝泄漏。
 - 共享逻辑散在 `scripts/lib/`：`write-scan.mjs`、`eval-wrapper-utils.mjs`、
@@ -53,11 +53,11 @@
 
 ## 候选 B — retro-nightly 入 `aws` 子命令
 
-### 现状
+### 迁移前现状（现已完成）
 
 第 1 步已把逻辑库挪进 `src/retro/nightly/*.cjs`，但只搬了位置、没改形态：
 
-- 入口 `scripts/retro-nightly.mjs`（548 行，`.mjs` 不编译）。
+- legacy retro-nightly 入口（548 行）是未编译的 `.mjs`。
 - 逻辑库 `src/retro/nightly/*.cjs`（7 文件 827 行，`.cjs` 不走 `tsc`）。
 - 横跨「脚本入口 + 非编译 cjs 库」两种形态，与 `src/commands/` 的产品模式不统一。
 
@@ -65,7 +65,7 @@
 
 - 做成 `aws retro nightly <collect|resume|report>` 子命令：`.cjs` 逻辑逐步转 TS，
   挂进 `src/commands/retro.ts`，进 `dist/cli.js`。
-- `scripts/retro-nightly.mjs` 退化为几行 wrapper 或删除。
+- legacy retro-nightly 入口退化为几行 wrapper 或删除。
 - 依据：`boundary-inventory.md` 将 retro 归为要保留的「评估环路」，收进产品内核方向正确。
 
 ### 涉及改动
@@ -76,7 +76,7 @@
 ### 成本 / 风险
 
 **中**。`.cjs` → TS 有类型收敛成本；`exec.cjs` 的 `resolveSkillsRoot` 依赖
-`scripts/retro-nightly.mjs` 存在做仓库根定位，需更换探测锚点。
+legacy retro-nightly 入口存在做仓库根定位，需更换探测锚点。
 
 ### 验收
 
@@ -88,7 +88,7 @@
 
 ## 关联项 — 候选 C：`core/` 拆分（押后）
 
-`src/core/`（4,752 行，16 文件）混住了 workflow 内核（`workflow_state`、`healing_state`、
+原顶级 workflow core 目录（4,752 行，16 文件）混住了 workflow 内核（`workflow_state`、`healing_state`、
 `events`、`audit`）与通用工具（`hash`、`case_id`、`generator`、`checks`）。
 
 **押后到 Workflow Progression 深化（`inspect/advance/resume` 接口收窄 + healing 内化）
