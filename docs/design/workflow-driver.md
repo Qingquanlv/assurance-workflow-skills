@@ -11,7 +11,7 @@
 
 ### 0.1 编排决策早已确定性化，LLM 只剩"解释器"角色
 
-`src/orchestration/engine.ts` 自述："No LLM. Pure function of workflow-schema.yaml + workflow-state.yaml"。
+`src/workflow/orchestration/engine.ts` 自述："No LLM. Pure function of workflow-schema.yaml + workflow-state.yaml"。
 `aws status --next --json` 产出确定性 dispatch 列表，`aws gate check` 做确定性门禁裁决。
 主 agent 在循环里做的事就是 `aws-workflow/SKILL.md` 里那段伪代码
 （loop → status → dispatch → hash check → gate check → state apply）——纯机械执行。
@@ -136,7 +136,7 @@ M0 任一项失败即阻塞 M1，不允许退化为“先实现再观察”。
 
 ## 4. Driver 形态：CLI 命令组与退出码
 
-新增 `aws workflow` 命令组（实现在 `src/driver/`，注册进 `src/cli.ts`）：
+新增 `aws workflow` 命令组（实现在 `src/workflow/driver/`，注册进 `src/cli.ts`）：
 
 ```text
 aws workflow run --change <id> --scope <execute|full>
@@ -344,7 +344,7 @@ SHA-bound `accept_risk` decision。只有 re-inspect 后仍失败且预算耗尽
 
 ## 6. OpenCode 适配层与 headless fallback
 
-`src/driver/adapter.ts` 定义最小接口，两个实现：
+`src/workflow/driver/adapter.ts` 定义最小接口，两个实现：
 
 ```ts
 interface PhaseAgentAdapter {
@@ -401,7 +401,7 @@ interface PhaseAgentAdapter {
 
 ## 7. 聊天窗启动：`workflow_start` 自定义 tool
 
-package 新增 `.opencode/tools/workflow_start.ts`，并把 `src/core/agents_assets.ts` 泛化为
+package 新增 `.opencode/tools/workflow_start.ts`，并把 `src/workflow/core/agents_assets.ts` 泛化为
 runtime OpenCode assets 同步器；`aws init` / `aws skill ... --sync-agents` 同步 agent
 和 tool 到 SUT。不能只在 spec 仓库新增文件而假定 SUT 会自动发现。
 
@@ -507,8 +507,8 @@ M2 在 M0 证明 direct API session 确实获得该 Bash allowlist 后：
 | `.opencode/agents/*.md`（5 个既有） | permission floor 保持；M2 仅更新 `aws-doc-author` 的 explore 文字约束 |
 | `.opencode/tools/workflow_start.ts` | 新增并纳入 init/sync assets（§7） |
 | `docs/design/workflow-schema.yaml` | 增加 `force_continue` param 并把允许绕过条件写进 review gate DSL；explore agent 不改 |
-| `src/commands/state.ts` / `src/core/workflow_state.ts` | 增加 configure、全 phase reducer registry、bootstrap override |
-| `src/core/events.ts` | 增加显式 driver event source/types，保持与现有 gate/status 事件职责互斥 |
+| `src/commands/state.ts` / `src/workflow/core/workflow_state.ts` | 增加 configure、全 phase reducer registry、bootstrap override |
+| `src/workflow/core/events.ts` | 增加显式 driver event source/types，保持与现有 gate/status 事件职责互斥 |
 | 各 phase skill | **零改动** |
 
 ---
@@ -557,7 +557,7 @@ M0 / 状态机前置：
    `aws decide --at bootstrap --action skip_branch`。
 5. 扩展 `events.ts` 的 driver event union，明确去重边界。
 
-driver 本体（`src/driver/`）：
+driver 本体（`src/workflow/driver/`）：
 
 6. `adapter.ts` + `opencode_adapter.ts` + `headless_adapter.ts`（§6）。
 7. `gate_router.ts` + `review_fix_loop.ts` + `healing_subroutine.ts`。

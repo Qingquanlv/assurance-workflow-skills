@@ -1,19 +1,19 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { buildQualityGate } from '../../src/report/quality_gate';
-import { computeQualityScore } from '../../src/report/quality_score';
-import { inspect } from '../../src/report/inspector';
-import { generateReport } from '../../src/report/report_generator';
-import { parseLocustStats, resolveLoadProfile, buildScenarioVerdicts, mergeLocustStatsMaps, loadPerformanceScenarios, parsePerformanceCase } from '../../src/execution/locust_runner';
-import { buildSummaryMd } from '../../src/execution/summary_writer';
+import { buildQualityGate } from '../../src/workflow/report/quality_gate';
+import { computeQualityScore } from '../../src/workflow/report/quality_score';
+import { inspect } from '../../src/workflow/report/inspector';
+import { generateReport } from '../../src/workflow/report/report_generator';
+import { parseLocustStats, resolveLoadProfile, buildScenarioVerdicts, mergeLocustStatsMaps, loadPerformanceScenarios, parsePerformanceCase } from '../../src/workflow/execution/locust_runner';
+import { buildSummaryMd } from '../../src/workflow/execution/summary_writer';
 import {
   ApiResult,
   CoverageResult,
   E2eResult,
   FuzzResult,
   PerformanceResult,
-} from '../../src/core/types';
+} from '../../src/workflow/core/types';
 
 function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));

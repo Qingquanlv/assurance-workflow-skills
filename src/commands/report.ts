@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { inspect } from '../report/inspector';
-import { generateReport } from '../report/report_generator';
-import { reclassifyFailure } from '../report/reclassifier';
+import { inspect } from '../workflow/report/inspector';
+import { generateReport } from '../workflow/report/report_generator';
+import { reclassifyFailure } from '../workflow/report/reclassifier';
 import { logInfo, logOk, logError, logBlank, logHeader } from '../utils/logger';
 
 export function registerReportCommand(program: Command): void {

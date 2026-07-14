@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { resolveSpecs } from '../../../src/schema';
-import { loadSchemaFromFile } from '../../../src/orchestration/schema';
+import { loadSchemaFromFile } from '../../../src/workflow/orchestration/schema';
 
 const SHIPPED_SCHEMA = path.resolve(__dirname, '../../../docs/design/workflow-schema.yaml');
 

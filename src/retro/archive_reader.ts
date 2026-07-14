@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import type { QaEvent } from '../core/events';
+import type { QaEvent } from '../workflow/core/events';
 import type {
   ArchivedChange,
   ArchiveReadOptions,

@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { Command } from 'commander';
 import { execSync } from 'child_process';
-import { findAwsProjectRoot, syncOpencodeAssets } from '../core/agents_assets';
+import { findAwsProjectRoot, syncOpencodeAssets } from '../workflow/core/agents_assets';
 import { logBlank, logHeader, logInfo, logOk, logWarn } from '../utils/logger';
 
 interface RefreshOptions {

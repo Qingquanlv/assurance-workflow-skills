@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { registerDecideCommand } from '../../../src/commands/decide';
-import { recordHumanDecision } from '../../../src/core/decide';
+import { recordHumanDecision } from '../../../src/workflow/core/decide';
 
-jest.mock('../../../src/core/decide', () => ({
+jest.mock('../../../src/workflow/core/decide', () => ({
   recordHumanDecision: jest.fn(),
 }));
 

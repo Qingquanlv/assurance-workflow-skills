@@ -512,11 +512,11 @@ npm run lint         # tsc --noEmit
 
 | 目录 | 说明 |
 |---|---|
-| `src/orchestration/` | workflow schema、DAG 引擎、`resolveNextDispatch` |
-| `src/execution/` | pytest / Playwright 执行与结果解析 |
-| `src/report/` | 失败分类、Quality Score、报告生成 |
+| `src/workflow/orchestration/` | workflow schema、DAG 引擎、`resolveNextDispatch` |
+| `src/workflow/execution/` | pytest / Playwright 执行与结果解析 |
+| `src/workflow/report/` | 失败分类、Quality Score、报告生成 |
 | `src/risk/` | Explore context 聚合与 advisory 校验 |
-| `src/core/` | workflow-state、events、case ID 规范化 |
+| `src/workflow/core/` | workflow-state、events、case ID 规范化 |
 | `skills/` | 全部 AWS Skill 定义 |
 | `docs/design/` | workflow schema 与设计方案 |
 

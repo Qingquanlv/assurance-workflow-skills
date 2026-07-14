@@ -36,5 +36,5 @@ ci:
     required: true
     max_samples: 1
     trigger_paths:
-      - "src/execution/**"
+      - "src/workflow/execution/**"
       - "scripts/eval-aws-run.mjs"

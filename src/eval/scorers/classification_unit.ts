@@ -1,5 +1,5 @@
 import type { DatasetSample, SampleScore } from '../types';
-import { classifyFailure } from '../../report/failure_classifier';
+import { classifyFailure } from '../../workflow/report/failure_classifier';
 import { scoreEvidenceIntegrity, scoreUnknownRate } from './_shared/workflow_metrics';
 
 export function score(sample: DatasetSample, attemptDir: string): SampleScore {

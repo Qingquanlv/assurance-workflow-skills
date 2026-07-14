@@ -2,10 +2,10 @@ import { Command } from 'commander';
 import {
   configureWorkflowParams,
   OrchestratorSkill,
-} from '../core/workflow_state';
-import { transitionHealingStatus, HealingStatus } from '../core/healing_state';
-import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
-import { createWorkflowProgression } from '../orchestration/progression';
+} from '../workflow/core/workflow_state';
+import { transitionHealingStatus, HealingStatus } from '../workflow/core/healing_state';
+import { findSchemaFile, loadSchemaFromFile } from '../workflow/orchestration/schema';
+import { createWorkflowProgression } from '../workflow/orchestration/progression';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 const CONFIGURE_ORCHESTRATORS = new Set(['aws-workflow', 'aws-intake', 'aws-execute']);

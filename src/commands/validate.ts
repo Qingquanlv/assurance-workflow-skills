@@ -6,7 +6,7 @@ import {
   resolveSpecs,
   validateArtifactFile,
 } from '../schema';
-import { findSchemaFile, loadSchemaFromFile } from '../orchestration/schema';
+import { findSchemaFile, loadSchemaFromFile } from '../workflow/orchestration/schema';
 import { ArtifactValidationResult } from '../schema/types';
 import { logError, logHeader, logOk, logBlank } from '../utils/logger';
 

@@ -41,8 +41,8 @@ Requires `AWS_OPENCODE_SERVER_URL` (or `OPENCODE_SERVER_URL`), or opencode start
 1. **Adding a phase:** reuse an existing agent whose permission floor already covers the phase's
    outputs. Do **not** create a one-agent-per-phase mapping.
 2. **Adding an agent:** only when a phase genuinely needs a write scope or bash allowlist that no
-   existing agent has. Update `ALLOWED_AGENTS` (`src/orchestration/schema.ts`) for **phase** agents,
-   `RUNTIME_AGENTS` (`src/core/agents_assets.ts`), and the dispatch table in
+   existing agent has. Update `ALLOWED_AGENTS` (`src/workflow/orchestration/schema.ts`) for **phase** agents,
+   `RUNTIME_AGENTS` (`src/workflow/core/agents_assets.ts`), and the dispatch table in
    `aws-workflow/FALLBACK-RUNBOOK.md` / schema.
    Front-desk agents (like `aws-intake-host`) go in `RUNTIME_AGENTS` only.
 3. **Shared invariants** (repeated in every phase agent file on purpose — OpenCode has no include

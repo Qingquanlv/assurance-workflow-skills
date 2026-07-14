@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { recordApplySummary } from '../core/healing_state';
+import { recordApplySummary } from '../workflow/core/healing_state';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 const TARGETS = new Set(['api', 'e2e']);

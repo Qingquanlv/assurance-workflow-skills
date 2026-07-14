@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import * as path from 'path';
-import { createHeadlessAdapter } from '../driver/headless_adapter';
-import { createOpenCodeAdapter, authHeadersFromEnv } from '../driver/opencode_adapter';
-import { createProcessRunner } from '../driver/process_runner';
+import { createHeadlessAdapter } from '../workflow/driver/headless_adapter';
+import { createOpenCodeAdapter, authHeadersFromEnv } from '../workflow/driver/opencode_adapter';
+import { createProcessRunner } from '../workflow/driver/process_runner';
 import {
   EXIT_COMPLETED,
   EXIT_ERROR,
@@ -10,9 +10,9 @@ import {
   EXIT_STOPPED,
   readDriverStatus,
   runWorkflowLoop,
-} from '../driver/loop';
-import { CliExitCodes } from '../core/exit_codes';
-import { startWorkflowDetached } from '../driver/workflow_start';
+} from '../workflow/driver/loop';
+import { CliExitCodes } from '../workflow/core/exit_codes';
+import { startWorkflowDetached } from '../workflow/driver/workflow_start';
 import { logBlank, logError, logHeader, logInfo, logOk } from '../utils/logger';
 
 export function registerWorkflowCommand(program: Command): void {

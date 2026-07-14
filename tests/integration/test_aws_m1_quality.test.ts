@@ -2,12 +2,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { parseCoverage, loadCoverageConfig } from '../../src/execution/coverage_parser';
-import { buildQualityGate } from '../../src/report/quality_gate';
-import { computeQualityScore } from '../../src/report/quality_score';
-import { generateReport } from '../../src/report/report_generator';
-import { run } from '../../src/execution/runner';
-import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, QualityGateResult } from '../../src/core/types';
+import { parseCoverage, loadCoverageConfig } from '../../src/workflow/execution/coverage_parser';
+import { buildQualityGate } from '../../src/workflow/report/quality_gate';
+import { computeQualityScore } from '../../src/workflow/report/quality_score';
+import { generateReport } from '../../src/workflow/report/report_generator';
+import { run } from '../../src/workflow/execution/runner';
+import { ApiResult, CoverageResult, E2eResult, ExecutionManifest, FailureAnalysis, QualityGateResult } from '../../src/workflow/core/types';
 
 function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));

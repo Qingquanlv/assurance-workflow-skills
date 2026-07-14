@@ -5,7 +5,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
 import micromatch from 'micromatch';
-import { loadExecutionEvidence } from '../../../execution/evidence';
+import { loadExecutionEvidence } from '../../../workflow/execution/evidence';
 import type { SelectedTargets } from '../../../schema/contracts';
 import { scoreForbiddenWriteExecutedCount } from './forbidden_write';
 import {

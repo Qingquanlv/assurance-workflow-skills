@@ -6,14 +6,14 @@ import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
-} from '../orchestration/schema';
+} from '../workflow/orchestration/schema';
 import {
   PhaseStatusKind,
   RunContextReport,
   OpenQuestionSummary,
-} from '../orchestration/engine';
-import { inspectProgression, ProgressSnapshot } from '../orchestration/progression';
-import { exitCodeForTerminal } from '../core/exit_codes';
+} from '../workflow/orchestration/engine';
+import { inspectProgression, ProgressSnapshot } from '../workflow/orchestration/progression';
+import { exitCodeForTerminal } from '../workflow/core/exit_codes';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const STATUS_COLOR: Record<PhaseStatusKind, (s: string) => string> = {

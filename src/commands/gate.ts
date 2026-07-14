@@ -6,9 +6,9 @@ import {
   findSchemaFile,
   loadSchemaFromFile,
   validateSchema,
-} from '../orchestration/schema';
-import { inspectNamedGate } from '../orchestration/progression';
-import { exitCodeForGateVerdict } from '../core/exit_codes';
+} from '../workflow/orchestration/schema';
+import { inspectNamedGate } from '../workflow/orchestration/progression';
+import { exitCodeForGateVerdict } from '../workflow/core/exit_codes';
 import { logError, logHeader, logBlank } from '../utils/logger';
 
 const VERDICT_COLOR: Record<string, (s: string) => string> = {

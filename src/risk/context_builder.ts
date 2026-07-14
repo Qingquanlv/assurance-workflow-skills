@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiCaseResult, E2eCaseResult } from '../core/types';
-import { canonicalizeCaseId, caseIdTextMatcher } from '../core/case_id';
+import { ApiCaseResult, E2eCaseResult } from '../workflow/core/types';
+import { canonicalizeCaseId, caseIdTextMatcher } from '../workflow/core/case_id';
 import { sampleArchives, readLayerResult } from './archive_sampler';
 import { loadCasesFromQa } from './case_loader';
 import { getChangedFiles } from './git_diff';

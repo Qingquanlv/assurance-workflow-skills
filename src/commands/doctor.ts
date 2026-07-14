@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { runDoctorChecks } from '../core/checks';
-import { CheckResult, DoctorResult } from '../core/types';
+import { runDoctorChecks } from '../workflow/core/checks';
+import { CheckResult, DoctorResult } from '../workflow/core/types';
 
 export function registerDoctorCommand(program: Command): void {
   program

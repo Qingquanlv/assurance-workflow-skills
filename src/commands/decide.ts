@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import { recordHumanDecision } from '../core/decide';
-import { isHumanDecisionAction } from '../core/events';
+import { recordHumanDecision } from '../workflow/core/decide';
+import { isHumanDecisionAction } from '../workflow/core/events';
 import { logBlank, logError, logHeader, logOk } from '../utils/logger';
 
 export function registerDecideCommand(program: Command): void {

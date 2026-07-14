@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { registerStateCommand } from '../../../src/commands/state';
-import { transitionHealingStatus } from '../../../src/core/healing_state';
+import { transitionHealingStatus } from '../../../src/workflow/core/healing_state';
 
 describe('derived healing state command contract', () => {
   it('does not expose state heal --reconcile', () => {
