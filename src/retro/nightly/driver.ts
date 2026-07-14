@@ -1,48 +1,38 @@
-#!/usr/bin/env node
 /**
  * Nightly retro driver — see docs/design/nightly-driver.md
- *
- * Usage:
- *   node scripts/retro-nightly.mjs collect --sut <path> [--retro-id <id>] [--dry-run]
- *   node scripts/retro-nightly.mjs resume --sut <path> --retro-id <id> [--skip-eval]
- *   node scripts/retro-nightly.mjs report --sut <path> [--last <n>]
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { parseArgs } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const {
+import * as fs from 'fs';
+import * as path from 'path';
+import * as yaml from 'js-yaml';
+import {
   enumeratePhaseACandidates,
   isTerminalStatusExitCode,
   snapshotUnarchivedEvidence,
-} = require('../src/retro/nightly/phase_a.cjs');
-const {
+} from './phase_a';
+import {
   buildReviewQueueMarkdown,
+  effectiveDecisions,
   listPendingProposals,
   listPromotedMemoryProposals,
   partitionProposalsForReview,
   stuckProposalTags,
-  effectiveDecisions,
-} = require('../src/retro/nightly/phase_d.cjs');
-const {
+} from './phase_d';
+import {
   classifyEvalGateForNightly,
   compareSuiteRegression,
   groupProposalsBySuite,
   shouldAutoApplyComparison,
   suiteNeedsEval,
-} = require('../src/retro/nightly/phase_f.cjs');
-const {
+} from './phase_f';
+import {
   buildRunReport,
   buildCrossRunReport,
   listRetroRuns,
   renderCrossRunReportMarkdown,
   writeRunReport,
-} = require('../src/retro/nightly/report.cjs');
-const {
+} from './report';
+import {
   resolveSkillsRoot,
   runAws,
   runEval,
@@ -56,27 +46,24 @@ const {
   runAgent,
   mkdtemp,
   rmDir,
-} = require('../src/retro/nightly/exec.cjs');
-const {
+} from './exec';
+import {
   countSignals,
   generateRetroId,
   readJson,
   writeJson,
-} = require('../src/retro/nightly/utils.cjs');
+} from './utils';
+import type {
+  ContextLike,
+  JsonObject,
+  NightlyOptions,
+  NightlyState,
+  PromotionHistory,
+  PromotionLike,
+  ProposalLike,
+} from './types';
 
-const yaml = require('js-yaml');
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-function usage() {
-  console.error(`Usage:
-  node scripts/retro-nightly.mjs collect --sut <path> [--retro-id <id>] [--dry-run] [--agent <cmd>]
-  node scripts/retro-nightly.mjs resume --sut <path> --retro-id <id> [--skip-eval]
-  node scripts/retro-nightly.mjs report --sut <path> [--last <n>]`);
-  process.exit(2);
-}
-
-function loadState(sutRoot) {
+function loadState(sutRoot: string): NightlyState {
   return readJson(path.join(sutRoot, 'qa', 'retro', '_state.json'), {
     schema_version: '1.1',
     last_retro_ts: null,
@@ -85,29 +72,37 @@ function loadState(sutRoot) {
   });
 }
 
-function loadP0Metrics(skillsRoot) {
+function loadP0Metrics(skillsRoot: string): JsonObject {
   const file = path.join(skillsRoot, 'eval', 'contracts', 'p0-metrics.yaml');
-  return yaml.load(fs.readFileSync(file, 'utf-8'));
+  return yaml.load(fs.readFileSync(file, 'utf-8')) as JsonObject;
 }
 
-function mustRunAws(args, sutRoot, skillsRoot, label = `aws ${args.join(' ')}`) {
+function mustRunAws(
+  args: string[],
+  sutRoot: string,
+  skillsRoot: string,
+  label = `aws ${args.join(' ')}`,
+) {
   return assertCommandSucceeded(runAws(args, sutRoot, skillsRoot), label);
 }
 
-function recentPromotionHistory(sutRoot, historyN) {
+function recentPromotionHistory(sutRoot: string, historyN: number): PromotionHistory[] {
   const retroRoot = path.join(sutRoot, 'qa', 'retro');
   const runs = listRetroRuns(sutRoot, historyN);
   return runs.map((retroId) => ({
     retro_id: retroId,
-    promotions: readJson(path.join(retroRoot, retroId, 'promotions.json'), []),
-    proposals: readJson(path.join(retroRoot, retroId, 'proposals.json'), { proposals: [] }).proposals ?? [],
+    promotions: readJson<PromotionLike[]>(path.join(retroRoot, retroId, 'promotions.json'), []),
+    proposals: readJson<{ proposals?: ProposalLike[] }>(
+      path.join(retroRoot, retroId, 'proposals.json'),
+      { proposals: [] },
+    ).proposals ?? [],
     promotions_path: path.join('qa', 'retro', retroId, 'promotions.json'),
   }));
 }
 
-async function phaseCollect(opts) {
+export async function collectNightly(opts: NightlyOptions): Promise<number> {
   const sutRoot = path.resolve(opts.sut);
-  const skillsRoot = resolveSkillsRoot(path.join(__dirname, '..'));
+  const skillsRoot = resolveSkillsRoot(path.resolve(__dirname, '../../..'));
   const retroId = opts.retroId ?? generateRetroId();
   const state = loadState(sutRoot);
 
@@ -115,7 +110,7 @@ async function phaseCollect(opts) {
 
   if (candidates.length === 0) {
     console.log('collect: no eligible changes');
-    process.exit(10);
+    return 10;
   }
 
   for (const candidate of candidates) {
@@ -132,19 +127,19 @@ async function phaseCollect(opts) {
   const eligible = candidates.filter((c) => !c._skip);
   if (eligible.length === 0) {
     console.log('collect: no terminal changes after status filter');
-    process.exit(10);
+    return 10;
   }
 
   const retroArgs = ['retro', '--retro-id', retroId, '--json', ...eligible.flatMap((c) => ['--change', c.change_id])];
   const retroResult = runAws(retroArgs, sutRoot, skillsRoot);
   if (retroResult.status !== 0) {
     console.error(retroResult.stderr || retroResult.stdout);
-    process.exit(40);
+    return 40;
   }
-  const retroSummary = parseJsonStdout(retroResult.stdout, 'aws retro');
+  const retroSummary = parseJsonStdout<{ signal_count?: number }>(retroResult.stdout, 'aws retro');
 
   const retroDir = path.join(sutRoot, 'qa', 'retro', retroId);
-  const context = readJson(path.join(retroDir, 'context.json'));
+  const context = readJson<ContextLike>(path.join(retroDir, 'context.json')) ?? {};
   const signalCount = retroSummary.signal_count ?? countSignals(context);
 
   if (signalCount === 0) {
@@ -157,7 +152,7 @@ async function phaseCollect(opts) {
       proposalsMeta: { generated: 0 },
     }));
     console.log(`collect: no-op run ${retroId} (signal_count=0)`);
-    process.exit(10);
+    return 10;
   }
 
   if (opts.dryRun) {
@@ -168,7 +163,7 @@ async function phaseCollect(opts) {
       context,
       evidenceIncomplete,
     }));
-    process.exit(0);
+    return 0;
   }
 
   const history = recentPromotionHistory(sutRoot, opts.history);
@@ -180,21 +175,24 @@ async function phaseCollect(opts) {
   );
   if (agentResult.status !== 0) {
     console.error(agentResult.stderr || agentResult.stdout);
-    process.exit(40);
+    return 40;
   }
 
-  const proposalsDoc = readJson(path.join(retroDir, 'proposals.json'), null);
+  const proposalsDoc = readJson<{ proposals?: ProposalLike[] } | null>(
+    path.join(retroDir, 'proposals.json'),
+    null,
+  );
   if (!proposalsDoc?.proposals) {
     console.error('collect: proposals.json missing after agent run');
-    process.exit(40);
+    return 40;
   }
 
   let proposals = proposalsDoc.proposals;
   const validationErrors = await validateProposals(skillsRoot, context, proposals);
-  const valid = [];
-  const rejected = [];
+  const valid: ProposalLike[] = [];
+  const rejected: string[] = [];
   if (validationErrors.length > 0) {
-    const badIds = new Set();
+    const badIds = new Set<string>();
     for (const err of validationErrors) {
       const match = err.match(/^(RETRO-\d+)/);
       if (match) badIds.add(match[1]);
@@ -216,7 +214,7 @@ async function phaseCollect(opts) {
       evidenceIncomplete,
       proposalsMeta: { generated: 0, validation_rejected: rejected.length },
     }));
-    process.exit(10);
+    return 10;
   }
 
   const { forReview, autoNeedsRework, prOnly } = partitionProposalsForReview(
@@ -266,29 +264,33 @@ async function phaseCollect(opts) {
 
   console.log(`collect complete: ${retroId} (${forReview.length} proposals pending review)`);
   console.log(`review queue: qa/retro/${retroId}/review-queue.md`);
-  process.exit(0);
+  return 0;
 }
 
-async function phaseResume(opts) {
+export async function resumeNightly(opts: NightlyOptions): Promise<number> {
   const sutRoot = path.resolve(opts.sut);
-  const skillsRoot = resolveSkillsRoot(path.join(__dirname, '..'));
+  const skillsRoot = resolveSkillsRoot(path.resolve(__dirname, '../../..'));
   const retroId = opts.retroId;
+  if (!retroId) throw new Error('resume requires --retro-id');
   const retroDir = path.join(sutRoot, 'qa', 'retro', retroId);
-  const context = readJson(path.join(retroDir, 'context.json'));
-  const proposalsDoc = readJson(path.join(retroDir, 'proposals.json'), { proposals: [] });
-  const promotions = readJson(path.join(retroDir, 'promotions.json'), []);
+  const context = readJson<ContextLike>(path.join(retroDir, 'context.json')) ?? {};
+  const proposalsDoc = readJson<{ proposals?: ProposalLike[] }>(
+    path.join(retroDir, 'proposals.json'),
+    { proposals: [] },
+  );
+  const promotions = readJson<PromotionLike[]>(path.join(retroDir, 'promotions.json'), []);
   const proposals = proposalsDoc.proposals ?? [];
 
   const pending = listPendingProposals(proposals, promotions);
   if (pending.length === proposals.length && proposals.length > 0) {
     console.log('resume: all proposals still pending human review');
-    process.exit(30);
+    return 30;
   }
 
   const promoted = listPromotedMemoryProposals(proposals, promotions);
-  const evalResults = [];
-  const applied = [];
-  const rollbacks = [];
+  const evalResults: JsonObject[] = [];
+  const applied: string[] = [];
+  const rollbacks: JsonObject[] = [];
   const p0 = loadP0Metrics(skillsRoot);
 
   const groups = groupProposalsBySuite(promoted);
@@ -338,7 +340,7 @@ async function phaseResume(opts) {
         if (baselineRun.status !== 0) {
           throw new Error(`baseline eval failed: ${baselineRun.stderr || baselineRun.stdout}`);
         }
-        const baselineJson = parseJsonStdout(baselineRun.stdout, 'baseline eval');
+        const baselineJson = parseJsonStdout<{ run_id: string }>(baselineRun.stdout, 'baseline eval');
         baselineRunId = baselineJson.run_id;
         baselineMetrics = readEvalRunMetrics(skillsRoot, baselineRunId);
       }
@@ -353,7 +355,7 @@ async function phaseResume(opts) {
         evalResults.push({ suite: suiteName, verdict: 'eval_error', error: candidateRun.stderr });
         continue;
       }
-      const candidateJson = parseJsonStdout(candidateRun.stdout, 'candidate eval');
+      const candidateJson = parseJsonStdout<{ run_id: string }>(candidateRun.stdout, 'candidate eval');
       const candidateGate = readEvalRunGate(skillsRoot, candidateJson.run_id);
       const gateClass = classifyEvalGateForNightly(candidateGate);
       if (gateClass.kind === 'eval_error') {
@@ -452,7 +454,7 @@ async function phaseResume(opts) {
     }
   }
 
-  const effective = effectiveDecisions(readJson(path.join(retroDir, 'promotions.json'), []));
+  const effective = effectiveDecisions(readJson<PromotionLike[]>(path.join(retroDir, 'promotions.json'), []));
   const decisionCounts = { promoted: 0, rejected: 0, needs_rework: 0, pending: 0 };
   for (const proposal of proposals) {
     const record = effective.get(proposal.id);
@@ -471,10 +473,10 @@ async function phaseResume(opts) {
   }));
 
   console.log(`resume complete: ${retroId}`);
-  process.exit(0);
+  return 0;
 }
 
-function phaseReport(opts) {
+export function reportNightly(opts: NightlyOptions): number {
   const sutRoot = path.resolve(opts.sut);
   const retroIds = listRetroRuns(sutRoot, opts.last);
   const crossRun = buildCrossRunReport(sutRoot, retroIds, opts.reworkAlert);
@@ -488,61 +490,5 @@ function phaseReport(opts) {
   );
   console.log(md);
   console.log(`\nwritten: ${outPath}`);
-  process.exit(0);
+  return 0;
 }
-
-async function main() {
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      sut: { type: 'string' },
-      'retro-id': { type: 'string' },
-      'dry-run': { type: 'boolean', default: false },
-      agent: { type: 'string', default: 'cursor-agent' },
-      history: { type: 'string', default: '5' },
-      'min-evidence': { type: 'string', default: '2' },
-      'rework-alert': { type: 'string', default: '3' },
-      'skip-eval': { type: 'boolean', default: false },
-      last: { type: 'string', default: '10' },
-    },
-  });
-
-  const command = positionals[0];
-  if (!command) usage();
-
-  const opts = {
-    sut: values.sut,
-    retroId: values['retro-id'],
-    dryRun: values['dry-run'],
-    agent: values.agent,
-    history: parseInt(values.history, 10),
-    minEvidence: parseInt(values['min-evidence'], 10),
-    reworkAlert: parseInt(values['rework-alert'], 10),
-    skipEval: values['skip-eval'],
-    last: parseInt(values.last, 10),
-  };
-
-  if (!opts.sut) {
-    console.error('--sut is required');
-    usage();
-  }
-
-  if (command === 'collect') {
-    await phaseCollect(opts);
-  } else if (command === 'resume') {
-    if (!opts.retroId) {
-      console.error('resume requires --retro-id');
-      process.exit(2);
-    }
-    await phaseResume(opts);
-  } else if (command === 'report') {
-    phaseReport(opts);
-  } else {
-    usage();
-  }
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(40);
-});

@@ -207,8 +207,8 @@ export const HEADLESS_MIGRATION_CANDIDATES = [
       'EVAL_USE_FAKE_OPENCODE=1 keeps one-shot golden stub; --entry orchestrator|phase-skill is legacy OpenCode.',
   },
   {
-    path: 'scripts/retro-nightly.mjs',
-    status: 'out_of_scope' as const,
-    note: 'Retro nightly driver — separate product surface, not workflow orchestration.',
+    path: 'src/retro/nightly/driver.ts',
+    status: 'migrated' as const,
+    note: 'Retro nightly driver is compiled into `aws retro nightly`.',
   },
 ] as const;

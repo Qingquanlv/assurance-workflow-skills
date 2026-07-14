@@ -612,26 +612,26 @@ aws retro --change <id> --json
 
 在带外部 SUT 的 eval 中，`.aws/memory/**` 提案经 fixture / `--extra-memory-dir` 注入 SUT workspace，**不**提交进 pinned SUT 仓库。
 
-### Nightly 驱动（`scripts/retro-nightly.mjs`）
+### Nightly 驱动（`aws retro nightly`）
 
 自动化 nightly 闭环：收集证据 → agent 出提案 → 人工审阅队列 → resume 后 eval 回归 → 条件满足则 auto-apply。实现拆在 `src/retro/nightly/`（phase_a / phase_d / phase_f / report / exec）。
 
 ```bash
 # PHASE A–D：枚举 change → aws retro → agent 写 proposals → review-queue.md
-node scripts/retro-nightly.mjs collect \
+aws retro nightly collect \
   --sut ../aws-bench-fastapi-vue-admin \
   [--retro-id <id>] [--dry-run] [--agent cursor-agent] \
   [--history 5] [--min-evidence 2] [--rework-alert 3]
 
 # 人工在 qa/retro/<id>/ 完成 promote 后：
 # PHASE E–F：stage apply → eval baseline/candidate → 回归判定 → 条件满足则 apply
-node scripts/retro-nightly.mjs resume \
+aws retro nightly resume \
   --sut ../aws-bench-fastapi-vue-admin \
   --retro-id <id> \
   [--skip-eval]
 
 # 跨 run 汇总
-node scripts/retro-nightly.mjs report --sut <path> [--last 10]
+aws retro nightly report --sut <path> [--last 10]
 ```
 
 | 阶段 | 做什么 |
@@ -663,7 +663,7 @@ qa/retro/
 
 **与过程可观测性的关系：** PHASE F 只看 suite **hard_gates / advisory** 相对 baseline 的回归；OpenCode process 指标全部为 observe，**不会**单独触发 auto-apply 或 `needs_rework`。
 
-测试：`tests/unit/retro-nightly/lib.test.ts`、`tests/unit/retro-nightly/driver_e2e.test.ts`（agent stub + `--skip-eval`）。
+测试：`tests/unit/retro/nightly/lib.test.ts`、`tests/unit/retro/nightly/driver_e2e.test.ts`（agent stub + `--skip-eval`）。
 
 ---
 
@@ -690,5 +690,5 @@ qa/retro/
 - `eval/contracts/evidence-spec.md` — attempt 目录规范（含 `process-summary.json` 落盘顺序）
 - `eval/contracts/safety-scope.md` — 安全扫描范围
 - `eval/fixtures/README.md` — fixture tier 模型
-- `scripts/retro-nightly.mjs` — nightly retro 驱动入口
+- `aws retro nightly` — 编译进主 CLI 的 nightly retro 驱动入口
 - `src/retro/nightly/` — collect / resume / report 分阶段实现

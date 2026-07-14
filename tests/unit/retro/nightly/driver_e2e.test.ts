@@ -5,13 +5,13 @@ import * as path from 'path';
 
 // End-to-end collect → resume smoke test for the nightly driver
 // (docs/design/nightly-driver.md §11 test strategy, item 3). Drives the real
-// `scripts/retro-nightly.mjs` against a fixture SUT via the built CLI. The
+// `aws retro nightly` against a fixture SUT via the built CLI. The
 // PHASE C agent is a stub (`--agent`) and PHASE F eval is exercised through
 // `--skip-eval` so the whole pipeline is deterministic and CI-safe; the eval
 // gate/regression math itself is covered by the phase_f unit tests.
 
-const repoRoot = path.resolve(__dirname, '../../..');
-const driverPath = path.join(repoRoot, 'scripts', 'retro-nightly.mjs');
+const repoRoot = path.resolve(__dirname, '../../../..');
+const cliPath = path.join(repoRoot, 'dist', 'cli.js');
 const fixtureRoot = path.join(repoRoot, 'tests', 'retro', 'fixtures', 'project');
 
 function ensureBuilt(): void {
@@ -77,7 +77,7 @@ fs.writeFileSync(path.join(retroDir, 'retro-summary.md'), '# stub retro summary\
 
 function runDriver(args: string[], env: NodeJS.ProcessEnv): { status: number; stdout: string } {
   try {
-    const stdout = execFileSync('node', [driverPath, ...args], {
+    const stdout = execFileSync('node', [cliPath, 'retro', 'nightly', ...args], {
       env: { ...process.env, ...env },
       encoding: 'utf-8',
     });

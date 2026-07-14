@@ -1,7 +1,8 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const { shouldIncludeChangeInWindow } = require('./state.cjs');
-const { listDirNames } = require('./utils.cjs');
+import * as fs from 'fs';
+import * as path from 'path';
+import { shouldIncludeChangeInWindow } from './state';
+import { listDirNames } from './utils';
+import type { ChangeCandidate, NightlyState } from './types';
 
 const EVIDENCE_FILES = [
   'events.jsonl',
@@ -10,17 +11,19 @@ const EVIDENCE_FILES = [
   'healing',
 ];
 
-function enumeratePhaseACandidates(sutRoot, state) {
+export function enumeratePhaseACandidates(
+  sutRoot: string,
+  state: NightlyState,
+): { candidates: ChangeCandidate[]; evidenceIncomplete: string[] } {
   const archiveDir = path.join(sutRoot, 'qa', 'archive');
   const changesDir = path.join(sutRoot, 'qa', 'changes');
   const archiveIds = new Set(listDirNames(archiveDir));
-  const candidates = [];
-  const evidenceIncomplete = [];
+  const candidates: ChangeCandidate[] = [];
+  const evidenceIncomplete: string[] = [];
 
   for (const changeId of archiveIds) {
     if (!shouldIncludeChangeInWindow(state, changeId, 'archive')) continue;
-    const changePath = path.join(archiveDir, changeId);
-    if (!hasRequiredEvidence(changePath)) {
+    if (!hasRequiredEvidence(path.join(archiveDir, changeId))) {
       evidenceIncomplete.push(changeId);
       continue;
     }
@@ -30,23 +33,25 @@ function enumeratePhaseACandidates(sutRoot, state) {
   for (const changeId of listDirNames(changesDir)) {
     if (archiveIds.has(changeId)) continue;
     if (!shouldIncludeChangeInWindow(state, changeId, 'unarchived')) continue;
-    const changePath = path.join(changesDir, changeId);
-    if (!hasRequiredEvidence(changePath)) {
+    if (!hasRequiredEvidence(path.join(changesDir, changeId))) {
       evidenceIncomplete.push(changeId);
       continue;
     }
     candidates.push({ change_id: changeId, source: 'unarchived' });
   }
-
   return { candidates, evidenceIncomplete };
 }
 
-function hasRequiredEvidence(changePath) {
+function hasRequiredEvidence(changePath: string): boolean {
   return fs.existsSync(path.join(changePath, 'events.jsonl'))
     && fs.existsSync(path.join(changePath, 'workflow-state.yaml'));
 }
 
-function snapshotUnarchivedEvidence(sutRoot, retroId, changeId) {
+export function snapshotUnarchivedEvidence(
+  sutRoot: string,
+  retroId: string,
+  changeId: string,
+): void {
   const src = path.join(sutRoot, 'qa', 'changes', changeId);
   const dst = path.join(sutRoot, 'qa', 'retro', retroId, 'evidence', changeId);
   if (!fs.existsSync(src)) return;
@@ -62,12 +67,6 @@ function snapshotUnarchivedEvidence(sutRoot, retroId, changeId) {
   }
 }
 
-function isTerminalStatusExitCode(code) {
+export function isTerminalStatusExitCode(code: number): boolean {
   return code === 10 || code === 20;
 }
-
-module.exports = {
-  enumeratePhaseACandidates,
-  snapshotUnarchivedEvidence,
-  isTerminalStatusExitCode,
-};

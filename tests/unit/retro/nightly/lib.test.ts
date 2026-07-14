@@ -1,22 +1,22 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createRequire } from 'module';
-
-const req = createRequire(__filename);
-const { shouldIncludeChangeInWindow } = req('../../../src/retro/nightly/state.cjs');
-const {
+import { shouldIncludeChangeInWindow } from '../../../../src/retro/nightly/state';
+import {
   enumeratePhaseACandidates,
   snapshotUnarchivedEvidence,
-} = req('../../../src/retro/nightly/phase_a.cjs');
-const { partitionProposalsForReview } = req('../../../src/retro/nightly/phase_d.cjs');
-const {
+} from '../../../../src/retro/nightly/phase_a';
+import { partitionProposalsForReview } from '../../../../src/retro/nightly/phase_d';
+import {
   classifyEvalGateForNightly,
   compareSuiteRegression,
   shouldAutoApplyComparison,
-} = req('../../../src/retro/nightly/phase_f.cjs');
-const { buildCrossRunReport } = req('../../../src/retro/nightly/report.cjs');
-const { assertCommandSucceeded } = req('../../../src/retro/nightly/exec.cjs');
+} from '../../../../src/retro/nightly/phase_f';
+import { buildCrossRunReport } from '../../../../src/retro/nightly/report';
+import {
+  assertCommandSucceeded,
+  resolveSkillsRoot,
+} from '../../../../src/retro/nightly/exec';
 
 describe('retro-nightly lib', () => {
   it('shouldIncludeChangeInWindow allows aggregated replay', () => {
@@ -130,6 +130,12 @@ describe('retro-nightly lib', () => {
       stdout: '',
       stderr: 'apply failed',
     }, 'aws retro apply')).toThrow(/aws retro apply failed: apply failed/);
+  });
+
+  it('resolves the skills root from package.json without a script anchor', () => {
+    const repoRoot = path.resolve(__dirname, '../../../..');
+    expect(resolveSkillsRoot(path.join(repoRoot, 'src', 'retro', 'nightly'))).toBe(repoRoot);
+    expect(fs.existsSync(path.join(repoRoot, 'scripts', 'retro-nightly.mjs'))).toBe(false);
   });
 
   it('buildCrossRunReport emits signal_count_flat alert', () => {
