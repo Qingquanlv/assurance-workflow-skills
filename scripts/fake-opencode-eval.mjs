@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSingleTestType } from './lib/write-scan.mjs';
+import { writeFakeExecutionEvidence } from './lib/fake-execution-evidence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,33 +103,14 @@ if (runMode === 'case-only') {
   copyIfExists(path.join(goldenSample, 'tests'), path.join(projectDir, 'tests'));
 
   const execDir = path.join(changeDir, 'execution');
-  fs.mkdirSync(execDir, { recursive: true });
   const manifestPath = path.join(execDir, 'execution-manifest.yaml');
   if (!fs.existsSync(manifestPath)) {
-    fs.writeFileSync(
-      manifestPath,
-      [
-        'schema_version: "1.0"',
-        `change_id: ${changeId}`,
-        'batch_id: eval-fake-full',
-        'final_status: PASS',
-        'selected_targets:',
-        '  api: true',
-        '  e2e: false',
-        '  fuzz: false',
-        '  performance: false',
-        'result_files:',
-        '  api: api-result.json',
-      ].join('\n') + '\n'
-    );
-    fs.writeFileSync(
-      path.join(execDir, 'api-result.json'),
-      JSON.stringify({ status: 'PASS', passed: 1, total: 1, batch_id: 'eval-fake-full' }, null, 2)
-    );
-    fs.writeFileSync(
-      path.join(execDir, 'summary.md'),
-      '# Eval fake full run\n\nSynthetic execution stub for E4 observe metrics.\n'
-    );
+    writeFakeExecutionEvidence({
+      executionDir: execDir,
+      changeId,
+      batchId: 'eval-fake-full',
+      summary: '# Eval fake full run\n\nSynthetic execution stub for E4 observe metrics.\n',
+    });
   }
 
   const statePath = path.join(changeDir, 'workflow-state.yaml');
