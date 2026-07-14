@@ -27,13 +27,14 @@ export function generateRetroId(now = new Date()): string {
 }
 
 export function countSignals(context: ContextLike): number {
-  const signals: any = context.signals ?? {};
+  const signals = context.signals;
+  if (!signals) return 0;
   return (
     (signals.failure_distribution?.length ?? 0)
     + (signals.gate_pushback?.length ?? 0)
     + ((signals.healing_efficiency?.proposal_created > 0
       || signals.healing_efficiency?.created_proposals > 0) ? 1 : 0)
-    + (signals.human_overrides?.length ?? 0)
+    + (signals.human_decisions?.length ?? 0)
     + (signals.reclassifications?.length ?? 0)
     + (signals.skill_execution?.length ?? 0)
     + (signals.eval_trend?.length ?? 0)

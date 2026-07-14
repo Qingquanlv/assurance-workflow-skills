@@ -1,4 +1,4 @@
-import type { RetroContext, RetroPromoteRecord } from '../types';
+import type { RetroContext, RetroPromoteRecord, RetroProposal } from '../types';
 
 export type JsonObject = Record<string, any>;
 
@@ -20,19 +20,7 @@ export interface ChangeCandidate {
   _skip?: boolean;
 }
 
-export interface ProposalLike {
-  id: string;
-  target: string;
-  problem: string;
-  evidence_ids?: string[];
-  layer?: string;
-  proposed_change?: string;
-  apply_kind?: string;
-  eval_suite?: string;
-  risk?: string;
-  confidence?: string;
-  status?: string;
-}
+export type ProposalLike = RetroProposal;
 
 export type PromotionLike = Partial<RetroPromoteRecord> & {
   proposal_id: string;

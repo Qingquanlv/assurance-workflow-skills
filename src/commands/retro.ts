@@ -255,9 +255,17 @@ function registerNightlyCommands(retroCmd: Command): void {
     .requiredOption('--sut <path>', 'SUT project root')
     .option('--retro-id <id>', 'Retro run id (required)')
     .option('--skip-eval', 'Render staged memory without running eval', false)
-    .action(async (opts, command) => runNightly(() => resumeNightly(
-      nightlyOptions({ ...command.optsWithGlobals(), ...opts }),
-    )));
+    .action(async (opts, command) => {
+      const retroId = opts.retroId ?? command.optsWithGlobals().retroId;
+      if (!retroId) {
+        console.error('error: required option --retro-id <id> not specified');
+        process.exitCode = 2;
+        return;
+      }
+      await runNightly(() => resumeNightly(
+        nightlyOptions({ ...command.optsWithGlobals(), ...opts, retroId }),
+      ));
+    });
 
   nightly
     .command('report')

@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateRetroProposals } from '../proposals';
+import type { RetroContext } from '../types';
 import { readJson } from './utils';
 import type { CommandResult, ContextLike, JsonObject, ProposalLike } from './types';
 
@@ -61,7 +62,7 @@ export async function validateProposals(
   context: ContextLike,
   proposals: ProposalLike[],
 ): Promise<string[]> {
-  return validateRetroProposals(context as any, proposals as any);
+  return validateRetroProposals(context as RetroContext, proposals);
 }
 
 export function readEvalRunMetrics(skillsRoot: string, runId: string): Record<string, number> {

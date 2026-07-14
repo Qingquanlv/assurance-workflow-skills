@@ -17,6 +17,7 @@ import {
   assertCommandSucceeded,
   resolveSkillsRoot,
 } from '../../../../src/retro/nightly/exec';
+import type { ProposalLike } from '../../../../src/retro/nightly/types';
 
 describe('retro-nightly lib', () => {
   it('shouldIncludeChangeInWindow allows aggregated replay', () => {
@@ -74,12 +75,18 @@ describe('retro-nightly lib', () => {
   });
 
   it('partitionProposalsForReview auto-needs-rework below threshold', () => {
-    const proposals = [{
+    const proposals: ProposalLike[] = [{
       id: 'RETRO-001',
       target: '.aws/memory/aws-api-codegen.md',
       problem: 'x',
       evidence_ids: ['RET-a#1'],
+      layer: 'agent',
+      proposed_change: 'append guidance',
       apply_kind: 'memory_append',
+      eval_suite: 'workflow-api-codegen',
+      risk: 'low',
+      confidence: 'high',
+      status: 'proposed',
     }];
     const { autoNeedsRework, forReview } = partitionProposalsForReview(proposals, 2);
     expect(autoNeedsRework).toHaveLength(1);
