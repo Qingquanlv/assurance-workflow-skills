@@ -1,24 +1,16 @@
-import { execFileSync } from 'child_process';
-import * as path from 'path';
-
-const root = path.join(__dirname, '../../..');
+import {
+  resolveWritePolicy,
+  scanForbiddenWritesFromSnapshots,
+} from '../../../src/eval/write_scan';
 
 function runWriteScan(runMode: string, testTypes: string, afterPorcelain: string): string[] {
-  const script = `
-    import { resolveWritePolicy, scanForbiddenWritesFromSnapshots } from './scripts/lib/write-scan.mjs';
-    const policy = resolveWritePolicy(${JSON.stringify(runMode)}, ${JSON.stringify(testTypes)});
-    const scan = scanForbiddenWritesFromSnapshots({
-      beforePorcelain: '',
-      afterPorcelain: ${JSON.stringify(afterPorcelain)},
-      policy,
-    });
-    console.log(JSON.stringify(scan.violation_paths));
-  `;
-  const out = execFileSync('node', ['--input-type=module', '-e', script], {
-    cwd: root,
-    encoding: 'utf-8',
+  const policy = resolveWritePolicy(runMode, testTypes);
+  const scan = scanForbiddenWritesFromSnapshots({
+    beforePorcelain: '',
+    afterPorcelain,
+    policy,
   });
-  return JSON.parse(out.trim()) as string[];
+  return scan.violation_paths;
 }
 
 describe('write-scan memory protection', () => {
