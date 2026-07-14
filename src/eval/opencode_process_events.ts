@@ -1,5 +1,5 @@
 // OpenCode process observability — parse NDJSON stdout into process-summary.json
-// See docs/design/eval-opencode-process-observability.md
+// See engineering/design/eval-opencode-process-observability.md
 
 import fs from 'node:fs';
 import path from 'node:path';

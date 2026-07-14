@@ -396,7 +396,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ### OpenCode 过程可观测性（observe，跨 workflow suite）
 
-设计见 `docs/design/eval-opencode-process-observability.md`。实现：`src/eval/opencode_process_events.ts`（唯一解析器）→ `process-summary.json` → `src/eval/scorers/_shared/opencode_process_metrics.ts`。
+设计见 `engineering/design/eval-opencode-process-observability.md`。实现：`src/eval/opencode_process_events.ts`（唯一解析器）→ `process-summary.json` → `src/eval/scorers/_shared/opencode_process_metrics.ts`。
 
 **适用范围：** `eval-workflow-run` 的 suite — `workflow-case` / `workflow-api-codegen` / `workflow-e2e-codegen` / `workflow-fuzz-codegen` / `workflow-performance-codegen` / `workflow-full`。
 
@@ -685,7 +685,7 @@ qa/retro/
 
 ## 延伸阅读
 
-- `docs/design/eval-opencode-process-observability.md` — OpenCode 过程可观测性设计
+- `engineering/design/eval-opencode-process-observability.md` — OpenCode 过程可观测性设计
 - `eval/contracts/metric-spec.md` — 指标定义细节（含过程指标）
 - `eval/contracts/evidence-spec.md` — attempt 目录规范（含 `process-summary.json` 落盘顺序）
 - `eval/contracts/safety-scope.md` — 安全扫描范围

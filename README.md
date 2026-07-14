@@ -519,7 +519,7 @@ npm run lint         # tsc --noEmit
 | `src/workflow/core/` | workflow-state、events、case ID 规范化 |
 | `skills/` | 全部 AWS Skill 定义 |
 | `schemas/` | runtime schemas 与 human/agent contract references |
-| `docs/design/` | 设计方案 |
+| `engineering/design/` | 设计方案 |
 
 ---
 

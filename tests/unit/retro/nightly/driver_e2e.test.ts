@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 // End-to-end collect → resume smoke test for the nightly driver
-// (docs/design/nightly-driver.md §11 test strategy, item 3). Drives the real
+// (engineering/design/nightly-driver.md §11 test strategy, item 3). Drives the real
 // `aws retro nightly` against a fixture SUT via the built CLI. The
 // PHASE C agent is a stub (`--agent`) and PHASE F eval is exercised through
 // `--skip-eval` so the whole pipeline is deterministic and CI-safe; the eval

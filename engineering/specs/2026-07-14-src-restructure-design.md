@@ -1,10 +1,13 @@
 # src 目录大重构设计（方案 2：一次性做到终态）
 
+> **Historical engineering record.** Dated CLI, path, configuration, and behavior
+> examples are non-normative. Use `docs/` for current user-observable behavior.
+
 > 日期：2026-07-14
 > 背景：对标 browser-use 的功能包结构（每个功能一个包，`cli.py` 薄层），
 > 本仓库的 workflow 内核被切成 core / orchestration / driver / execution / report / templates
 > 六个顶级目录，且 eval executor 与 retro-nightly 的模块真身长在 `scripts/`（不编译、
-> 不受测试覆盖）。本设计承接 `docs/design/structure-cleanup-candidates.md` 的候选 A / B，
+> 不受测试覆盖）。本设计承接 `engineering/design/structure-cleanup-candidates.md` 的候选 A / B，
 > 并将押后的候选 C 升级为"内核簇整体合并"，一个 PR 系列一次做完。
 
 ## 0. 决策记录
@@ -131,7 +134,7 @@ eval/                        # 配置与数据；输出统一进 eval/out/（见
 - `exec.cjs` 的 `resolveSkillsRoot` 依赖 `scripts/retro-nightly.mjs` 存在性定位仓库根，
   改为 `package.json` 锚点探测
 - `tests/unit/retro-nightly/` 并入 `tests/unit/retro/`
-- 同步更新：`README-EVAL.md`、`docs/design/nightly-driver.md`
+- 同步更新：`README-EVAL.md`、`engineering/design/nightly-driver.md`
 
 ## 5. fake 脚本与 scripts/ 终态
 

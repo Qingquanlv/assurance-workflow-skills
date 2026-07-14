@@ -2,8 +2,6 @@
  * Evaluator for the AWS predicate mini-DSL.
  *
  * Total & three-state: missing data → `undefined` (never throws on data).
- * See docs/design/predicate-dsl.md §4–§6.
- *
  * Structural errors (unknown builtin, wrong arity, missing engine wiring for
  * file_exists/gate) DO throw `DslError` — these are authoring/engine bugs, not
  * data conditions, and should surface loudly.

@@ -1,5 +1,5 @@
 // OpenCode process observability metrics — reads process-summary.json only.
-// See docs/design/eval-opencode-process-observability.md §13
+// See engineering/design/eval-opencode-process-observability.md §13
 
 import * as fs from 'fs';
 import * as path from 'path';

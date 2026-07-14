@@ -427,7 +427,7 @@ agent_warnings:
     severity: low
     phase: phase-0
     command: aws status
-    error: schema missing (workflow-schema.yaml not found in .aws/, schemas/, or deprecated docs/design/)
+    error: schema missing (workflow-schema.yaml not found in .aws/, schemas/, or deprecated documentation-tree layout)
     action_taken: continued_with_prose_workflow
     status: recorded
   - id: AWS-CODEGEN-INFRA-MISSING

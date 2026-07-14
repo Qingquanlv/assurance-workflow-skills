@@ -1,5 +1,8 @@
 # aws-explore: 浅读源码 + 一次一问交互设计
 
+> **Historical engineering record.** Dated CLI, path, configuration, and behavior
+> examples are non-normative. Use `docs/` for current user-observable behavior.
+
 **日期**: 2026-06-30  
 **版本**: v1.0  
 **作者**: 设计对话

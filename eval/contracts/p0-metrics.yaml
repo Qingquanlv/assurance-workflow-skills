@@ -2,7 +2,7 @@
 # Gate modes: hard_gates (enforce) | advisory (soft, pass_with_warnings) | observe (diag, emit only)
 #
 # OpenCode process observability metrics (observe-only) are registered per workflow suite;
-# see docs/design/eval-opencode-process-observability.md.
+# see engineering/design/eval-opencode-process-observability.md.
 
 version: "1.2"
 
@@ -228,4 +228,4 @@ deferred:
   - run_success_rate
   # gate_bypass_attempt_count / security_write_violation_count superseded by
   # write_bypass_count (OpenCode process observability); see
-  # docs/design/eval-opencode-process-observability.md §8.1
+  # engineering/design/eval-opencode-process-observability.md §8.1

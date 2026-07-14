@@ -1,5 +1,8 @@
 # Concentrate Workflow Progression Runtime — Round 2 (Action Projection) Implementation Plan
 
+> **Historical engineering record.** Dated CLI, path, configuration, and behavior
+> examples are non-normative. Use `docs/` for current user-observable behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Supersedes the round-1 plan.** Round 1 (commit `8e7b236` + follow-ups) built the
@@ -923,10 +926,10 @@ Expected: all suites pass, zero failures. If red, fix and re-run before committi
 
 - [ ] **Step 6: Update the design record and commit**
 
-Mark `boundary-inventory.md` R4/R5 as addressed (one line each in a short "实现状态" note), and update `docs/design/structure-cleanup-candidates.md` candidate C's precondition note ("progression 已定型") if applicable.
+Mark `boundary-inventory.md` R4/R5 as addressed (one line each in a short "实现状态" note), and update `engineering/design/structure-cleanup-candidates.md` candidate C's precondition note ("progression 已定型") if applicable.
 
 ```bash
-git add src/core/exit_codes.ts src/commands/gate.ts src/commands/status.ts src/driver/loop.ts tests docs/design/boundary-inventory.md
+git add src/core/exit_codes.ts src/commands/gate.ts src/commands/status.ts src/driver/loop.ts tests engineering/design/boundary-inventory.md
 git commit -m "refactor(cli): consolidate exit codes and migrate commands to narrowed runtime"
 ```
 
@@ -941,7 +944,7 @@ git commit -m "refactor(cli): consolidate exit codes and migrate commands to nar
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-07-13-concentrate-workflow-progression.md`. Two execution options:
+Plan complete and saved to `engineering/plans/2026-07-13-concentrate-workflow-progression.md`. Two execution options:
 
 1. **Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review between tasks, fast iteration.
 2. **Inline Execution** — execute tasks in this session with checkpoints for review.

@@ -57,7 +57,7 @@ Eval 评估的是归档产物与证据，不让 subprocess exit code 短路 scor
 
 archive 失败时：`evidence_completed: true`、`archive_completed: false`、`wrapper_exit_code: 1`；不得提前写入 `archive_completed: true`。
 
-**`eval-workflow-run` 附加过程可观测性落盘**（设计见 `docs/design/eval-opencode-process-observability.md`）。在步骤 3 之后、步骤 5（`execution.json`）之前，额外解析 OpenCode NDJSON 并写 attempt 根的 `process-summary.json`（与 `execution.json` 同级），使 `execution.json` 仍是最后写入的原子完成标记：
+**`eval-workflow-run` 附加过程可观测性落盘**（设计见 `engineering/design/eval-opencode-process-observability.md`）。在步骤 3 之后、步骤 5（`execution.json`）之前，额外解析 OpenCode NDJSON 并写 attempt 根的 `process-summary.json`（与 `execution.json` 同级），使 `execution.json` 仍是最后写入的原子完成标记：
 
 1. spawn OpenCode
 2. 立即写 `stdout.log` / `stderr.log`

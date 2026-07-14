@@ -6,7 +6,8 @@
  *   const verdict = evaluatePredicate("decision == 'pass'", { decision: 'pass' });
  *
  * The DSL is a sandboxed, total, three-state expression language. It powers the
- * `when` / `*_when` fields of workflow-schema.yaml. See docs/design/predicate-dsl.md.
+ * `when` / `*_when` fields of workflow-schema.yaml. The parser and evaluator
+ * modules below are the language's implementation source.
  */
 import { Node, DslValue, EvalResult } from './ast';
 import { parse } from './parser';

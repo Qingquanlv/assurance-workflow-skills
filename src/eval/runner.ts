@@ -173,7 +173,7 @@ export async function runSuite(opts: {
         );
       } finally {
         // Always revert the overlay so it cannot leak into later runs
-        // (SUT checkouts are persistent). See docs/design/nightly-driver.md §8.2.
+        // (SUT checkouts are persistent). See engineering/design/nightly-driver.md §8.2.
         if (memorySnapshot) {
           memorySnapshot.restore();
         }
@@ -261,7 +261,7 @@ export interface MemorySnapshot {
  * SUTs resolved via eval/suts.yaml are persistent checkouts (or EVAL_SUT_DIR),
  * so an un-reverted overlay would leak into every subsequent run — including
  * the next baseline. Captures the "directory absent" state too.
- * See docs/design/nightly-driver.md §8.2.
+ * See engineering/design/nightly-driver.md §8.2.
  */
 export function snapshotMemoryDir(projectDir: string): MemorySnapshot {
   const memoryDir = path.join(projectDir, '.aws', 'memory');

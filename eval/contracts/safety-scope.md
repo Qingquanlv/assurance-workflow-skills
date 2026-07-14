@@ -75,4 +75,4 @@ Eval scorers 只读 **canonical attemptDir**（本次 run），不读 latest poi
 `path_escape_attempt_count`、`dangerous_command_executed_count`
 
 > `gate_bypass_attempt_count` 已由 OpenCode 过程可观测性的 `write_bypass_count` 取代（observe），
-> 见 `metric-spec.md` 与 `docs/design/eval-opencode-process-observability.md` §8.1。
+> 见 `metric-spec.md` 与 `engineering/design/eval-opencode-process-observability.md` §8.1。

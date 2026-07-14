@@ -1,5 +1,5 @@
 /**
- * Nightly retro driver — see docs/design/nightly-driver.md
+ * Nightly retro driver — see engineering/design/nightly-driver.md
  */
 
 import * as fs from 'fs';

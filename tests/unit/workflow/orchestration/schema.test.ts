@@ -27,7 +27,7 @@ describe('findSchemaFile schema locations', () => {
       const override = writeSchema(projectRoot, 'custom/workflow.yaml');
       writeSchema(projectRoot, '.aws/workflow-schema.yaml');
       writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
-      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+      writeSchema(projectRoot, path.join('docs', 'design', 'workflow-schema.yaml'));
 
       expect(findSchemaFile(projectRoot, 'custom/workflow.yaml')).toBe(override);
     } finally {
@@ -40,7 +40,7 @@ describe('findSchemaFile schema locations', () => {
     try {
       writeSchema(projectRoot, '.aws/workflow-schema.yaml');
       writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
-      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+      writeSchema(projectRoot, path.join('docs', 'design', 'workflow-schema.yaml'));
 
       expect(() => findSchemaFile(projectRoot, 'missing.yaml')).toThrow(
         `workflow-schema.yaml not found (looked in: ${path.join(projectRoot, 'missing.yaml')})`,
@@ -55,7 +55,7 @@ describe('findSchemaFile schema locations', () => {
     try {
       const dotAwsSchema = writeSchema(projectRoot, '.aws/workflow-schema.yaml');
       writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
-      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+      writeSchema(projectRoot, path.join('docs', 'design', 'workflow-schema.yaml'));
 
       expect(findSchemaFile(projectRoot)).toBe(dotAwsSchema);
     } finally {
@@ -67,7 +67,7 @@ describe('findSchemaFile schema locations', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aws-schema-project-'));
     try {
       const projectSchema = writeSchema(projectRoot, 'schemas/workflow-schema.yaml');
-      writeSchema(projectRoot, 'docs/design/workflow-schema.yaml');
+      writeSchema(projectRoot, path.join('docs', 'design', 'workflow-schema.yaml'));
 
       expect(findSchemaFile(projectRoot)).toBe(projectSchema);
     } finally {

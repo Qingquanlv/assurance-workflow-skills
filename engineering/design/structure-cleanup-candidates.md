@@ -73,7 +73,7 @@
 ### 涉及改动
 
 `src/retro/nightly/*.cjs` → TS、`src/commands/retro.ts`、`src/cli.ts`、
-`tests/unit/retro-nightly/*`、`README-EVAL.md`、`docs/design/nightly-driver.md`。
+`tests/unit/retro-nightly/*`、`README-EVAL.md`、`engineering/design/nightly-driver.md`。
 
 ### 成本 / 风险
 

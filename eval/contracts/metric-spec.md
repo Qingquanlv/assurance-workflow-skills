@@ -165,7 +165,7 @@ P0 classification scorer：**实现** `evidence_integrity` + `category_match_rat
 
 ## OpenCode 过程可观测性（observe，跨 workflow suite）
 
-设计见 `docs/design/eval-opencode-process-observability.md`。适用于 executor 为
+设计见 `engineering/design/eval-opencode-process-observability.md`。适用于 executor 为
 `eval-workflow-run` 的 suite（`workflow-case` / `workflow-api-codegen` / `workflow-e2e-codegen` /
 `workflow-fuzz-codegen` / `workflow-performance-codegen` / `workflow-full`）。`workflow-run`
 （`eval-aws-run`，无 OpenCode session）**不** emit 这些指标。

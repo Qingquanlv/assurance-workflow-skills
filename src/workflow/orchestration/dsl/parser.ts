@@ -1,6 +1,6 @@
 /**
  * Recursive-descent parser for the AWS predicate mini-DSL.
- * Produces an AST (see ast.ts). Grammar: docs/design/predicate-dsl.md §2.
+ * Produces an AST (see ast.ts). The recursive-descent methods below define the grammar.
  *
  * Precedence (low→high): or, and, not(unary), comparison/in, postfix(member/call).
  */

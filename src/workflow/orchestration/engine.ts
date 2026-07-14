@@ -3,7 +3,7 @@
  * check`. No LLM. Pure function of workflow-schema.yaml + the change directory's
  * workflow-state.yaml and JSON artifacts.
  *
- * Two public operations (see docs/design/orchestration-cli-contract.md):
+ * Two public operations:
  *   - computeStatus(): state of every phase node (pruned/blocked/ready/
  *     awaiting_gate/done/stopped) + next + terminal.
  *   - checkGate():     adjudicate one phase's gate to a single verdict.

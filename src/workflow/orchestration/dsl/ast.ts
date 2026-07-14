@@ -1,8 +1,6 @@
 /**
  * AST node types and the value model for the AWS predicate mini-DSL.
  *
- * See docs/design/predicate-dsl.md for the language specification.
- *
  * Value model: a resolved expression is a `DslValue`. A *missing* path resolves
  * to JavaScript `undefined` — this is the language's "undefined" (distinct from
  * a present `null`). The evaluator is total: it never throws on missing data.

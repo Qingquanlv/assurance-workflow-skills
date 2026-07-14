@@ -1,5 +1,8 @@
 # Workflow-Owned Healing Episodes Implementation Plan
 
+> **Historical engineering record.** Dated CLI, path, configuration, and behavior
+> examples are non-normative. Use `docs/` for current user-observable behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Workflow Progression the only state machine that advances Healing Episodes, leaving the Driver as an action executor and CLI commands as compatibility adapters.
@@ -353,8 +356,8 @@ git commit -m "refactor(driver): execute workflow-owned healing actions"
 - Modify: `tests/unit/commands/state_write_boundary.test.ts`
 - Modify: `tests/unit/core/healing_derivation.test.ts`
 - Modify: `tests/integration/test_aws_m3_quality.test.ts`
-- Modify: `docs/design/workflow-driver.md`
-- Modify: `docs/design/workflow-schema.yaml`
+- Modify: `engineering/design/workflow-driver.md`
+- Modify: `schemas/workflow-schema.yaml`
 
 **Interfaces:**
 - Consumes: legacy Healing files and Events through a read-only projection adapter.
@@ -404,7 +407,7 @@ Expected: all suites pass with no new warnings.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/commands/state.ts src/core/healing_state.ts src/orchestration/progression.ts tests/unit/commands/state_write_boundary.test.ts tests/unit/core/healing_derivation.test.ts tests/integration/test_aws_m3_quality.test.ts docs/design/workflow-driver.md docs/design/workflow-schema.yaml
+git add src/commands/state.ts src/core/healing_state.ts src/orchestration/progression.ts tests/unit/commands/state_write_boundary.test.ts tests/unit/core/healing_derivation.test.ts tests/integration/test_aws_m3_quality.test.ts engineering/design/workflow-driver.md schemas/workflow-schema.yaml
 git commit -m "refactor(healing): remove alternate episode progression paths"
 ```
 

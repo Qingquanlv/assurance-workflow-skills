@@ -2,7 +2,7 @@
 
 - 状态：Draft / Proposal
 - 目标读者：`aws-workflow` / `aws-explore` / `aws-case-design` / `aws-case-reviewer` 维护者
-- 关联：`schemas/workflow-schema.yaml`（当前 phase DAG 与 gate 模型）；实现规格见 `docs/superpowers/specs/2026-07-04-three-problems-stability-spec.md`
+- 关联：`schemas/workflow-schema.yaml`（当前 phase DAG 与 gate 模型）；实现规格见 `engineering/specs/2026-07-04-three-problems-stability-spec.md`
 - 定位：本文把 **「反问（计划内人机对话）」定义为一个模式级开关**，而不是强制塞进所有执行的关卡。它只解决「反问该在什么时候发生、由谁触发、如何不被自主流碾压」（问题 1）。healing 状态机被绕过、gate JSON 被伪造（问题 2、3）属于 **执行阶段的状态机强制**，由另一份「state-machine enforcement」设计单独处理，本文不覆盖。
 
 > **设计立场（相对早期草案的两次修正）**：

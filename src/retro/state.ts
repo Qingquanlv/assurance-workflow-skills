@@ -4,7 +4,7 @@ import * as path from 'path';
 export type RetroEvidenceSource = 'archive' | 'unarchived';
 
 /**
- * Two-stage consumption (see docs/design/nightly-driver.md §4):
+ * Two-stage consumption (see engineering/design/nightly-driver.md §4):
  * - `aggregated`: written right after `aws retro` builds context.json, but the
  *   collect run has not finished (PHASE C/D may still fail). Replayable.
  * - `collected`: the collect run completed and produced its review queue (or a

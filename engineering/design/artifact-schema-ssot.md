@@ -70,7 +70,7 @@ C 层就是问题所在：
 | 层 | 判据 | 模板/schema 归属 | 生成方式 | 实例落位 |
 |---|---|---|---|---|
 | **A · 项目级配置** | 每个 SUT 一份、init 时创建、之后人工维护 | TS 生成器 `src/templates/` | **CLI 生成**（`aws init`） | SUT `.aws/` |
-| **B · 引擎级 schema** | 全局一份、定义工作流拓扑本身 | `docs/design/*.yaml`（随包发布，可被 `.aws/` 覆盖） | **不生成**，运行时解析 | 随包 / SUT 覆盖 |
+| **B · 引擎级 schema** | 全局一份、定义工作流拓扑本身 | `schemas/*.yaml`（随包发布，可被 `.aws/` 覆盖） | **不生成**，运行时解析 | 随包 / SUT 覆盖 |
 | **C · per-change 产物** | 每个 change 每相位一份、由 agent 创造性生成 | **`src/schema/`（本文新增，单一真相源）** | **agent 生成、CLI 校验** | SUT `qa/changes/<id>/`（运行时，**不进 docs**） |
 
 一句话回答你最初的问题：
@@ -117,7 +117,7 @@ export function validateCaseYaml(raw: unknown): ValidationResult;
 ### 3.2 技术选型：TS 类型 + 运行时 validator
 
 - **真相源是 TS**（团队全 TS，类型即文档，能进单测）。运行时校验用轻量 schema 库（如 `zod`）或手写纯函数——二选一在实现计划里定，接口不变。
-- **可选导出 JSON-Schema**：validator 能 `toJSONSchema()` 落一份 `docs/design/schemas/*.json`，供非 TS 消费者与文档索引使用。JSON-Schema 是**派生物**，不是真相源，避免双写。
+- **可选导出 JSON-Schema**：validator 能 `toJSONSchema()` 落一份 `schemas/*.json`，供非 TS 消费者与文档索引使用。JSON-Schema 是**派生物**，不是真相源，避免双写。
 - `schema_version` 字段每种产物自带，validator 按版本分派，为将来演进留位。
 
 ### 3.3 否决的备选方案
@@ -190,13 +190,13 @@ aws validate --change <id> [--phase <phase>] [--artifact <relpath>] [--json]
 4. 加注册表 vs `produces` 一致性测试。
 5. gate check 接入 schema 校验（替换存在性/hash 单点）。
 6. skill markdown 去副本迁移（一个 skill 一个 PR，配 rg 回归）。
-7. 可选：validator 导出 JSON-Schema → `docs/design/schemas/` + 生成 `docs/design/artifact-schemas.md` 索引。
+7. 可选：validator 导出 JSON-Schema → `schemas/` + 更新 `schemas/README.md` 索引。
 
 ---
 
 ## Implementation status
 
-Implemented per `docs/superpowers/plans/2026-07-13-artifact-schema-ssot.md`:
+Implemented per `engineering/plans/2026-07-13-artifact-schema-ssot.md`:
 `src/schema/` registry + validators, `aws validate` command, gate schema
 integration, and skill de-duplication. Registry coverage is enforced by
 `tests/unit/schema/registry_consistency.test.ts`.

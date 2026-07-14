@@ -1,6 +1,6 @@
 /**
  * Tokenizer for the AWS predicate mini-DSL.
- * See docs/design/predicate-dsl.md §2.
+ * Token and operator definitions below are the lexical contract.
  */
 import { DslError } from './ast';
 

@@ -160,7 +160,7 @@ export function registerRetroCommand(program: Command): void {
       });
 
       // Validate only the proposals being applied; a malformed unrelated
-      // proposal must not block the valid ones (docs/design/nightly-driver.md §7).
+      // proposal must not block the valid ones (engineering/design/nightly-driver.md §7).
       const validationErrors = validateRetroProposals(context, selected);
       if (validationErrors.length > 0) {
         for (const error of validationErrors) console.error(chalk.red(`Error: ${error}`));
@@ -361,7 +361,7 @@ function effectiveDecisions(
  * - Live mode (stageDir undefined): writes the SUT's `.aws/memory/<target>.md`.
  * - Stage mode: renders "SUT current full memory + new block" into
  *   `<stageDir>/<basename>` without touching the live SUT, so PHASE F can
- *   validate before anything is written (docs/design/nightly-driver.md §7).
+ *   validate before anything is written (engineering/design/nightly-driver.md §7).
  */
 function applyMemoryProposal(
   projectRoot: string,
