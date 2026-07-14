@@ -204,7 +204,7 @@ describe('startWorkflowDetached', () => {
 describe('HEADLESS_MIGRATION_CANDIDATES', () => {
   it('inventories known scripts without inventing missing ones', () => {
     const paths = HEADLESS_MIGRATION_CANDIDATES.map((c) => c.path);
-    expect(paths).toContain('scripts/eval-workflow-run.mjs');
+    expect(paths).toContain('src/eval/executors/workflow_run.ts');
     expect(paths).toContain('src/retro/nightly/driver.ts');
     expect(paths).not.toContain('scripts/run-workflow-loop-cursor.sh');
     expect(HEADLESS_MIGRATION_CANDIDATES.find((c) => c.path.includes('eval'))?.status).toBe('migrated');

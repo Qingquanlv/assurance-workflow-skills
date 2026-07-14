@@ -146,7 +146,7 @@ export function runWorkflowEval(input: WorkflowEvalInput | string[]): number {
   }
   const writePolicy = resolveWritePolicy(runMode, values['test-types']);
 
-  const fakeScript = path.join(repoRoot, 'scripts/fake-opencode-eval.mjs');
+  const fakeScript = path.join(repoRoot, 'eval/fixtures/fakes/fake-opencode-eval.mjs');
   let runBin;
   let runArgs;
   let spawnCwd;

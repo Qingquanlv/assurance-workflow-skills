@@ -27,6 +27,14 @@ function filesUnder(relative: string): string[] {
 }
 
 describe('repository deletion reference contract', () => {
+  it('retains only CI and skill-linking glue in scripts', () => {
+    expect(filesUnder('scripts').sort()).toEqual([
+      'scripts/create-ci-sut.mjs',
+      'scripts/link-skills.sh',
+      'scripts/read-sut-pin.mjs',
+    ]);
+  });
+
   it('contains no exact invocations of deleted CLI forms', () => {
     const matches: string[] = [];
     const files = [...SCAN_ROOTS.flatMap(filesUnder), ...ROOT_FILES]

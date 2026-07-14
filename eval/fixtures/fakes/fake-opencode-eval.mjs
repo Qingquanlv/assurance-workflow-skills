@@ -4,14 +4,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseSingleTestType } from './lib/write-scan.mjs';
-import { writeFakeExecutionEvidence } from './lib/fake-execution-evidence.mjs';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { parseSingleTestType } = require('../../../dist/eval/write_scan.js');
+const { writeFakeExecutionEvidence } = require('../../../dist/eval/fake_execution_evidence.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const changeId = process.env.EVAL_CHANGE_ID;
 const projectDir = process.env.EVAL_PROJECT_DIR;
-const repoRoot = process.env.EVAL_REPO_ROOT ?? path.resolve(__dirname, '..');
+const repoRoot = process.env.EVAL_REPO_ROOT ?? path.resolve(__dirname, '../../..');
 const runMode = process.argv[2] ?? 'codegen-only';
 
 if (!changeId || !projectDir) {

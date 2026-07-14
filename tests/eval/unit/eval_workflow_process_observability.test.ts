@@ -7,7 +7,7 @@ import { runWorkflowEval } from '../../../src/eval/executors/workflow_run';
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const FAKE_NDJSON = path.join(
   REPO_ROOT,
-  'scripts/fake-opencode-process-ndjson.mjs'
+  'eval/fixtures/fakes/fake-opencode-process-ndjson.mjs'
 );
 
 describe('eval-workflow-run process observability', () => {

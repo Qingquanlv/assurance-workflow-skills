@@ -200,7 +200,7 @@ export function startWorkflowDetached(opts: {
 /** Benchmark / eval entry inventory for M3. */
 export const HEADLESS_MIGRATION_CANDIDATES = [
   {
-    path: 'scripts/eval-workflow-run.mjs',
+    path: 'src/eval/executors/workflow_run.ts',
     status: 'migrated' as const,
     note:
       'Default --entry driver → `aws workflow run --adapter headless`. ' +

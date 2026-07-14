@@ -1,6 +1,6 @@
 # AI Eval Harness
 
-对 Assurance Workflow Skills（AWS）进行**阶段化、可复现**的质量评估。执行逻辑在 `src/eval/` 与 `scripts/eval-*.mjs`；配置与数据在 `eval/`。
+对 Assurance Workflow Skills（AWS）进行**阶段化、可复现**的质量评估。执行逻辑在 `src/eval/`；配置、fixture 与数据在 `eval/`。
 
 ---
 
@@ -163,21 +163,21 @@ input:
   sut: fastapi-vue-admin
 ```
 
-展开后等价于（默认 **driver / headless**）：
+suite 使用结构化 executor（默认 **driver / headless**）：
 
-```bash
-node scripts/eval-workflow-run.mjs \
-  --project-dir <sut.dir> \
-  --change eval-sample-001 \
-  --fixture-tier L0-case-seed \
-  --run-mode case-only \
-  --archive-dir <attempt>/raw-output \
-  --attempt-dir <attempt>
-# → aws workflow run --change … --scope full --adapter headless --agent-cmd 'opencode run …'
+```yaml
+executor:
+  type: workflow-run
+  run_mode: "{{sample.input.run_mode}}"
+  timeout_seconds: 7200
+  expected_outputs:
+    - "{{attempt.dir}}/raw-output/proposal.md"
 ```
 
+runner 从 sample、SUT 与 attempt context 注入 change、fixture、project 和 archive 路径，再调用编译后的 executor。
+
 CI smoke 仍设 `EVAL_USE_FAKE_OPENCODE=1`（one-shot golden，不跑 live driver）。
-遗留对照：`--entry orchestrator` 使用 OpenCode + skill prompt：
+遗留对照：`entry: orchestrator` 使用 OpenCode + skill prompt：
 
 ```text
 use skill aws-workflow
@@ -236,7 +236,7 @@ node dist/cli.js eval run --suite safety-lite --sample SL-001 --fail-on-verdict
 
 | 变量 | 作用 |
 |------|------|
-| `EVAL_USE_FAKE_OPENCODE=1` | 用 `scripts/fake-opencode-eval.mjs` 拷贝 golden，不调真实 LLM |
+| `EVAL_USE_FAKE_OPENCODE=1` | 用 `eval/fixtures/fakes/fake-opencode-eval.mjs` 拷贝 golden，不调真实 LLM |
 | `OPENCODE_BIN` | OpenCode 可执行文件路径（默认 `opencode`） |
 | `EVAL_ALLOW_UNSAFE_PERMISSIONS=1` | 跳过部分安全扫描（`safety_mode: disabled`） |
 
@@ -396,7 +396,7 @@ Gate 三档（见 `eval/contracts/p0-metrics.yaml`）：
 
 ### OpenCode 过程可观测性（observe，跨 workflow suite）
 
-设计见 `docs/design/eval-opencode-process-observability.md`。实现：`scripts/lib/opencode-process-events.mjs`（唯一解析器）→ `process-summary.json` → `src/eval/scorers/_shared/opencode_process_metrics.ts`。
+设计见 `docs/design/eval-opencode-process-observability.md`。实现：`src/eval/opencode_process_events.ts`（唯一解析器）→ `process-summary.json` → `src/eval/scorers/_shared/opencode_process_metrics.ts`。
 
 **适用范围：** `eval-workflow-run` 的 suite — `workflow-case` / `workflow-api-codegen` / `workflow-e2e-codegen` / `workflow-fuzz-codegen` / `workflow-performance-codegen` / `workflow-full`。
 

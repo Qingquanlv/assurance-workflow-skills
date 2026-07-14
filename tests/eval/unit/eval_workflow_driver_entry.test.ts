@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process';
 import { runWorkflowEval } from '../../../src/eval/executors/workflow_run';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const FAKE_AWS = path.join(REPO_ROOT, 'scripts/fake-aws-workflow-echo.mjs');
+const FAKE_AWS = path.join(REPO_ROOT, 'eval/fixtures/fakes/fake-aws-workflow-echo.mjs');
 
 describe('eval-workflow-run driver entry', () => {
   it('default entry invokes aws workflow run --adapter headless', () => {

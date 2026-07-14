@@ -36,4 +36,4 @@ ci:
     max_samples: 1
     trigger_paths:
       - "skills/aws-api-codegen/**"
-      - "scripts/eval-workflow-run.mjs"
+      - "src/eval/executors/workflow_run.ts"

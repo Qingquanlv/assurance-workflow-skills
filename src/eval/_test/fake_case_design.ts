@@ -1,5 +1,5 @@
 // src/eval/_test/fake_case_design.ts — Fake executor for case generation tests
-// DEPRECATED: Use subprocess executor with scripts/fake-case-design-eval.mjs instead
+// DEPRECATED: Use subprocess executor with eval/fixtures/fakes/fake-case-design-eval.mjs instead
 import type { DatasetSample } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';

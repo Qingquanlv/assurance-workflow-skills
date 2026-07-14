@@ -81,7 +81,7 @@ Users module (`eval-sample-001`) also has `L2-e2e-codegen-seed` / `L2-fuzz-codeg
 
 `eval-sample-001` is trimmed from `<sut.dir>/qa/changes/20260612-user-mgmt/` (user management module). Samples 002–004 provide golden seeds for role, menu, and department modules. All exclude heavy runtime artifacts (`execution/`, `healing/`, `inspect/`).
 
-Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
+Each L0 tier sets `source_prefix` to its sample directory so tier resolution reads the correct golden files. `eval/fixtures/fakes/fake-opencode-eval.mjs` resolves the golden sample from `EVAL_CHANGE_ID` (e.g. `eval-sample-002` → `eval/fixtures/samples/eval-sample-002`).
 
 **E4 (`workflow-full`)** datasets WF-001 … WF-004 map to `eval-sample-001` … `004` with module-specific `L3-run-seed*` tiers (same as E3 `WR-*`).
 
