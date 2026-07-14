@@ -579,6 +579,21 @@ describe('configureWorkflowParams + agent/review reducers', () => {
     ).toThrow(/stale produce/);
   });
 
+  it('treats same-second mtimes as fresh (Linux ext4 1s resolution)', () => {
+    // Simulate coarse mtime: file written mid-second, watermark a few ms later
+    // in the same second — millisecond compare would reject; second floor must accept.
+    const factsDir = path.join(changeDir(projectRoot), 'facts');
+    fs.mkdirSync(factsDir, { recursive: true });
+    const file = path.join(factsDir, 'fact-baseline.json');
+    fs.writeFileSync(file, JSON.stringify({ source: 'unavailable' }));
+    const secondStart = Math.floor(Date.now() / 1000) * 1000;
+    fs.utimesSync(file, secondStart / 1000, secondStart / 1000);
+    const dispatchAt = secondStart + 500;
+    expect(() =>
+      applyPhaseState(projectRoot, changeId, 'fact-baseline', { minMtimeMs: dispatchAt }),
+    ).not.toThrow();
+  });
+
   it('accepts a phase where only some produces are fresh (unchanged seed files ok)', () => {
     // case-design produces [.qa.yaml, proposal.md, cases/]. Seed files predate
     // dispatch; the agent regenerated cases/ but left .qa.yaml/proposal.md as-is.

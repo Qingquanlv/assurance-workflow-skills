@@ -337,6 +337,19 @@ export function updateWorkflowStatePhase(
   fs.writeFileSync(file, yaml.dump(root, { lineWidth: 120 }), 'utf-8');
 }
 
+/**
+ * Produce freshness vs dispatch watermark.
+ *
+ * Compare at whole-second resolution: ext4 and other Linux filesystems often
+ * store mtime with 1s precision, so a file written a few ms after dispatch can
+ * still round down to a second strictly less than Date.now()'s millisecond
+ * watermark. Treating "same second" as fresh matches the filesystem contract
+ * without accepting clearly pre-dispatch artifacts.
+ */
+export function isProduceFreshSince(mtimeMs: number, minMtimeMs: number): boolean {
+  return Math.floor(mtimeMs / 1000) >= Math.floor(minMtimeMs / 1000);
+}
+
 function assertProducesPresentAndFresh(
   projectRoot: string,
   changeId: string,
@@ -359,7 +372,10 @@ function assertProducesPresentAndFresh(
       if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
         throw new Error(`state apply: required produce missing or not a directory: ${rel}`);
       }
-      if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+      if (
+        minMtimeMs !== undefined &&
+        isProduceFreshSince(fs.statSync(abs).mtimeMs, minMtimeMs)
+      ) {
         freshCount++;
       }
       present.push(rel);
@@ -369,7 +385,10 @@ function assertProducesPresentAndFresh(
     if (!fs.existsSync(abs)) {
       throw new Error(`state apply: required produce missing: ${rel}`);
     }
-    if (minMtimeMs !== undefined && fs.statSync(abs).mtimeMs >= minMtimeMs) {
+    if (
+      minMtimeMs !== undefined &&
+      isProduceFreshSince(fs.statSync(abs).mtimeMs, minMtimeMs)
+    ) {
       freshCount++;
     }
     present.push(rel);
